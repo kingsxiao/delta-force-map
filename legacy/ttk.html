@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="dark">
 <link rel="icon" type="image/png" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAAB60lEQVR42u2bQU7DMBBF069ukUBVFyzYcI6ei0Nwrp6DDQsWCHEEWEUKVmLGjuf/qZPs0/Y9e1yPPXO4uz/9DBt+MGz8Oda89Pj0HBLm4/2t+J2DNQSiQq+VYRKQwn9/fYaEfjidiyVkBUzBo0JbZOREoEf49Dfnwhc9wpdIgPUDepBgEjCa6gE+lTA3C6CGv75epBKkO8ERniUh1FY4hVZJgGL6L8F6S5gLA6hHXrUmSATMwV1erlIJiACvlIAoI6+SgCjTXiUBUeBVEhAJXiEB0eDZEqCGz0ExJCACvFICooy8SgIiTXuFBESKeYUERIJXSEA0eLYERIRnSkBUeJYERIZnSEB0eG8J8Nqbl+79a76/Re4BzwSllQQv+KpFkC3BE776b5AlwRt+1UbIWwIDfvVW2EsCC75JMtRaAhO+WTrcSgIbvumByFoJCvjmR2K1ElTwLoeiLdcEb3i3Y/EWWRoD3vViZI0EFrz71ViNBCY85XK0RAIbnnY9bpGggKcWSOQkqODpJTLWcGDB/xEwVlSnJecMCSz4kW1aPS6pE6zJBborlCzJBWgCWGFQkgt4Tv9hWOgY6a1ifAn+3xBgzQRmH5FJwNTULUuw9A3B0nZ2ixKsTVN729zeOFnRPL3J1tlh7x7v8/kFTviY+GP6ofkAAAAASUVORK5CYII=">
-<title>三角洲行动 · TTK 击杀时间排行（步枪 × 冲锋枪）</title>
+<title>三角洲行动 · TTK 击杀时间排行（全枪械）</title>
 <style>
 :root{
   --bg:#0d1013; --bg2:#11151a; --card:#151a20; --card2:#181e25;
@@ -60,6 +60,7 @@ button{font-family:inherit}
 .seg button{border:0;background:none;color:var(--dim);font-size:12px;padding:4.5px 11px;border-radius:6px;cursor:pointer;transition:color .16s,background .16s;white-space:nowrap;display:inline-flex;align-items:center;gap:6px}
 .seg button:hover{color:var(--tx)}
 .seg button.on{background:var(--card2);color:var(--amber)}
+.seg-div{width:1px;align-self:stretch;margin:4px 5px;background:var(--line2);flex:none}
 .lv-dot{width:8px;height:8px;border-radius:2px;background:var(--lv,#3a424b);flex:none;border:1px solid rgba(255,255,255,.14)}
 .seg button.none .lv-dot{background:transparent;border:1px dashed var(--faint)}
 .ctrl-hint{margin-top:9px;font-size:11.5px;color:var(--faint);line-height:1.6;min-height:0}
@@ -74,7 +75,7 @@ button{font-family:inherit}
 }
 
 /* ---------- champions ---------- */
-.champs{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:18px 0 6px}
+.champs{display:grid;grid-template-columns:repeat(auto-fit,minmax(235px,1fr));gap:12px;margin:18px 0 6px}
 .champ{border:1px solid var(--line);border-radius:12px;background:var(--card);padding:15px 17px 13px;position:relative;overflow:hidden}
 .champ.top{border-color:var(--amber-dim);background:linear-gradient(135deg,rgba(217,164,92,.09),var(--card) 55%)}
 .champ-label{font-family:var(--mono);font-size:9.5px;letter-spacing:.3em;color:var(--faint);margin-bottom:9px}
@@ -116,6 +117,7 @@ button{font-family:inherit}
 .rk-bar{flex:1;height:5px;border-radius:3px;background:var(--bg);overflow:hidden;min-width:40px}
 .rk-bar i{display:block;height:100%;border-radius:3px;background:linear-gradient(90deg,rgba(217,164,92,.55),var(--amber));transition:width .35s cubic-bezier(.22,.61,.36,1)}
 .rk-row.slow .rk-bar i{background:#4a4f57}
+.rk-empty{padding:28px 16px;text-align:center;font-size:12.5px;color:var(--faint);line-height:1.7}
 .rk-ttv{font-family:var(--mono);font-size:12.5px;color:var(--tx);font-weight:600;min-width:58px;text-align:right}
 .rk-row.top1 .rk-ttv{color:var(--amber)}
 .rk-row.slow .rk-ttv{color:var(--faint);font-weight:400}
@@ -279,8 +281,8 @@ button{font-family:inherit}
   <div class="wrap">
     <p class="backline"><a href="index.html">← 返回地图与打法站</a></p>
     <p class="kicker">DELTA FORCE · BALLISTICS LAB</p>
-    <h1>TTK 击杀时间排行 · 步枪 × 冲锋枪</h1>
-    <p class="lede">烽火地带口径下的理论击杀时间（TTK）与击杀所需子弹数（BTK）排行：结合每把武器的面板伤害与射速、其口径下全部可用弹药、以及弹药穿透等级对目标护甲等级的减伤判定，逐发模拟"碎甲 — 掉血"全过程后计算得出。切换目标部位与护甲等级，排行即时重算。</p>
+    <h1>TTK 击杀时间排行 · 全枪械</h1>
+    <p class="lede">烽火地带口径下的理论击杀时间（TTK）与击杀所需子弹数（BTK）排行，覆盖步枪 / 冲锋枪 / 射手步枪 / 狙击枪 / 轻机枪 / 霰弹枪 / 手枪全部七个兵种：结合每把武器的面板伤害与射速、其口径下全部可用弹药、以及弹药穿透等级对目标护甲等级的减伤判定，逐发模拟"碎甲 — 掉血"全过程后计算得出。切换目标部位、护甲等级与子弹筛选，排行即时重算。</p>
     <p class="meta">数据基线 S5 全枪表（2025-07）并补充至 S11（2026-09） · 减伤采用国服社区实测口径 · 非官方数据，仅供研究参考</p>
   </div>
 </header>
@@ -293,7 +295,7 @@ button{font-family:inherit}
         <div class="ctrl-row"><span class="ctrl-label">部位</span><div class="seg" id="segPart"></div></div>
         <div class="ctrl-row"><span class="ctrl-label">目标护甲</span><div class="seg" id="segArmor"></div></div>
         <div class="ctrl-row"><span class="ctrl-label">类别</span><div class="seg" id="segClass"></div></div>
-        <div class="ctrl-row"><span class="ctrl-label">显示</span><div class="seg" id="segMode"></div></div>
+        <div class="ctrl-row"><span class="ctrl-label">子弹</span><div class="seg" id="segAmmo"></div></div>
         <div class="ctrl-row"><span class="ctrl-label">排序</span><div class="seg" id="segSort"></div></div>
       </div>
       <p class="ctrl-hint" id="ctrlHint"></p>
@@ -306,11 +308,11 @@ button{font-family:inherit}
       <div class="rank-sort"><span class="ctrl-label">按</span><div class="seg" id="segSort2"></div></div>
     </div>
     <div class="rank-list reveal" id="rankList"></div>
-    <p style="margin-top:12px;font-size:11.5px;color:var(--faint);line-height:1.7">点击任意一行可展开该武器全部可用弹药的逐发模拟对比。TTK 为首发命中后击倒所需的纯射击时间（不含首发出膛、腰射散布、换弹与网速），仅为站位对枪的理论上限参考。</p>
+    <p style="margin-top:12px;font-size:11.5px;color:var(--faint);line-height:1.7">点击任意一行可展开该武器可用弹药（受当前子弹筛选限定）的逐发模拟对比。TTK 为首发命中后击倒所需的纯射击时间（不含首发出膛、腰射散布、换弹与网速），仅为站位对枪的理论上限参考。</p>
   </section>
 
   <h3 class="block-h reveal" id="ammo"><span class="bht">弹药库</span><span class="bhline"></span><span class="bhc" id="ammoCount"></span></h3>
-  <p class="sec-lede">步冲锋枪涉及的 13 种口径全部弹药。穿透等级决定对各级护甲的伤害通过率（见下方矩阵），肉伤 / 甲伤系数乘算武器面板。表中"参考单发"为该口径基准枪的面板数值，实际随具体武器浮动。</p>
+  <p class="sec-lede">全枪械涉及的 20 种口径全部弹药。穿透等级决定对各级护甲的伤害通过率（见下方矩阵），肉伤 / 甲伤系数乘算武器面板。表中"参考单发"为该口径基准枪的面板数值，实际随具体武器浮动。</p>
   <div id="ammoWrap"></div>
 
   <h3 class="block-h reveal"><span class="bht">穿透 × 护甲 判定矩阵</span><span class="bhline"></span><span class="bhc">核心机制</span></h3>
@@ -363,14 +365,14 @@ button{font-family:inherit}
         <div class="m-row"><span class="m-num">05</span><div class="m-body"><strong>TTK 公式</strong>（社区通用口径）：
           <div class="m-formula">TTK = 60000 ÷ RPM × (BTK − 1) <span class="c">// 击杀所需发数 BTK = 逐发模拟至血池归零；首发命中即刻出膛，不计入时间</span></div>
         </div></div>
-        <div class="m-row"><span class="m-num">06</span><div class="m-body"><strong>假设与未计入项</strong>：近距离（无距离衰减）；满耐久护甲；不计跳弹、配件对伤害 / 射速的改动、腰射散布与后坐压枪、换弹与切枪；三连发武器（M16A4、MK4 默认形态）按标称射速近似；S8-S11 平衡补丁可能使个别武器面板 ±1-3。列表中的单发伤害为穿透全额后的值，碎甲期间实际通过率见详情卡。</div></div>
+        <div class="m-row"><span class="m-num">06</span><div class="m-body"><strong>假设与未计入项</strong>：近距离（无距离衰减）；满耐久护甲；不计跳弹、配件对伤害 / 射速的改动、腰射散布与后坐压枪、换弹与切枪；三连发武器（M16A4、MK4、93R 默认形态）按标称射速近似；霰弹枪按整弹（8 弹丸合计）伤害建模，不计弹丸散布与逐弹丸穿透；栓狙按栓动循环射速近似；S8-S11 平衡补丁可能使个别武器面板 ±1-3。列表中的单发伤害为穿透全额后的值，碎甲期间实际通过率见详情卡。</div></div>
       </div></div></div>
     </div>
     <div class="col">
       <button class="col-head" type="button" aria-expanded="false"><span class="col-label">资料来源与已知限制</span><span class="col-note">社区口径</span><svg class="chev" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
       <div class="col-body"><div class="col-inner"><div class="src-body">
-        <p class="src-p"><strong>来源依据</strong>：武器肉伤 / 甲伤 / 射速以游民星空"树人"S1 全枪表与 TapTap《S5 烽火全枪表》为基线，S6-S11 新枪（MK47、RM277、MDR、AR-57、MCX LT、K437、汤姆逊、MK4、KC17 等）取各自赛季测评；RPM 经 Delta Force Fandom Wiki 全枪表交叉核验一致。减伤判定（0/50/75/100）、部位倍率、100 血模型与 TTK 公式来自 <a href="https://www.taptap.cn/moment/673910625788757239" target="_blank" rel="noopener">TapTap 官方攻略组·护甲系统全面解析</a>、<a href="https://sanjiaozhou.org/newcomers/delta-force-armor-system-guide" target="_blank" rel="noopener">sanjiaozhou.org 护甲机制解析</a>、日升软件等多来源一致的社区实测；弹药型号与穿透等级参考 The Delta Handbook 弹药表、deltagamehub 及 3DM / 游民星空图鉴。</p>
-        <p class="src-p"><strong>已知限制</strong>：官方从未公布完整数值表，本页为社区口径的静态整理，可能与游戏内实际面板有出入；MK4（另有 23/32 一说）与 MK47（另有 30/48 一说）存在来源冲突，MCX LT 甲伤缺实测（取同口径 K437 参考值 35）；.300 BLK 超音速 / 超压弹、5.45 超压、12.7x55 等新弹型号与穿透等级未完全验证；S8-S11 对 SG552、PTR-32、KC17、M7、ASh-12 等有平衡性调整，数值请以游戏内当前面板为准。霰弹枪、狙击枪、手枪与轻机枪不在本页范围内。</p>
+        <p class="src-p"><strong>来源依据</strong>：武器肉伤 / 甲伤 / 射速以游民星空"树人"S1 全枪表与 TapTap《S5 烽火全枪表》为基线，S6-S11 新枪（MK47、RM277、MDR、AR-57、MCX LT、K437、汤姆逊、MK4、KC17 等）取各自赛季测评；RPM 经 Delta Force Fandom Wiki 全枪表交叉核验一致。减伤判定（0/50/75/100）、部位倍率、100 血模型与 TTK 公式来自 <a href="https://www.taptap.cn/moment/673910625788757239" target="_blank" rel="noopener">TapTap 官方攻略组·护甲系统全面解析</a>、<a href="https://sanjiaozhou.org/newcomers/delta-force-armor-system-guide" target="_blank" rel="noopener">sanjiaozhou.org 护甲机制解析</a>、日升软件等多来源一致的社区实测；弹药型号与穿透等级参考 The Delta Handbook 弹药表、deltagamehub 及 3DM / 游民星空图鉴。2026-10 全兵种扩充（射手步枪 / 狙击枪 / 轻机枪 / 霰弹枪 / 手枪与 7 个新口径）以 orzice 数据站实时面板为主源，经 deltaforcedb、萌娘百科武器库、Delta Force Fandom Wiki 与各赛季官方公告 / 攻略交叉核验。</p>
+        <p class="src-p"><strong>已知限制</strong>：官方从未公布完整数值表，本页为社区口径的静态整理，可能与游戏内实际面板有出入；MK4（另有 23/32 一说）与 MK47（另有 30/48 一说）存在来源冲突，MCX LT 甲伤缺实测（取同口径 K437 参考值 35）；.300 BLK 超音速 / 超压弹、5.45 超压、12.7x55 等新弹型号与穿透等级未完全验证；S8-S11 对 SG552、PTR-32、KC17、M7、ASh-12 等有平衡性调整，数值请以游戏内当前面板为准。栓狙三把（R93 / M700 / SV-98）另有旧社区口径 61/58，本表取当前面板 55/53；AA-12 甲伤与弹匣、Marlin RN 弹等级、部分手枪上线赛季未验证；S9-S11 赛季限定功能弹（CT 修脚、5.8 +P 超压、PLY、AP ST、.45 Super 金弹）因穿透等级 / 系数未披露未收录。</p>
         <p class="src-p"><strong>时效</strong>：整理于 2026-10。武器面板基线为 S5（2025-07）+ 赛季增补，减伤与部位倍率为国服现行口径。版本更新后请以游戏内训练场实测校准。</p>
       </div></div></div>
     </div>
@@ -419,20 +421,26 @@ var CAL = {
     {n:"SS193",   pen:4},
     {n:"SS190",   pen:5}]},
   "939":  {label:"9×39mm",            sub:"亚音速", base:36, armor:48, ammo:[
-    {n:"SP-5", pen:3},
-    {n:"SP-6", pen:4},
-    {n:"BP",   pen:5}]},
+    {n:"SP-5",   pen:3},
+    {n:"PAB-7",  pen:3, flesh:0.85, note:"S10 赛季弹：同部位命中叠 20% 增伤，禁交易"},
+    {n:"SP-6",   pen:4},
+    {n:"PAB-9",  pen:4, flesh:0.85, note:"S10 赛季弹：同部位命中叠 20% 增伤"},
+    {n:"BP",     pen:5}]},
   "545":  {label:"5.45×39mm",         sub:"小口径步枪弹", base:34, armor:36, ammo:[
     {n:"PRS", pen:1},
     {n:"T",   pen:2},
     {n:"PS",  pen:3},
-    {n:"BT",  pen:4},
-    {n:"BS",  pen:5}]},
+    {n:"BT",    pen:4},
+    {n:"BT ST", pen:4, note:"S9 赛季限定：爆头倍率 2.2（本表按标准倍率计）"},
+    {n:"BS",    pen:5},
+    {n:"BS ST+",pen:5, note:"S9 赛季限定：爆头倍率 2.2、腹部 ×1.0（本表按标准倍率计）"}]},
   "556":  {label:"5.56×45mm",         sub:"NATO", base:27, armor:32, ammo:[
     {n:"RRLP",   pen:1},
     {n:"FMJ",    pen:2},
     {n:"M855",   pen:3},
-    {n:"M855A1", pen:4},
+    {n:"M855 APC",     pen:3, amult:1.30, note:"S9 赛季限定：高甲伤"},
+    {n:"M855A1",       pen:4},
+    {n:"M855A1 APC+",  pen:4, flesh:1.10, amult:1.15, note:"S9 赛季限定：对 6 级甲额外 +10% 甲伤"},
     {n:"M995",   pen:5}]},
   "58":   {label:"5.8×42mm",          sub:"DBP 系列", base:35, armor:38, ammo:[
     {n:"DBP-87",  pen:2},
@@ -440,16 +448,19 @@ var CAL = {
     {n:"SBP-10",  pen:4},
     {n:"DVC-12",  pen:5}], note:"国服型号译名或作 DBP-191 / DVP-88 等"},
   "76239":{label:"7.62×39mm",         sub:"中间威力弹", base:34, armor:36, ammo:[
-    {n:"LP",   pen:1},
-    {n:"T45M", pen:2},
-    {n:"PS",   pen:3},
-    {n:"BP",   pen:4},
-    {n:"AP",   pen:5}]},
+    {n:"LP",      pen:1},
+    {n:"T45M",    pen:2},
+    {n:"PS",      pen:3},
+    {n:"BP",      pen:4},
+    {n:"BP SUB",  pen:4, flesh:1.05, amult:0.95, note:"S8 亚音速：爆头致听力衰减"},
+    {n:"AP",      pen:5},
+    {n:"AP SUB",  pen:5, flesh:1.05, amult:0.90, note:"S8 亚音速：爆头致听力衰减"}]},
   "76251":{label:"7.62×51mm",         sub:"全威力 NATO", base:39, armor:42, ammo:[
+    {n:"Ultra Nosler", pen:2, flesh:1.10, note:"低穿高肉猎弹"},
     {n:"BPZ", pen:3},
     {n:"M80", pen:4},
     {n:"M62", pen:5},
-    {n:"M61", pen:6}]},
+    {n:"M61", pen:6, amult:1.20, note:"红弹：对 1-6 级甲均 120% 甲伤"}]},
   "68":   {label:"6.8×51mm",          sub:".277 Fury", base:38, armor:40, ammo:[
     {n:"FMJ",    pen:4},
     {n:"Hybrid", pen:5},
@@ -462,7 +473,43 @@ var CAL = {
   "127":  {label:"12.7×55mm",         sub:"大口径", base:56, armor:55, est:true, ammo:[
     {n:"PS12A", pen:3},
     {n:"PS12",  pen:4},
-    {n:"PS12B", pen:5}], note:"型号与等级为国际服手册口径，国服或有出入"}
+    {n:"PS12B", pen:5}], note:"型号与等级为国际服手册口径，国服或有出入"},
+  "547":  {label:"7.62×54mm R",       sub:"莫辛-纳甘缘弹", base:56, armor:52, ammo:[
+    {n:"T46M", pen:3},
+    {n:"LPS",  pen:4},
+    {n:"BT",   pen:5},
+    {n:"SNB",  pen:6}], note:"SVD / SVCH / SV-98 / PKM 共用，面板随枪浮动极大（PKM 45 肉 ↔ SVD 56 肉）"},
+  "338":  {label:".338 Lapua Magnum", sub:"远程栓狙弹", base:100, armor:10, est:true, ammo:[
+    {n:".338 AP", pen:7, note:"全游戏穿透上限之一，禁交易、仅任务/手搓获取"}], note:"AWM 专用；AWM 甲伤极低为'留甲'特性（狙杀后敌人防具成色保留）"},
+  "50bmg":{label:"12.7×99mm",         sub:".50 BMG 反器材", base:100, armor:20, est:true, ammo:[
+    {n:"M903 SLAP", pen:7, note:"次口径脱壳穿甲，禁交易、禁入安全箱"},
+    {n:"M10 RAZOR", pen:6, flesh:0.70, note:"创伤弹：命中后延缓用药（效果归属待核实）"},
+    {n:"M3 K-0",    pen:6, flesh:0.70, note:"失能弹：减速 + 视角晃动（效果归属待核实）"}], note:"M82 专用；另有来源记两款 6 级弹为 XM108 / XM107 命名"},
+  "4570": {label:".45-70 Govt",       sub:"杠杆步枪弹", base:70, armor:25, est:true, ammo:[
+    {n:"RN",  pen:1, flesh:1.50, est:true, note:"穿透等级未披露，按低级肉弹估"},
+    {n:"FMJ", pen:4},
+    {n:"FTX", pen:5}], note:"Marlin 专用"},
+  "12ga": {label:"12 号霰弹",          sub:"12ga", base:112, armor:128, est:true, ammo:[
+    {n:"8.5mm 鹿弹", pen:0, est:true, note:"基准鹿弹，8 弹丸"},
+    {n:"7mm 鹿弹",   pen:1, flesh:0.75, note:"8 弹丸"},
+    {n:"龙息弹",     pen:0, flesh:1.10, note:"附带烧灼效果，8 弹丸"},
+    {n:"箭形弹",     pen:3, flesh:0.70, est:true, note:"弹丸数按 8 计"},
+    {n:"独头 GT",    pen:2, flesh:0.44, est:true, note:"独头单弹丸，绝对总伤约 49 折算"},
+    {n:"独头 FTX",   pen:3, flesh:0.44, est:true, note:"独头单弹丸，绝对总伤约 49 折算"},
+    {n:"独头 AP-20", pen:4, flesh:0.44, est:true, note:"独头单弹丸，绝对总伤约 49 折算"},
+    {n:"独头 APX",   pen:4, flesh:0.25, est:true, note:"独头单弹丸，绝对总伤约 28 折算"},
+    {n:"独头 RIP",   pen:0, flesh:0.44, est:true, note:"独头单弹丸，绝对总伤约 49 折算"},
+    {n:"DART",       pen:5, flesh:0.23, est:true, note:"单弹丸，绝对总伤约 26 折算"}], note:"面板为 8 弹丸鹿弹合计伤（8×14 肉 / 16×8 甲）；各弹种甲伤未逐条实测，统一按合计甲伤计"},
+  "50ae": {label:".50 AE",            sub:"手枪大口径", base:50, armor:34, ammo:[
+    {n:"HP",  pen:2},
+    {n:"JHP", pen:3},
+    {n:"FMJ", pen:4},
+    {n:"AP",  pen:5, note:"特勤处工作台制造"}], note:"沙漠之鹰专用"},
+  "357":  {label:".357 Magnum",       sub:"左轮弹", base:56, armor:39, ammo:[
+    {n:"HP",   pen:2},
+    {n:"JHP",  pen:3},
+    {n:"FMJ",  pen:4},
+    {n:"鼠弹", pen:0, flesh:0.50, est:true, note:"霰射独头（9 号霰弹），唯一 50% 加成弹"}]}
 };
 
 /* 武器：dmg 肉伤面板 / admg 甲伤面板 / rpm 射速 / cal 口径 / mag 弹匣 */
@@ -503,7 +550,49 @@ var GUNS = [
   {zh:"SR-3M",    en:"SR-3M",           cls:"smg", dmg:36, admg:48, rpm:747,  cal:"939", mag:15, note:"9×39 碎甲效率高，近战压制强"},
   {zh:"二〇式",    en:"QCQ171",          cls:"smg", dmg:36, admg:33, rpm:763,  cal:"919", mag:30, note:"高速枪机改件后射速上限更高"},
   {zh:"MK4",      en:"MK4 Banshee",     cls:"smg", dmg:34, admg:30, rpm:793,  cal:"46",  mag:24, belly:1.0, conflict:"另有来源记 23/32", note:"默认单发+三连发，换枪管解锁全自动"},
-  {zh:"汤姆逊",    en:"Thompson",        cls:"smg", dmg:34, admg:36, rpm:880,  cal:"45",  mag:20, note:"S8 新枪'芝加哥打字机'，甲伤>肉伤罕见组合"}
+  {zh:"汤姆逊",    en:"Thompson",        cls:"smg", dmg:34, admg:36, rpm:880,  cal:"45",  mag:20, conflict:"另有来源记 22/900", note:"S11 新枪'芝加哥打字机'，甲伤>肉伤罕见组合"},
+
+  /* ===== 精确射手步枪 ===== */
+  {zh:"SKS",      en:"SKS",             cls:"dmr", dmg:44, admg:42, rpm:510,  cal:"76239", mag:10, note:"半自动老兵，7.62×39 弹池与 AKM 共用"},
+  {zh:"SR-25",    en:"SR-25",           cls:"dmr", dmg:50, admg:55, rpm:364,  cal:"76251", mag:10, note:"社区称'连狙之王'，高甲伤"},
+  {zh:"PSG-1",    en:"PSG-1",           cls:"dmr", dmg:50, admg:55, rpm:300,  cal:"76251", mag:10, note:"S3 上线；初速 750m/s 第一梯队"},
+  {zh:"SR9",      en:"SR9",             cls:"dmr", dmg:50, admg:55, rpm:261,  cal:"76251", mag:10, note:"可通用 G3 配件，半自动里最慢最稳"},
+  {zh:"Mini-14",  en:"Mini-14",         cls:"dmr", dmg:32, admg:38, rpm:590,  cal:"556",   mag:10, note:"低成本跑刀枪，5.56 弹池"},
+  {zh:"M14",      en:"M14",             cls:"dmr", dmg:39, admg:41, rpm:727,  cal:"76251", mag:10, burst:true, note:"DMR 唯一全自动异类，开局需手动切全自动"},
+  {zh:"VSS",      en:"VSS Vintorez",    cls:"dmr", dmg:35, admg:48, rpm:480,  cal:"939",   mag:15, note:"自带整体式消音，枪声传播最短档"},
+  {zh:"SVD",      en:"SVD",             cls:"dmr", dmg:56, admg:52, rpm:300,  cal:"547",   mag:10, note:"社区称'小巴雷特'，70m 内爆头秒"},
+  {zh:"Marlin",   en:"Marlin",          cls:"dmr", dmg:70, admg:25, rpm:100,  cal:"4570",  mag:10, note:"S6 杠杆步枪；专属'蜂鸟杠杆'：射速 200、75/59、爆头 112"},
+  {zh:"SVCH",     en:"SVCh",            cls:"dmr", dmg:48, admg:48, rpm:600,  cal:"547",   mag:10, conflict:"另有来源记 46/47", note:"S10 新枪；专属一体护木解锁全自动，爆发枪机前三发约 700 RPM"},
+
+  /* ===== 狙击枪 ===== */
+  {zh:"R93",      en:"R93 LRS",         cls:"snp", dmg:55, admg:53, rpm:50,   cal:"76251", mag:10, conflict:"旧社区口径记 61/58", note:"开镜快，可瞬狙"},
+  {zh:"M700",     en:"M700",            cls:"snp", dmg:55, admg:53, rpm:48,   cal:"76251", mag:5,  conflict:"旧社区口径记 61/58", note:"S11'完全体'套件可改全自动"},
+  {zh:"SV-98",    en:"SV-98",           cls:"snp", dmg:55, admg:53, rpm:40,   cal:"547",   mag:7,  conflict:"旧社区口径记 61/58", note:"架点型，稳定性高"},
+  {zh:"AWM",      en:"AWM",             cls:"snp", dmg:100, admg:10, rpm:35,  cal:"338",   mag:5,  note:"甲伤极低为'留甲'特性；仅用全游戏唯一的 7 级 .338 AP"},
+  {zh:"M82",      en:"M82 Barrett",     cls:"snp", dmg:100, admg:20, rpm:100, cal:"50bmg", mag:5,  conflict:"另有来源记基础伤 150", note:"S9 反器材狙，半自动；三款专用弹禁入安全箱"},
+
+  /* ===== 轻机枪 ===== */
+  {zh:"M249",     en:"M249",            cls:"lmg", dmg:30, admg:38, rpm:858,  cal:"556",   mag:100, note:"100 发弹链压制者，可改弹匣供弹"},
+  {zh:"M250",     en:"M250",            cls:"lmg", dmg:55, admg:53, rpm:550,  cal:"68",    mag:125, note:"6.8 弹链 125 发，单发/全自动切换，有扳机延迟"},
+  {zh:"PKM",      en:"PKM",             cls:"lmg", dmg:45, admg:42, rpm:669,  cal:"547",   mag:75,  note:"7.62×54R 弹链 75 发"},
+  {zh:"QJB201",   en:"QJB201",          cls:"lmg", dmg:32, admg:38, rpm:785,  cal:"58",    mag:125, conflict:"另有社区源记 873/827", note:"S3 上线；弹链/弹匣双路供弹"},
+
+  /* ===== 霰弹枪（面板为 8 弹丸合计伤） ===== */
+  {zh:"M870",     en:"M870",            cls:"sg", dmg:112, admg:128, rpm:74,  cal:"12ga", mag:6,  note:"泵动老兵，军需 9 级解锁"},
+  {zh:"M1014",    en:"M1014",           cls:"sg", dmg:112, admg:128, rpm:261, cal:"12ga", mag:7,  note:"半自动霰弹"},
+  {zh:"S12K",     en:"S12K",            cls:"sg", dmg:104, admg:128, rpm:300, cal:"12ga", mag:5,  est:true, note:"弹匣供弹；撞火枪托可全自动；弹丸数按 8 计"},
+  {zh:"725 双管",  en:"725 Double Barrel", cls:"sg", dmg:136, admg:144, rpm:375, cal:"12ga", mag:2, note:"'众生平等'，双管瞬发两连喷"},
+  {zh:"FS-12",    en:"FS-12",           cls:"sg", dmg:112, admg:128, rpm:300, cal:"12ga", mag:6,  note:"S8 新枪；半自动⇄泵动双模式，可折叠进副武器槽"},
+  {zh:"AA-12",    en:"AA-12",           cls:"sg", dmg:80,  admg:90,  rpm:320, cal:"12ga", mag:8,  est:true, conflict:"甲伤与弹匣未验证（甲伤按弹丸比例估 90）", note:"S11 新枪；首把原生全自动霰弹，四肢伤害特化"},
+
+  /* ===== 手枪 ===== */
+  {zh:"G17",      en:"Glock 17",        cls:"pst", dmg:27, admg:25, rpm:462,  cal:"919",  mag:17, note:"军需 0 级解锁的初始副武器"},
+  {zh:"九二改",    en:"QSZ-92G",         cls:"pst", dmg:34, admg:32, rpm:375,  cal:"919",  mag:15, note:"固定弹匣 15 发，27m 优势射程"},
+  {zh:"93R",      en:"Beretta 93R",     cls:"pst", dmg:34, admg:32, rpm:672,  cal:"919",  mag:12, burst:true, note:"三连发爆发手枪"},
+  {zh:"G18",      en:"Glock 18",        cls:"pst", dmg:23, admg:16, rpm:1172, cal:"919",  mag:17, conflict:"另有来源记 22 肉伤", note:"全自动手枪，全游戏射速最快"},
+  {zh:"沙漠之鹰",  en:"Desert Eagle",    cls:"pst", dmg:50, admg:34, rpm:207,  cal:"50ae", mag:7,  note:".50 AE 大口径副武器"},
+  {zh:".357 左轮", en:".357 Revolver",   cls:"pst", dmg:56, admg:39, rpm:182,  cal:"357",  mag:6,  note:"双动左轮，弹巢固定 6 发"},
+  {zh:"M1911",    en:"M1911",           cls:"pst", dmg:40, admg:30, rpm:373,  cal:"45",   mag:7,  note:"三角洲定制款 .45"}
 ];
 
 /* 护甲满耐久（本页口径） */
@@ -561,7 +650,7 @@ function combo(gun, am, al, part){
 }
 
 /* ================= 状态 ================= */
-var state = {part:"chest", armor:5, cls:"all", mode:"best", sort:"ttk"};
+var state = {part:"chest", armor:5, cls:"all", ammo:"best", sort:"ttk"};
 
 function partCfg(){ return PARTS[state.part]; }
 function gunsFiltered(){
@@ -572,6 +661,7 @@ function allCombos(){
   var part = partCfg(), out = [];
   gunsFiltered().forEach(function(g){
     CAL[g.cal].ammo.forEach(function(am){
+      if(typeof state.ammo === "number" && am.pen !== state.ammo) return;
       out.push(combo(g, am, state.armor, part));
     });
   });
@@ -588,8 +678,10 @@ function el(tag, cls, text){
 function buildSeg(host, items, get, set){
   host.innerHTML = "";
   items.forEach(function(it){
+    if(it.div){ host.appendChild(el("span", "seg-div")); return; }
     var b = el("button", null, null);
     b.type = "button";
+    if(it.title) b.title = it.title;
     if(it.dot != null){
       var d = el("span", "lv-dot");
       d.style.setProperty("--lv", it.dot);
@@ -609,6 +701,16 @@ function buildSeg(host, items, get, set){
     host.appendChild(b);
   });
 }
+var CLS_META = [
+  {k:"ar",  zh:"步枪",     en:"AR"},
+  {k:"smg", zh:"冲锋枪",   en:"SMG"},
+  {k:"dmr", zh:"射手步枪", en:"DMR"},
+  {k:"snp", zh:"狙击枪",   en:"SNIPER"},
+  {k:"lmg", zh:"轻机枪",   en:"LMG"},
+  {k:"sg",  zh:"霰弹枪",   en:"SG"},
+  {k:"pst", zh:"手枪",     en:"PISTOL"}
+];
+
 var segDefs = [
   {host:"segPart", items:[{v:"chest",label:"胸部"},{v:"belly",label:"腹部"},{v:"head",label:"头部"}],
    get:function(){return state.part;}, set:function(v){state.part=v;}},
@@ -618,10 +720,21 @@ var segDefs = [
      {v:3,label:"3",dot:"#6aa9cf"},{v:4,label:"4",dot:"#a583d8"},
      {v:5,label:"5",dot:"#d9a45c"},{v:6,label:"6",dot:"#e2695a"}],
    get:function(){return state.armor;}, set:function(v){state.armor=v;}},
-  {host:"segClass", items:[{v:"all",label:"全部"},{v:"ar",label:"步枪"},{v:"smg",label:"冲锋枪"}],
+  {host:"segClass", items:[{v:"all",label:"全部"}].concat(CLS_META.map(function(m){ return {v:m.k, label:m.zh}; })),
    get:function(){return state.cls;}, set:function(v){state.cls=v;}},
-  {host:"segMode", items:[{v:"best",label:"每枪最佳弹药"},{v:"full",label:"全部枪弹组合"}],
-   get:function(){return state.mode;}, set:function(v){state.mode=v;}},
+  {host:"segAmmo", items:[
+     {v:"best",label:"每枪最佳弹药",title:"每把枪取全等级中最快的一发弹"},
+     {v:"full",label:"全部枪弹组合",title:"每把枪的每种可用弹药各占一行"},
+     {div:true},
+     {v:0,label:"0",dot:"#8a919a",title:"只看 0 级穿透弹（每枪取该等级最优）"},
+     {v:1,label:"1",dot:"#c8cfd6",title:"只看 1 级穿透弹（每枪取该等级最优）"},
+     {v:2,label:"2",dot:"#8fbf7f",title:"只看 2 级穿透弹（每枪取该等级最优）"},
+     {v:3,label:"3",dot:"#6aa9cf",title:"只看 3 级穿透弹（每枪取该等级最优）"},
+     {v:4,label:"4",dot:"#a583d8",title:"只看 4 级穿透弹（每枪取该等级最优）"},
+     {v:5,label:"5",dot:"#d9a45c",title:"只看 5 级穿透弹（每枪取该等级最优）"},
+     {v:6,label:"6",dot:"#e2695a",title:"只看 6 级穿透弹（每枪取该等级最优）"},
+     {v:7,label:"7",dot:"linear-gradient(135deg,#e2695a,#a43e30)",title:"只看 7 级穿透弹（全游戏仅 AWM / M82 可用）"}],
+   get:function(){return state.ammo;}, set:function(v){state.ammo=v;}},
   {host:"segSort", items:[{v:"ttk",label:"TTK"},{v:"btk",label:"发数"}],
    get:function(){return state.sort;}, set:function(v){state.sort=v;}},
   {host:"segSort2", items:[{v:"ttk",label:"TTK"},{v:"btk",label:"发数"}],
@@ -674,7 +787,7 @@ function renderRank(){
   var combos = allCombos();
   var part = partCfg();
   var rows;
-  if(state.mode === "best"){
+  if(state.ammo !== "full"){
     var byGun = {};
     combos.forEach(function(c){
       var k = c.gun.en;
@@ -691,9 +804,16 @@ function renderRank(){
   var best = rows.length ? rows[0].ttk : 1;
   var countBits = [];
   countBits.push(rows.length + " 行");
+  if(typeof state.ammo === "number") countBits.push("弹药：仅 " + state.ammo + " 级穿透弹");
   countBits.push("目标：" + (state.armor > 0 ? state.armor + " 级甲（满耐久 " + DUR[state.armor] + "）" : "无甲"));
   countBits.push("命中：" + part.label + "（×" + (state.part === "head" ? "1.9" : state.part === "belly" ? "0.9" : "1.0") + "）");
   document.getElementById("rankCount").textContent = countBits.join(" · ");
+
+  if(!rows.length){
+    host.appendChild(el("div", "rk-empty",
+      "当前筛选组合下没有可用枪弹：该类别没有使用 " + state.ammo + " 级穿透弹的武器，换一个等级或类别试试。"));
+    return;
+  }
 
   rows.forEach(function(c, i){
     var rank = i + 1;
@@ -704,7 +824,7 @@ function renderRank(){
     if(rank === 1) btn.classList.add("top1");
     else if(rank === 2) btn.classList.add("top2");
     else if(rank === 3) btn.classList.add("top3");
-    if(c.ttk > best * 2.2) btn.classList.add("slow");
+    if(best > 0 && c.ttk > best * 2.2) btn.classList.add("slow");
 
     var num = el("span", "rk-num", String(rank).padStart(2, "0"));
     var gun = el("span", "rk-gun");
@@ -720,7 +840,7 @@ function renderRank(){
     var ta = el("span", "rk-ta");
     var bar = el("span", "rk-bar");
     var fill = el("i");
-    var w = Math.max(4, Math.min(100, best / c.ttk * 100));
+    var w = (best <= 0 || c.ttk <= 0) ? 100 : Math.max(4, Math.min(100, best / c.ttk * 100));
     fill.style.width = w + "%";
     bar.appendChild(fill);
     ta.appendChild(bar);
@@ -797,12 +917,13 @@ function renderChamps(){
   function best(list){
     return list.reduce(function(m, c){ return c.ttk < m.ttk ? c : m; }, list[0]);
   }
-  var ars = combos.filter(function(c){ return c.gun.cls === "ar"; });
-  var smgs = combos.filter(function(c){ return c.gun.cls === "smg"; });
   var picks = [];
   if(combos.length) picks.push({label:"场景最快 · ALL", c:best(combos), top:true});
-  if(ars.length) picks.push({label:"步枪最快 · AR", c:best(ars)});
-  if(smgs.length) picks.push({label:"冲锋枪最快 · SMG", c:best(smgs)});
+  CLS_META.forEach(function(m){
+    if(state.cls !== "all" && state.cls !== m.k) return;
+    var list = combos.filter(function(c){ return c.gun.cls === m.k; });
+    if(list.length) picks.push({label:m.zh + "最快 · " + m.en, c:best(list)});
+  });
   host.innerHTML = "";
   picks.forEach(function(p){
     var card = el("div", "champ" + (p.top ? " top" : ""));
@@ -823,6 +944,16 @@ function renderHint(){
   var bits = [];
   if(part.hint) bits.push(part.hint);
   if(state.armor === 6) bits.push("6 级甲只有 6 级弹可对穿（同级 50%）；5 级弹打红甲已是低一级，需先碎甲 150 耐久。");
+  if(typeof state.ammo === "number"){
+    bits.push("已限定 " + state.ammo + " 级穿透弹：每枪取该等级最优弹，展开行可对比该枪该等级的全部弹药。");
+    var miss = gunsFiltered().filter(function(g){
+      return !CAL[g.cal].ammo.some(function(am){ return am.pen === state.ammo; });
+    }).map(function(g){ return g.zh; });
+    if(miss.length){
+      var show = miss.slice(0, 8).join("、") + (miss.length > 8 ? " 等 " + miss.length + " 把" : "");
+      bits.push(miss.length + " 把枪无 " + state.ammo + " 级弹未入列：" + show + "。");
+    }
+  }
   if(state.armor > 0 && state.part === "chest") bits.push("护甲满耐久按 " + DUR[state.armor] + " 计；残甲目标更快倒地。");
   var h = document.getElementById("ctrlHint");
   h.textContent = bits.join(" ");
@@ -919,7 +1050,7 @@ function renderMatrix(){
     tb.appendChild(tr);
   }
   tbl.appendChild(tb); wrap.appendChild(tbl);
-  var note = el("div", "mx-note", "对角线（弹等级 = 甲等级）为 50% 减半线：它就是社区说的\"同级甲弹门槛\"。低于对角线一律 0%（护甲破碎前不掉血），高于对角线一级 75%、两级及以上全额。.338 栓狙存在唯一的 7 级穿透弹，不在本页步冲锋枪范围内。");
+  var note = el("div", "mx-note", "对角线（弹等级 = 甲等级）为 50% 减半线：它就是社区说的\"同级甲弹门槛\"。低于对角线一律 0%（护甲破碎前不掉血），高于对角线一级 75%、两级及以上全额。7 级穿透弹为全游戏上限，仅 .338 AP（AWM）与 .50 BMG SLAP（M82）两款，可对 6 级甲保持 75% 通过率。");
   host.appendChild(wrap); host.appendChild(note);
 }
 

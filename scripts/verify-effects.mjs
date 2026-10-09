@@ -1,8 +1,9 @@
 // verify-effects.mjs — 自包含、零 npm 依赖（node >= 22：原生 fetch/WebSocket）
+// 前置：本脚本只 spawn headless Chrome，不拉起 dev server——先 `npm run dev`，再另开终端运行：
 // 用法:
-//   node verify-effects.mjs                     # 默认：hero+lightbox 挂载且存活（硬判据）
-//   node verify-effects.mjs --reduced           # --force-prefers-reduced-motion，要求 data-fx="reduced" 且无挂载
-//   node verify-effects.mjs [--reduced] <url> <shotsDir>
+//   node scripts/verify-effects.mjs                       # 默认 http://localhost:5173/：hero+lightbox 挂载且存活（硬判据）
+//   node scripts/verify-effects.mjs --reduced             # --force-prefers-reduced-motion，要求 data-fx="reduced" 且无挂载
+//   node scripts/verify-effects.mjs [--reduced] <url> <shotsDir>
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -12,7 +13,7 @@ const PORT = 9333;
 const argv = process.argv.slice(2);
 const REDUCED = argv.includes('--reduced');
 const args = argv.filter(a => !a.startsWith('--'));
-const PAGE_URL = args[0] || 'file:///Users/wangxiao/githubProject/delta-force-map/index.html';
+const PAGE_URL = args[0] || 'http://localhost:5173/';
 const SHOTS = args[1] || '/Users/wangxiao/githubProject/delta-force-map/shots';
 fs.mkdirSync(SHOTS, { recursive: true });
 
