@@ -39,7 +39,7 @@ const MX_NOTE = '对角线（弹等级 = 甲等级）为 50% 减半线：它就�
       <table class="matrix">
         <thead>
           <tr>
-            <th class="rw">弹 → / 甲 ↓</th>
+            <th class="rw">弹 ↓ / 甲 →</th>
             <th v-for="a in 7" :key="'h' + a">{{ a - 1 === 0 ? '无甲' : (a - 1) + ' 级' }}</th>
           </tr>
         </thead>

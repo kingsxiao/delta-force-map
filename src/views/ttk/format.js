@@ -11,12 +11,12 @@ export function fmtMs(ms) {
   return Math.round(ms) + ' ms'
 }
 
-/* 穿透通过率文案 */
+/* 穿透通过率文案（展开行判定列用紧凑口径：碎甲过程由"碎甲 N 发"表达） */
 export function passText(p) {
   if (p >= 1) return '穿透 100%'
-  if (p >= 0.75) return '穿透 75%'
+  if (p >= 0.75) return '高 1 级 75%'
   if (p >= 0.5) return '同级 50%'
-  return '无法穿透 · 先碎甲'
+  return '无法穿透'
 }
 
 /* 详情卡元信息前段（通过率 · 碎甲 · 无甲）；"超弹匣"警告段由模板按 x.btk > x.gun.mag 追加 */
@@ -49,4 +49,16 @@ export function fmtCoef(v) {
 export const PART_CHAR = { chest: '胸', belly: '腹', head: '头' }
 export function scenLabel(c) {
   return (c.armor > 0 ? c.armor + '级' : '无甲') + PART_CHAR[c.part]
+}
+
+/* 详情卡"部位单发"行：[['胸', 42], ...]，与排行"单发伤"列同口径（穿透全额后的肉伤）。
+   部位倍率 头 ×1.9 / 胸 ×1.0 / 腹 ×0.9 / 四肢 ×0.4；RM277、MK4 胸腹同伤按 gun.belly 修正 */
+export function partDmg(gun, am) {
+  const f = gun.dmg * (am.flesh || 1)
+  return [
+    ['胸', f],
+    ['腹', f * (gun.belly != null ? gun.belly : 0.9)],
+    ['头', f * 1.9],
+    ['肢', f * 0.4],
+  ]
 }

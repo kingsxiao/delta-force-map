@@ -125,7 +125,7 @@ onBeforeUnmount(() => viewer.detach())
           <button type="button" data-act="full" aria-label="全屏查看" title="全屏查看" @click="$emit('full', viewer.state.cur)">⤢</button>
         </div>
 
-        <span class="fig-hint">拖拽平移 · 滚轮缩放 · 双击放大 · 点标注看详情</span>
+        <span class="fig-hint">拖拽平移 · 滚轮 / 双指缩放 · 双击放大 · 点标注看详情</span>
       </div>
     </div>
 

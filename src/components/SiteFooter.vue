@@ -1,6 +1,12 @@
 <script setup>
-// 全站页脚：数据来源与版权说明（文案沿袭 legacy 页脚，视觉阶段统一打磨）
+// 全站页脚：数据来源与版权说明
+import { computed } from 'vue'
+import { useRoute } from 'vue-router'
+
 const year = new Date().getFullYear()
+const route = useRoute()
+/* /ttk 页自身即排行页，「延伸内容」导流行不再出现 */
+const showExtend = computed(() => route.path !== '/ttk')
 </script>
 
 <template>
@@ -11,7 +17,7 @@ const year = new Date().getFullYear()
         数据整理自公开资料（2026-10 版本）：官方地图工具点位数据，以及腾讯官网、3DM、游民星空、17173、NGA、TapTap、B
         站等社区攻略。物资爆率均为社区统计口径，非官方数据，仅供参考。
       </p>
-      <p class="foot-line">
+      <p v-if="showExtend" class="foot-line">
         延伸内容：<router-link to="/ttk" class="foot-link">全枪械 TTK 击杀时间排行</router-link>——弹药穿透等级 ×
         护甲减伤逐发模拟，附弹药库与判定矩阵。
       </p>
