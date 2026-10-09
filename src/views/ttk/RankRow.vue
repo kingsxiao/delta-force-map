@@ -6,7 +6,7 @@
 //   与点击行 TTK 相同的卡标记 best（legacy L775）。
 import { computed } from 'vue'
 import { CAL } from '../../data/ttk/calibers.js'
-import { fmtMs, fmtDmg, metaText, extraText, scenLabel } from './format.js'
+import { fmtMs, fmtDmg, metaText, extraText, scenLabel, partDmg, PART_CHAR } from './format.js'
 import PenBadge from './PenBadge.vue'
 
 const props = defineProps({
@@ -52,7 +52,7 @@ const detail = computed(() => {
       x,
       w: Math.max(4, Math.min(100, list[0].ttk / x.ttk * 100)) + '%',
     })),
-    meta: bits.length ? '※ ' + bits.join('。') : '',
+    bits,
   }
 })
 </script>
@@ -91,30 +91,77 @@ const detail = computed(() => {
 
     <div class="rk-detail" :class="{ open }">
       <div class="rk-detail-in">
-        <div v-if="detail" class="detail-grid">
-          <div
-            v-for="item in detail.list"
-            :key="item.x.am.n"
-            class="dcard"
-            :class="{ best: item.x.ttk === c.ttk }"
-          >
-            <div class="hd">
-              <PenBadge :p="item.x.am.pen" />
-              <span class="an">{{ item.x.am.n }}</span>
+        <div v-if="detail" class="dwrap">
+          <!-- 枪械头带：渲染图 + 名牌 + 枪械备注，横向吃满一行 -->
+          <header class="dband">
+            <img
+              v-if="c.gun.img"
+              class="dpic"
+              :src="'/guns/' + c.gun.img + '.webp'"
+              :alt="c.gun.zh + ' 官方渲染图'"
+              loading="lazy"
+              decoding="async"
+            >
+            <svg v-else class="dpic dph" viewBox="0 0 240 120" aria-hidden="true">
+              <g fill="currentColor">
+                <rect x="4" y="56" width="54" height="7" rx="2.5" />
+                <rect x="46" y="45" width="5" height="11" rx="1" />
+                <rect x="58" y="51" width="44" height="16" rx="3" />
+                <rect x="100" y="47" width="72" height="23" rx="3" />
+                <rect x="102" y="42" width="58" height="6" rx="2" />
+                <path d="M118 70 l19 0 l-7 32 l-17 0 z" />
+                <path d="M152 70 l17 0 l-9 28 l-15 0 z" />
+                <path d="M172 51 h27 c9 0 14 5 14 11 v9 h-15 l-6 -9 h-20 z" />
+              </g>
+            </svg>
+            <div class="dhead">
+              <div class="dh-name">{{ c.gun.zh }}<span class="dh-en">{{ c.gun.en }}</span></div>
+              <div class="dh-meta">{{ CAL[c.gun.cal].label }} · {{ c.gun.rpm }} RPM · 面板 {{ c.gun.dmg }}/{{ c.gun.admg }}<template v-if="c.gun.burst"> · 三连发</template></div>
             </div>
-            <div class="nums">
-              <span class="ttk">{{ fmtMs(item.x.ttk) }}</span>
-              <span class="btk">{{ item.x.btk }} 发击倒</span>
+            <ul v-if="detail.bits.length" class="dh-note">
+              <li v-for="b in detail.bits" :key="b">{{ b }}</li>
+            </ul>
+          </header>
+
+          <!-- 弹药通栏对比行：列对齐，宽度吃满 -->
+          <div class="drows">
+            <div class="drow capt" aria-hidden="true">
+              <span class="d-rank"></span>
+              <span class="d-ammo capt-t">弹药</span>
+              <span class="d-ttk capt-t">TTK<small>条越长越快</small></span>
+              <span class="d-parts capt-t">部位单发<small>当前场景部位高亮</small></span>
+              <span class="d-judge capt-t">判定与碎甲</span>
             </div>
-            <div class="bar"><i :style="{ width: item.w }"></i></div>
-            <div class="m">
-              {{ metaText(item.x) }}<template v-if="item.x.btk > item.x.gun.mag"> · <span class="warn">超弹匣 {{ item.x.gun.mag }} 发</span></template>
-            </div>
-            <div v-if="extraText(item.x, CAL[item.x.gun.cal].est)" class="m">
-              {{ extraText(item.x, CAL[item.x.gun.cal].est) }}
+            <div
+              v-for="(item, i) in detail.list"
+              :key="item.x.am.n"
+              class="drow"
+              :class="{ best: item.x.ttk === c.ttk }"
+            >
+              <span class="d-rank">{{ String(i + 1).padStart(2, '0') }}</span>
+              <span class="d-ammo">
+                <PenBadge :p="item.x.am.pen" />
+                <span class="d-an">{{ item.x.am.n }}</span>
+              </span>
+              <span class="d-ttk">
+                <span class="d-ttv">{{ fmtMs(item.x.ttk) }}</span>
+                <span class="d-bar"><i :style="{ width: item.w }"></i></span>
+                <span class="d-btk">{{ item.x.btk }} 发击倒</span>
+              </span>
+              <span class="d-parts">
+                <span
+                  v-for="[pk, pv] in partDmg(item.x.gun, item.x.am)"
+                  :key="pk"
+                  class="d-pd"
+                  :class="{ cur: pk === PART_CHAR[c.part] }"
+                >{{ pk }} {{ fmtDmg(pv) }}</span>
+              </span>
+              <span class="d-judge">
+                <span class="d-jline">{{ metaText(item.x) }}<template v-if="item.x.btk > item.x.gun.mag"> · <span class="warn">超弹匣 {{ item.x.gun.mag }} 发</span></template></span>
+                <span v-if="extraText(item.x, CAL[item.x.gun.cal].est)" class="d-jnote">{{ extraText(item.x, CAL[item.x.gun.cal].est) }}</span>
+              </span>
             </div>
           </div>
-          <div v-if="detail.meta" class="m meta-note">{{ detail.meta }}</div>
         </div>
       </div>
     </div>
@@ -287,77 +334,199 @@ const detail = computed(() => {
   overflow: hidden;
   min-height: 0;
 }
-.detail-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(225px, 1fr));
-  gap: 9px;
-  padding: 4px 16px 16px 52px;
-}
-.dcard {
+/* 详情：枪械头带（渲染图 + 名牌 + 备注）+ 通栏弹药对比行（列对齐吃满宽度） */
+.dwrap { padding: 8px 16px 16px 52px; }
+.dband {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 10px 16px;
   border: 1px solid var(--line2);
   border-radius: var(--radius);
   background: var(--bg2);
-  padding: 10px 12px 9px;
 }
-.dcard.best {
-  border-color: var(--accent-dim);
-  background: linear-gradient(135deg, var(--accent-bg), var(--bg2) 60%);
+.dpic { flex: none; width: 184px; height: auto; }
+.dph { color: var(--faint); opacity: .4; padding: 10px 0; }
+.dhead { min-width: 0; }
+.dh-name {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: var(--fs-lg);
+  font-weight: 700;
+  color: var(--tx-strong);
 }
-.dcard .hd {
+.dh-en {
+  font-family: var(--mono);
+  font-size: var(--fs-micro);
+  font-weight: 400;
+  color: var(--faint);
+  letter-spacing: .04em;
+}
+.dh-meta {
+  margin-top: 3px;
+  font-family: var(--mono);
+  font-size: var(--fs-micro);
+  color: var(--dim);
+  letter-spacing: .04em;
+}
+.dh-note {
+  flex: 1;
+  min-width: 200px;
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 3px;
+  margin: 0;
+  padding: 2px 0 2px 18px;
+  border-left: 1px solid var(--line2);
+  list-style: none;
+}
+.dh-note li {
+  position: relative;
+  padding-left: 13px;
+  font-size: var(--fs-xs);
+  color: var(--dim);
+  line-height: 1.65;
+}
+.dh-note li + li { margin-top: 3px; }
+.dh-note li::before {
+  content: "◆";
+  position: absolute;
+  left: 0;
+  top: 1px;
+  font-size: 7px;
+  color: var(--accent-dim);
+}
+
+/* 弹药行栅格：排名 | 弹药 | TTK+条 | 部位单发 | 判定碎甲 */
+.drows { margin-top: 10px; border-top: 1px solid var(--line2); }
+.drow {
+  display: grid;
+  grid-template-columns: 26px minmax(120px, 1fr) minmax(206px, 1.3fr) minmax(224px, 1.25fr) minmax(252px, 1.55fr);
+  grid-template-areas: "rank ammo ttk parts judge";
+  gap: 12px;
+  align-items: center;
+  padding: 9px 12px;
+}
+.drow + .drow { border-top: 1px solid var(--line2); }
+.drow.capt { padding: 7px 12px 6px; align-items: end; }
+.drow.capt .capt-t {
+  font-family: var(--mono);
+  font-size: var(--fs-micro);
+  letter-spacing: .16em;
+  color: var(--faint);
+  white-space: nowrap;
+}
+.drow.capt small {
+  display: block;
+  font-size: var(--fs-micro);
+  letter-spacing: .06em;
+  opacity: .72;
+  margin-top: 2px;
+}
+.drow.capt .d-ttk { display: block; }
+.drow.best {
+  background: linear-gradient(90deg, var(--accent-bg), transparent 62%);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+.d-rank {
+  grid-area: rank;
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  color: var(--faint);
+  font-variant-numeric: tabular-nums;
+}
+.drow.best .d-rank { color: var(--accent); }
+.d-ammo {
+  grid-area: ammo;
   display: flex;
   align-items: center;
-  gap: 7px;
-  margin-bottom: 7px;
+  gap: 8px;
+  min-width: 0;
 }
-.dcard .an {
+.d-an {
   font-size: var(--fs-xs);
-  color: var(--tx-strong);
   font-weight: 600;
+  color: var(--tx-strong);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.dcard .nums {
+.d-ttk {
+  grid-area: ttk;
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 10px;
+  min-width: 0;
+}
+.d-ttv {
   font-family: var(--mono);
+  font-size: var(--fs-md);
+  font-weight: 600;
+  color: var(--tx-strong);
+  min-width: 56px;
   font-variant-numeric: tabular-nums;
 }
-.dcard .ttk {
-  font-size: var(--fs-lg);
-  font-weight: 600;
-  color: var(--accent);
-}
-.dcard .btk {
-  font-size: var(--fs-2xs);
-  color: var(--dim);
-}
-.dcard .bar {
-  height: 4px;
-  border-radius: 2px;
-  background: var(--card);
-  margin-top: 7px;
+.drow.best .d-ttv { color: var(--accent); }
+.d-bar {
+  flex: 1;
+  height: 5px;
+  border-radius: 3px;
+  background: var(--bg);
   overflow: hidden;
+  min-width: 44px;
 }
-.dcard .bar i {
+.d-bar i {
   display: block;
   height: 100%;
-  background: var(--accent);
+  border-radius: 3px;
   background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 50%, transparent), var(--accent));
 }
-.dcard .m {
+.drow.best .d-bar i { background: var(--accent); }
+.d-btk {
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  color: var(--dim);
+  white-space: nowrap;
+}
+.d-parts {
+  grid-area: parts;
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: 9px;
+  row-gap: 2px;
+  align-items: baseline;
+  min-width: 0;
+}
+.d-pd {
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  color: var(--dim);
+  font-variant-numeric: tabular-nums;
+}
+.d-pd.cur { color: var(--accent-dim); font-weight: 600; }
+.d-judge {
+  grid-area: judge;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.d-jline {
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  color: var(--dim);
+  line-height: 1.5;
+}
+.d-jline .warn { color: var(--danger); }
+.d-jnote {
   font-family: var(--mono);
   font-size: var(--fs-micro);
   color: var(--faint);
-  margin-top: 6px;
-  letter-spacing: .03em;
-  line-height: 1.6;
-}
-.dcard .m .warn { color: var(--danger); }
-.meta-note {
-  grid-column: 1 / -1;
-  padding: 2px 2px 0;
+  line-height: 1.5;
 }
 
 @media (max-width: 820px) {
@@ -375,11 +544,34 @@ const detail = computed(() => {
   }
   .rk-cell.strong { font-size: var(--fs-2xs); }
   .caret { display: none; }
-  .detail-grid { padding-left: 12px; }
+  .dwrap { padding: 4px 12px 12px; }
+  .dband { flex-wrap: wrap; gap: 8px 14px; }
+  .dpic { width: 40%; min-width: 128px; }
+  .dhead { flex: 1 1 0; min-width: 130px; }
+  .dh-note {
+    flex-basis: 100%;
+    align-self: auto;
+    border-left: 0;
+    border-top: 1px solid var(--line2);
+    padding: 8px 0 0;
+  }
+  .drow {
+    grid-template-columns: 22px minmax(0, 1fr) auto;
+    grid-template-areas:
+      "rank ammo ttk"
+      "parts parts parts"
+      "judge judge judge";
+    gap: 5px 10px;
+    padding: 9px 10px;
+  }
+  .drow.capt { display: none; }
+  .d-ttk { justify-content: flex-end; }
+  .d-ttv { min-width: 48px; font-size: var(--fs-sm); }
+  .d-bar { min-width: 34px; }
+  .d-btk { display: none; }
 }
 @media (max-width: 560px) {
   /* 排行行改两行式：第一行 排名+武器+BTK，第二行 弹药+TTK条 */
-  .detail-grid { grid-template-columns: 1fr; }
   .rk-row {
     grid-template-columns: 24px minmax(0, 1fr) auto;
     grid-template-rows: auto auto;

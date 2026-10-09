@@ -258,15 +258,12 @@ onBeforeUnmount(() => {
 
 <template>
   <div ref="rootEl" class="ttk-page">
-    <!-- 页头（legacy header.site-head 文案原样；返回链接指向站点首页路由） -->
+    <!-- 页头：返回链接已删（全局顶栏三 tab 常驻，legacy 独立页时代的返回条冗余） -->
     <section class="page-head">
       <div class="wrap">
-        <p class="backline">
-          <router-link to="/">← 返回地图与打法站</router-link>
-        </p>
         <p class="kicker">DELTA FORCE · BALLISTICS LAB</p>
         <h1>TTK 击杀时间排行 · 全枪械</h1>
-        <p class="lede">烽火地带口径下的理论击杀时间（TTK）与击杀所需子弹数（BTK）排行，覆盖步枪 / 冲锋枪 / 射手步枪 / 狙击枪 / 轻机枪 / 霰弹枪 / 手枪全部七个兵种：结合每把武器的面板伤害与射速、其口径下全部可用弹药、以及弹药穿透等级对目标护甲等级的减伤判定，逐发模拟"碎甲 — 掉血"全过程后计算得出。部位、护甲等级、类别与穿透等级均支持多选叠加场景，排行即时重算。</p>
+        <p class="lede">烽火地带口径下的理论击杀时间（TTK）与击杀所需子弹数（BTK）排行：基于武器面板、全部可用弹药与穿透 × 护甲减伤逐发模拟得出。部位、护甲、类别与穿透等级支持多选叠加，排行即时重算；模拟口径与未计入项见下方「计算口径」一节。</p>
         <p class="meta">数据基线 S5 全枪表（2025-07）并补充至 S11（2026-09） · 减伤采用国服社区实测口径 · 非官方数据，仅供研究参考</p>
       </div>
     </section>
@@ -337,7 +334,7 @@ onBeforeUnmount(() => {
           </template>
           <div v-else class="rk-empty">当前筛选组合下没有可用枪弹：该类别没有使用所选穿透等级（{{ state.pens.length ? state.pens.join('/') : '0-7' }}）的武器，换一个等级或类别试试。</div>
         </div>
-        <p class="rank-footnote">点击任意一行可展开该武器可用弹药（受当前子弹筛选限定）的逐发模拟对比。TTK 为首发命中后击倒所需的纯射击时间（不含首发出膛、腰射散布、换弹与网速），仅为站位对枪的理论上限参考。</p>
+        <p class="rank-footnote">点击任意一行可展开该武器可用弹药（受当前子弹筛选限定）的逐发模拟对比。TTK 为首发命中后击倒所需的纯射击时间（不含首发出膛、腰射散布、换弹与网速），仅为站位对枪的理论上限；实战受距离衰减、命中率与压枪水平影响，通常显著更慢。</p>
       </section>
 
       <!-- 弹药库 -->
@@ -471,15 +468,6 @@ onBeforeUnmount(() => {
         </CollapseCol>
       </div>
     </div>
-
-    <!-- 页级免责说明（legacy site-foot 文案原样；公共 SiteFooter 之外的本页补充块） -->
-    <footer class="ttk-foot">
-      <div class="wrap">
-        <p class="foot-brand">DELTA FORCE · FAN-MADE BALLISTICS</p>
-        <p>数据整理自公开资料（2026-10）：社区全枪数据表、官方攻略组机制解析与弹药图鉴，<strong class="foot-strong">未在游戏内逐条实测</strong>。TTK 为理论站位对枪上限，实战受距离衰减、护甲耐久、命中率与压枪水平影响，通常显著更慢。</p>
-        <p>《三角洲行动》（Delta Force）游戏名称及相关内容版权归腾讯 / 天美工作室群所有。本页面为静态资料整理，仅供个人学习参考，不含任何商业用途。地图与打法内容见 <router-link to="/">地图站首页</router-link>。</p>
-      </div>
-    </footer>
   </div>
 </template>
 
@@ -488,24 +476,6 @@ onBeforeUnmount(() => {
 .page-head {
   padding: 64px 0 40px;
   border-bottom: 1px solid var(--line2);
-}
-.backline { margin-bottom: 26px; }
-.backline a {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  font-size: var(--fs-xs);
-  color: var(--dim);
-  text-decoration: none;
-  padding: 6px 13px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-pill);
-  transition: color var(--t-med), border-color var(--t-med), background var(--t-med);
-}
-.backline a:hover {
-  color: var(--accent);
-  border-color: var(--accent-dim);
-  background: var(--accent-bg);
 }
 
 /* ---------- 区块导语 ---------- */
@@ -688,37 +658,6 @@ onBeforeUnmount(() => {
 }
 .src-p strong { color: var(--dim); }
 
-/* ---------- 页级免责说明（legacy .site-foot 文案） ---------- */
-.ttk-foot {
-  border-top: 1px solid var(--line2);
-  margin-top: var(--sp-8);
-  padding: 36px 0 46px;
-}
-.ttk-foot p {
-  font-size: var(--fs-xs);
-  color: var(--faint);
-  line-height: 1.9;
-  max-width: 780px;
-}
-.ttk-foot p + p { margin-top: 10px; }
-.ttk-foot .foot-brand {
-  font-family: var(--mono);
-  font-size: var(--fs-micro);
-  letter-spacing: .3em;
-  color: var(--faint);
-  margin-bottom: var(--sp-4);
-}
-.ttk-foot a {
-  color: var(--dim);
-  text-decoration: none;
-  border-bottom: 1px solid var(--line);
-}
-.ttk-foot a:hover {
-  color: var(--accent);
-  border-color: var(--accent-dim);
-}
-.foot-strong { color: var(--dim); }
-
 /* ---------- 响应式（legacy 断点 680 / 560） ---------- */
 @media (max-width: 680px) {
   .ctrl {
@@ -758,8 +697,5 @@ onBeforeUnmount(() => {
     gap: var(--sp-2);
   }
   .rank-sort { margin-left: 0; }
-}
-@media (prefers-reduced-motion: reduce) {
-  .backline a { transition: none; }
 }
 </style>

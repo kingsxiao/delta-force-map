@@ -3,7 +3,7 @@
 // 数据与地图页同源（src/data/maps/*.json 的 guide / loot），图选择器走 ?map=slug query
 // （hash 路由的 query 属路由状态，不属被禁的裸锚点 hash）；内容复用 MapDetail
 // （= legacy makeCol/listBody/bossBody 折叠列 + makeSpawn 五段卡 + lootBody 爆率表）。
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { MAPS } from '../data/mapIndex'
 import { useReveal } from '../composables/useReveal'
@@ -17,6 +17,11 @@ const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
 
 const slug = computed(() => (MAPS.some((m) => m.slug === route.query.map) ? route.query.map : MAPS[0].slug))
 const current = computed(() => MAPS.find((m) => m.slug === slug.value))
+
+/* 标签页标题随当前图切换（TtkView 同款口径；卸载还原首页标题） */
+const HOME_TITLE = '三角洲行动 · 地图与打法详解'
+watch(current, (m) => { document.title = m ? '三角洲行动 · ' + m.map + '打法手册' : HOME_TITLE }, { immediate: true })
+onBeforeUnmount(() => { document.title = HOME_TITLE })
 
 watch(slug, () => {
   nextTick(() => {

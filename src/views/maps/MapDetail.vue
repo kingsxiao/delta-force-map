@@ -22,7 +22,7 @@ const lootOpen = ref(false)
     <div class="block-h">
       <span class="bht">出生点打法</span>
       <span class="bhline"></span>
-      <span class="bhc">{{ map.guide.spawns.length }} 个出生点</span>
+      <span class="bhc">{{ map.guide.spawns.length }} 个出生点 · 点击展开</span>
     </div>
     <div class="spawn-list">
       <SpawnCard v-for="(s, i) in map.guide.spawns" :key="i" :spawn="s" />
