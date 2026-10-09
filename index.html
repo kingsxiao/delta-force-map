@@ -260,6 +260,16 @@ main{min-width:0;padding-bottom:30px}
   *,*::before,*::after{transition-duration:.01ms!important;animation-duration:.01ms!important}
   .reveal{opacity:1;transform:none}
 }
+/* ---------- webgpu effects (appended, 可整块删除回滚) ---------- */
+.site-head{position:relative}
+.head-cta{margin-top:20px}
+.head-cta .cta{display:inline-flex;align-items:center;gap:8px;padding:8px 17px;border:1px solid var(--amber-dim);border-radius:9px;color:var(--amber);text-decoration:none;font-size:13px;letter-spacing:.05em;background:var(--amber-bg);transition:border-color .18s,background .18s}
+.head-cta .cta:hover{border-color:var(--amber);background:rgba(217,164,92,.15)}
+.sidenav .sn-gap{margin-top:24px}
+.site-head>.wrap{position:relative;z-index:1}
+#fxHero{position:absolute;inset:0;width:100%;height:100%;z-index:0;pointer-events:none;opacity:.92}
+#fxLb{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;opacity:.5}
+@media (prefers-reduced-motion: reduce){#fxHero,#fxLb{display:none}}
 </style>
 </head>
 <body>
@@ -267,20 +277,24 @@ main{min-width:0;padding-bottom:30px}
 <noscript><div class="nojs">此页面需要启用 JavaScript：交互地图、点位标注、折叠内容均由前端脚本渲染。请在浏览器中允许 JavaScript 后打开。</div></noscript>
 
 <header class="site-head">
+  <canvas id="fxHero" aria-hidden="true"></canvas>
   <div class="wrap">
     <p class="kicker">DELTA FORCE · OPERATIONS ATLAS</p>
     <h1>三角洲行动 · 地图与打法</h1>
     <p class="lede">六张烽火地带地图的高清标注大图与实战打法：出生点思路、撤离点、资源路线、Boss 情报与物资爆率参考。点击地图可放大查看细节。</p>
     <p class="meta">数据整理自公开资料（2026-10 版本） · 爆率为社区统计口径，非官方数据</p>
+    <p class="head-cta"><a class="cta" href="ttk.html">步枪 × 冲锋枪 TTK 击杀排行 →</a></p>
   </div>
 </header>
 
-<nav class="topbar" aria-label="地图导航"><div class="pills" id="pills"></div></nav>
+<nav class="topbar" aria-label="地图导航"><div class="pills" id="pills"><a class="pill" href="ttk.html">TTK 排行</a></div></nav>
 
 <div class="wrap layout" id="top">
   <aside class="sidenav" aria-label="地图导航">
     <p class="sidenav-title">烽火地带 / MAPS</p>
     <div id="sidenav"></div>
+    <p class="sidenav-title sn-gap">资料 / DATA</p>
+    <a class="nav-item" href="ttk.html"><span class="nav-num">↗</span><span class="nav-name">TTK 击杀排行</span><span class="nav-mode">步枪 × 冲锋枪</span></a>
   </aside>
   <main id="main"></main>
 </div>
@@ -289,6 +303,7 @@ main{min-width:0;padding-bottom:30px}
   <div class="wrap">
     <p class="foot-brand">DELTA FORCE · FAN-MADE ATLAS</p>
     <p>数据整理自公开资料（2026-10 版本）：官方地图工具点位数据，以及腾讯官网、3DM、游民星空、17173、NGA、TapTap、B 站等社区攻略。物资爆率均为社区统计口径，非官方数据，仅供参考。</p>
+    <p>延伸内容：<a href="ttk.html">步枪 / 冲锋枪 TTK 击杀时间排行</a>——弹药穿透等级 × 护甲减伤逐发模拟，附弹药库与判定矩阵。</p>
     <p>《三角洲行动》（Delta Force）游戏名称、地图素材及相关内容版权归腾讯 / 天美工作室群所有。本页面为静态资料整理，仅供个人学习参考，不含任何商业用途。</p>
   </div>
 </footer>
@@ -298,7 +313,7 @@ main{min-width:0;padding-bottom:30px}
 </button>
 
 <div class="lb" id="lb" hidden role="dialog" aria-modal="true" aria-label="地图放大查看">
-  <div class="lb-backdrop" id="lbBackdrop"></div>
+  <div class="lb-backdrop" id="lbBackdrop"><canvas id="fxLb" aria-hidden="true"></canvas></div>
   <figure class="lb-stage" id="lbStage">
     <img class="lb-img" id="lbImg" alt="" draggable="false">
   </figure>
@@ -976,6 +991,86 @@ var main = document.getElementById('main');
 DATA.forEach(function(m, i){ main.appendChild(renderMap(m, i)); });
 setupReveal();
 onScroll();
+})();
+</script>
+<script src="shaders.iife.js"></script>
+<script>
+/* WebGPU 特效层（独立 IIFE，可整体删除回滚；不改既有任何代码；禁一切指针/滚轮/键盘监听） */
+(function () {
+  "use strict";
+  var root = document.documentElement;
+  function fx(s) { try { root.setAttribute('data-fx', s); } catch (e) {} }
+  function markOff(c) { try { c.style.display = 'none'; c.setAttribute('data-fx', 'off'); } catch (e) {} }
+
+  /* root data-fx 单写：初始门 + hero 结算 + hero onError 终态纠正。lb 只写自己 canvas 的 data-fx。 */
+  if (window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches) { fx('reduced'); return; }
+  if (!window.ShadersLib || typeof window.ShadersLib.createShader !== 'function') { fx('fallback'); return; }
+  if (!window.ShadersLib.isWebGPUSupported()) { fx('unsupported'); return; }
+
+  var heroCanvas = document.getElementById('fxHero');
+  var lbCanvas = document.getElementById('fxLb');
+  if (!heroCanvas) { fx('fallback'); return; }
+
+  var HERO_PRESET = { components: [
+    { type: 'Fog', id: 'fx-fog', props: { colorA: '#1c2127', colorB: '#39424d', speed: 0.6, turbulence: 1.2, detail: 15, blending: 0.3, mouseInfluence: 0 } },
+    { type: 'FloatingParticles', id: 'fx-dust', props: { particleColor: '#d9a45c', count: 600, particleSize: 1.4, speed: 0.22, angle: 90, speedVariance: 0.3, angleVariance: 30, randomness: 0.25, twinkle: 0.6, cursorStrength: 0 } }
+  ]};
+  var LB_PRESET = { components: [
+    { type: 'Fog', id: 'fx-lbfog', props: { colorA: '#05070a', colorB: '#141a21', speed: 0.35, turbulence: 0.8, detail: 10, blending: 0.5, mouseInfluence: 0 } },
+    { type: 'FilmGrain', id: 'fx-grain', props: { strength: 0.28, bias: 2.5, animated: true } }
+  ]};
+  if (matchMedia('(pointer: coarse)').matches) { HERO_PRESET.components[1].props.count = 300; }
+
+  function build(canvas, preset, isHero) {
+    return window.ShadersLib.getWebGPUSupport().then(function (sup) {
+      if (!sup || !sup.supported) return { sh: null, why: 'unsupported' }; /* 交调用方结算 */
+      return window.ShadersLib.createShader(canvas, preset, {
+        disableTelemetry: true,
+        onError: function () { markOff(canvas); if (isHero) fx('fallback'); } /* 终态纠正，唯一后期 root 写入 */
+      }).then(function (sh) {
+        /* 加固：库若 resolve null（不 reject 也不触发 onError 的理论路径），不得误标 data-fx='on' */
+        if (!sh || sh.getFailureReason()) { markOff(canvas); return { sh: null, why: sh ? 'failed:' + sh.getFailureReason() : 'null-resolved' }; }
+        canvas.setAttribute('data-fx', 'on');
+        return { sh: sh, why: null };
+      });
+    }).catch(function () { markOff(canvas); return { sh: null, why: 'error' }; });
+  }
+
+  /* hero：可见才跑 */
+  var heroSh = null, heroVis = true;
+  function pumpHero() { if (heroSh) { (heroVis && !document.hidden) ? heroSh.resume() : heroSh.pause(); } }
+  if ('IntersectionObserver' in window) {
+    new IntersectionObserver(function (ens) { heroVis = ens[0].isIntersecting; pumpHero(); }, { threshold: 0 })
+      .observe(heroCanvas.parentElement || heroCanvas);
+  }
+  build(heroCanvas, HERO_PRESET, true).then(function (r) {
+    heroSh = r.sh;
+    if (r.sh) fx('on'); else fx(r.why === 'unsupported' ? 'unsupported' : 'fallback');
+    pumpHero();
+  });
+
+  /* lightbox：html.locked 驱动（既有 open L897 加 / close L914 删），惰性首建 + 防重入 + 双向状态同步 */
+  var lbSh = null, lbBuilding = false;
+  function syncLb() {
+    if (lbSh) { (root.classList.contains('locked') && !document.hidden) ? lbSh.resume() : lbSh.pause(); }
+  }
+  if (lbCanvas && 'MutationObserver' in window) {
+    new MutationObserver(function () {
+      var open = root.classList.contains('locked');
+      if (open && !lbSh && !lbBuilding) {
+        lbBuilding = true;
+        build(lbCanvas, LB_PRESET, false).then(function (r) {
+          lbSh = r.sh; lbBuilding = false;
+          syncLb();                        /* 完成时按当前 locked 决定 pause/resume */
+        });
+      } else {
+        syncLb();                          /* R3 修复点：lbSh 已建成时再次 open 走此分支 resume；
+                                              build 飞行中重复 open 为 no-op；close 一律 pause。
+                                              缺此行 = 二次打开永久静帧（R2 回归，已实测复现与修复）。 */
+      }
+    }).observe(root, { attributes: true, attributeFilter: ['class'] });
+  }
+  document.addEventListener('visibilitychange', function () { pumpHero(); syncLb(); });
 })();
 </script>
 </body>
