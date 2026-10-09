@@ -2,3 +2,5 @@
 shots/
 *.png
 .playwright-mcp/
+node_modules/
+dist/

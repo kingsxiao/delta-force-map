@@ -1,0 +1,159 @@
+<script setup>
+// InfoCard.vue — 标注信息卡（工程师A）：legacy openCard（L667-711）的声明式版本。
+// 带 gl 的物资点附爆率行；带 gs 的出生点附「展开对应打法卡」联动（gs → guide.spawns[gs]，
+// legacy L691）。展开/收起后 emit('expand') 交父级重算卡片定位（legacy 内直接 positionCard）。
+import { ref, computed } from 'vue'
+import { HS_TYPES, HS_TCOL } from '../../composables/useViewer'
+
+const props = defineProps({
+  spot: { type: Object, default: null },
+  map: { type: Object, required: true },
+})
+const emit = defineEmits(['close', 'expand'])
+
+const exp = ref(false)
+const lootRow = computed(() =>
+  props.spot && props.spot.gl != null && props.map.loot && props.map.loot[props.spot.gl]
+    ? props.map.loot[props.spot.gl]
+    : null,
+)
+const guideSpawn = computed(() =>
+  props.spot && props.spot.gs != null && props.map.guide.spawns[props.spot.gs]
+    ? props.map.guide.spawns[props.spot.gs]
+    : null,
+)
+
+function spawnKvs(g) {
+  return [
+    ['打法思路', g.plan],
+    ['需要注意', g.watchOut],
+    ['能抽过点的位置', g.angles],
+    ['哪里要封烟', g.smoke],
+  ]
+}
+
+function toggleExp() {
+  exp.value = !exp.value
+  emit('expand', exp.value)
+}
+</script>
+
+<template>
+  <aside v-if="spot" class="hs-card" :class="{ exp }">
+    <div class="hd">
+      <span class="tag" :style="{ background: HS_TCOL[spot.type] }">{{ HS_TYPES[spot.type] }}</span>
+      <button
+        class="x"
+        type="button"
+        aria-label="关闭"
+        title="关闭"
+        @pointerdown.stop
+        @click="$emit('close')"
+      >
+        ✕
+      </button>
+    </div>
+    <h4>{{ spot.name }}</h4>
+    <p class="note">{{ spot.note }}</p>
+
+    <div v-if="lootRow" class="rows">
+      <div class="kv">
+        <div class="kv-label">主要产出</div>
+        <p>{{ lootRow.items }}</p>
+      </div>
+      <div class="kv">
+        <div class="kv-label">爆率与依据</div>
+        <p>{{ lootRow.rate }}</p>
+      </div>
+    </div>
+
+    <template v-if="guideSpawn">
+      <button class="more-btn" type="button" @click="toggleExp">
+        {{ exp ? '收起打法卡' : '展开对应打法卡' }}
+      </button>
+      <div class="hs-more">
+        <div class="rows">
+          <div v-for="kv in spawnKvs(guideSpawn)" :key="kv[0]" class="kv">
+            <div class="kv-label">{{ kv[0] }}</div>
+            <p>{{ kv[1] || '—' }}</p>
+          </div>
+        </div>
+      </div>
+    </template>
+  </aside>
+</template>
+
+<style scoped>
+/* legacy CSS L112-135（.hs-card），取值令牌化 */
+.hs-card {
+  position: absolute;
+  z-index: 6;
+  width: min(300px, 88%);
+  background: var(--panel-solid);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  pointer-events: auto;
+  max-height: 64%;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+.hd { display: flex; align-items: center; gap: var(--sp-2); padding: 10px 12px 0; }
+.tag {
+  flex: none;
+  font-family: var(--mono);
+  font-size: var(--fs-micro);
+  letter-spacing: .14em;
+  padding: 2.5px 8px;
+  border-radius: var(--radius-pill);
+  color: var(--bg);
+  font-weight: 700;
+}
+.x {
+  margin-left: auto;
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--faint);
+  cursor: pointer;
+  font-size: var(--fs-xs);
+  line-height: 1;
+  padding: 0;
+  transition: color var(--t-fast), background var(--t-fast);
+}
+.x:hover { color: var(--tx); background: var(--lift); }
+h4 { font-size: var(--fs-sm); line-height: 1.5; margin: 9px 12px 0; padding-right: 16px; font-weight: 600; color: var(--tx-strong); }
+.note { margin: 6px 0 0; padding: 0 12px 11px; font-size: var(--fs-xs); color: var(--dim); line-height: 1.7; }
+.rows { border-top: 1px solid var(--line2); }
+.kv { padding: 8px 12px; }
+.kv + .kv { border-top: 1px solid var(--line2); }
+.kv-label {
+  font-family: var(--mono);
+  font-size: var(--fs-micro);
+  letter-spacing: .22em;
+  color: var(--accent);
+  margin-bottom: 4px;
+}
+.kv p { margin: 0; font-size: var(--fs-xs); color: var(--dim); line-height: 1.65; text-align: justify; }
+.more-btn {
+  display: block;
+  width: calc(100% - 24px);
+  margin: 0 12px 10px;
+  padding: 6px 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: none;
+  color: var(--accent);
+  font-size: var(--fs-xs);
+  letter-spacing: .06em;
+  cursor: pointer;
+  transition: border-color var(--t-fast), background var(--t-fast);
+}
+.more-btn:hover { border-color: var(--accent-dim); background: var(--accent-bg); }
+.hs-more { display: none; }
+.exp .hs-more { display: block; }
+.exp .more-btn { color: var(--faint); border-color: var(--line2); }
+</style>

@@ -1,0 +1,82 @@
+<script setup>
+// HotspotLayer.vue — 标注层（工程师A）：按 x/y 百分比渲染 .hs 按钮（点击判定由
+// useViewer 的 vp 指针 tap 逻辑通过 closest('.hs')+dataset.i 完成，与 legacy 一致）；
+// 类型图层开关经 hidden 对象映射为 .hide-* 类（legacy L645-666）。
+import { HS_TYPES } from '../../composables/useViewer'
+
+defineProps({
+  hs: { type: Array, required: true },
+  active: { type: Number, default: -1 },
+  hidden: { type: Object, required: true }, // { spawn, extract, boss, loot } -> bool
+})
+</script>
+
+<template>
+  <div
+    class="hs-layer"
+    :class="{
+      'hide-spawn': hidden.spawn,
+      'hide-extract': hidden.extract,
+      'hide-boss': hidden.boss,
+      'hide-loot': hidden.loot,
+    }"
+  >
+    <button
+      v-for="(sp, i) in hs"
+      :key="i"
+      type="button"
+      class="hs"
+      :class="['t-' + sp.type, { active: active === i }]"
+      :style="{ left: sp.x * 100 + '%', top: sp.y * 100 + '%' }"
+      :data-i="i"
+      :aria-label="(HS_TYPES[sp.type] || sp.type) + '：' + sp.name"
+    >
+      <i></i>
+    </button>
+  </div>
+</template>
+
+<style scoped>
+/* legacy CSS L87-96 原样 */
+.hs-layer { position: absolute; inset: 0; pointer-events: none; }
+.hs {
+  position: absolute;
+  width: 15px;
+  height: 15px;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  pointer-events: auto;
+  transform: translate(-50%, -50%) scale(var(--inv, 1));
+}
+.hs i {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: var(--hc);
+  border: 1.5px solid rgba(9, 12, 15, 0.9);
+  box-shadow: 0 0 0 1.5px rgba(240, 244, 247, 0.85), 0 1px 5px rgba(0, 0, 0, 0.6);
+  transition: box-shadow 0.15s;
+}
+.hs.t-spawn { --hc: var(--hs-spawn); }
+.hs.t-spawn i { border-radius: 50%; }
+.hs.t-extract { --hc: var(--hs-extract); }
+.hs.t-extract i { border-radius: 3px; }
+.hs.t-loot { --hc: var(--hs-loot); }
+.hs.t-loot i { border-radius: 2px; transform: rotate(45deg) scale(0.86); }
+.hs.t-boss { --hc: var(--hs-boss); width: 17px; height: 17px; }
+.hs.t-boss i {
+  border-radius: 50%;
+  box-shadow: 0 0 0 1.5px rgba(240, 244, 247, 0.85), 0 0 0 3.5px color-mix(in srgb, var(--hs-boss) 35%, transparent), 0 1px 5px rgba(0, 0, 0, 0.6);
+}
+.hs:hover i,
+.hs.active i {
+  box-shadow: 0 0 0 1.5px rgba(240, 244, 247, 0.85), 0 0 0 4px rgba(240, 244, 247, 0.28), 0 2px 8px rgba(0, 0, 0, 0.7);
+}
+.hs-layer.hide-spawn .t-spawn,
+.hs-layer.hide-extract .t-extract,
+.hs-layer.hide-boss .t-boss,
+.hs-layer.hide-loot .t-loot { display: none; }
+</style>

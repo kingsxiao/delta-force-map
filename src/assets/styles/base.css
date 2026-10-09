@@ -1,0 +1,244 @@
+/* ============================================================
+   base.css — 全站设计令牌 + 基础样式
+   设计语言：深色战术指挥台。蓝黑中性阶 + 唯一冷钢青主色 + 等宽字标签体系；
+   护甲/穿透等级色为游戏语义色（1白 2绿 3蓝 4紫 5金 6红），统一收编为
+   --lv* 变量并轻微降饱和，使其融入深色基调。
+   约定：全站样式只从这里取值（var(--xxx)）；字号/间距/圆角/阴影/动效一律走变量。
+   中性阶取值沿用 legacy/index.html :root（L11-16）；主色自 v2 起为冷钢青
+   #2dd4bf（初版琥珀 #d9a45c 已弃用，仅存于 legacy 留档）。
+   ============================================================ */
+
+:root {
+  /* ---- 中性色阶（背景 → 前景，蓝黑基调） ---- */
+  --bg: #0d1013;          /* 页面最底色 */
+  --bg2: #11151a;         /* 次级背景（顶栏/带状区） */
+  --card: #151a20;        /* 卡片面 */
+  --card2: #1a2028;       /* 卡片强调面 / 分段控件选中面 */
+  --line: #262d35;        /* 主分隔线 / 卡片描边 */
+  --line2: #1d232a;       /* 弱分隔线 */
+  --line-hover: #343e48;  /* 卡片 / 图框 hover 描边 */
+  --tx-strong: #f0f4f7;   /* 标题 / 强数字 */
+  --tx: #d9dee3;          /* 主文字 */
+  --dim: #9aa4ad;         /* 次级文字 */
+  --faint: #7e8890;       /* 弱化文字/标注（card 上 ≥ 4.5:1） */
+
+  /* ---- 叠层面板（吸顶控件 / 地图内浮层） ---- */
+  --panel: rgba(17, 21, 26, .92);       /* 吸顶控制面板 */
+  --scrim: rgba(9, 12, 15, .74);        /* 地图内 chips / 按钮 */
+  --panel-solid: #12171d;               /* 信息卡等不透明浮层 */
+
+  /* ---- 主色（冷钢青，唯一强调色） ---- */
+  --accent: #2dd4bf;
+  --accent-dim: rgba(45, 212, 191, .38);
+  --accent-bg: rgba(45, 212, 191, .09);
+  --accent-hover: rgba(45, 212, 191, .15);
+  --deep: #07090b;   /* 地图图框底色（衬卫星图） */
+
+  /* ---- 护甲/穿透等级语义色（游戏内 1白 2绿 3蓝 4紫 5金 6红；轻微降饱和） ---- */
+  --lv0: #79828b;
+  --lv1: #bfc7cf;
+  --lv2: #85b578;
+  --lv3: #619fce;
+  --lv4: #9d82cf;
+  --lv5: #e3b25e;   /* 金级（金甲），游戏语义色，不再跟随主色 */
+  --lv6: #d96a59;
+
+  /* ---- 地图标注类型色（复用等级色板，保证全站只有一套功能色） ---- */
+  --hs-spawn: var(--lv2);     /* 出生 */
+  --hs-extract: var(--accent); /* 撤离 */
+  --hs-boss: var(--lv6);      /* Boss */
+  --hs-loot: var(--lv3);      /* 物资 */
+
+  /* ---- 反馈 / 数据色 ---- */
+  --ok: var(--lv2);
+  --warn: var(--lv5);
+  --danger: var(--lv6);
+  --info: var(--lv3);
+
+  /* ---- 行为色（斑马纹 / 悬浮） ---- */
+  --zebra: rgba(255, 255, 255, .016);
+  --row-hover: rgba(255, 255, 255, .03);
+  --lift: rgba(255, 255, 255, .04);   /* 通用 hover 面 */
+
+  /* ---- 字体 ---- */
+  --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "SF Pro SC", "PingFang SC", "Hiragino Sans GB", "Segoe UI", "Microsoft YaHei", sans-serif;
+
+  /* ---- 字号阶梯 ---- */
+  --fs-micro: 10px;  /* 表头微标注 / 角标 */
+  --fs-2xs: 11px;    /* kicker / 表头 / meta */
+  --fs-xs: 12px;     /* 辅助说明 / chips */
+  --fs-sm: 13px;     /* 表格正文 / 次级正文 */
+  --fs-md: 14px;     /* 正文基准 */
+  --fs-lg: 16px;     /* 大号正文 / lede / 卡片标题 */
+  --fs-xl: 20px;     /* 小节标题 */
+  --fs-2xl: 26px;    /* 页面标题下限 / 数据大数 */
+  --fs-display: 24px;/* 数据展示大数（champ TTK 等） */
+  --fs-3xl: 34px;    /* 页面标题上限 */
+
+  /* ---- 行高 ---- */
+  --lh-tight: 1.3;
+  --lh-body: 1.7;
+
+  /* ---- 间距尺度 ---- */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 24px;
+  --sp-6: 32px;
+  --sp-7: 48px;
+  --sp-8: 64px;
+
+  /* ---- 圆角 ---- */
+  --radius-sm: 6px;    /* 徽标 / 分段选中面 */
+  --radius: 8px;       /* 按钮 / 输入 */
+  --radius-lg: 12px;   /* 卡片 / 面板 / 图框 */
+  --radius-pill: 999px;/* 胶囊 chips / 标签 */
+
+  /* ---- 阴影（深色柔和，三层） ---- */
+  --shadow-sm: 0 2px 10px rgba(0, 0, 0, .28);
+  --shadow-md: 0 8px 30px rgba(0, 0, 0, .35);
+  --shadow-lg: 0 14px 44px rgba(0, 0, 0, .55);
+
+  /* ---- 动效（微交互 ≤ 220ms；大面板展开/入场属页面级动画，另行取值） ---- */
+  --t-fast: .15s;
+  --t-med: .18s;
+  --t-slow: .22s;
+  --ease: cubic-bezier(.22, .61, .36, 1);
+
+  /* ---- 布局 / 层级 ---- */
+  --wrap: 1240px;         /* .wrap 内容最大宽 */
+  --z-header: 50;
+  --z-backtop: 80;
+  --z-lightbox: 100;
+}
+
+/* ---- 基础重置（沿用 legacy 全局行为） ---- */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: smooth; }
+/* Lightbox 打开锁滚动：verify-effects.mjs 依赖 html.locked 的加/删，勿删此规则 */
+html.locked { overflow: hidden; }
+body {
+  font-family: var(--sans);
+  background: var(--bg);
+  color: var(--tx);
+  font-size: var(--fs-md);
+  line-height: var(--lh-body);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  background-image: radial-gradient(1100px 420px at 50% -120px, #171d24 0%, var(--bg) 62%);
+  background-repeat: no-repeat;
+}
+::selection { background: rgba(45, 212, 191, .28); }
+a { color: inherit; }
+button { font-family: inherit; }
+:focus { outline: none; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+
+/* 细滚动条（深色，避免系统亮色滚动条破坏基调） */
+* { scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
+*::-webkit-scrollbar { width: 8px; height: 8px; }
+*::-webkit-scrollbar-thumb { background: var(--line); border-radius: 4px; }
+*::-webkit-scrollbar-thumb:hover { background: var(--line-hover); }
+*::-webkit-scrollbar-track { background: transparent; }
+
+/* ---- 通用布局 ---- */
+.wrap { max-width: var(--wrap); margin: 0 auto; padding: 0 28px; }
+
+/* ---- 页面级入场（useReveal 加 .in；各视图不再重复定义） ---- */
+.reveal { opacity: 0; transform: translateY(12px); transition: opacity .5s ease, transform .5s var(--ease); }
+.reveal.in { opacity: 1; transform: none; }
+@media (prefers-reduced-motion: reduce) {
+  .reveal { opacity: 1; transform: none; transition: none; }
+}
+
+/* ---- 小节标题（地图页 / TTK 页共用）：等宽字 + 拉线 + 右注 ---- */
+.block-h { display: flex; align-items: center; gap: var(--sp-3); margin: var(--sp-7) 0 var(--sp-4); }
+.bht {
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  letter-spacing: .26em;
+  color: var(--dim);
+  font-weight: 400;
+  white-space: nowrap;
+}
+.bhline { flex: 1; height: 1px; background: var(--line2); }
+.bhc { font-family: var(--mono); font-size: var(--fs-2xs); color: var(--faint); white-space: nowrap; }
+
+/* ---- 页头通用（三页同构）：眉题 / 大标题 / 导语 / 数据说明 ---- */
+.kicker {
+  font-family: var(--mono);
+  font-size: var(--fs-2xs);
+  letter-spacing: .42em;
+  color: var(--accent);
+  margin-bottom: 18px;
+}
+.site-head h1,
+.page-head h1 {
+  font-size: clamp(var(--fs-2xl), 4vw, var(--fs-3xl));
+  font-weight: 700;
+  letter-spacing: .02em;
+  line-height: 1.25;
+  color: var(--tx-strong);
+}
+.lede {
+  margin-top: 14px;
+  max-width: 680px;
+  color: var(--dim);
+  font-size: var(--fs-lg);
+  line-height: 1.8;
+}
+.meta {
+  margin-top: 14px;
+  font-family: var(--mono);
+  font-size: var(--fs-2xs);
+  color: var(--faint);
+  letter-spacing: .06em;
+}
+
+/* ---- 数据表基座（爆率表 / 弹药库 / 护甲一览共用）：表头 + 斑马纹 + 数字对齐 ---- */
+.tbl {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+}
+.tbl th {
+  font-family: var(--mono);
+  font-weight: 400;
+  font-size: var(--fs-2xs);
+  letter-spacing: .16em;
+  color: var(--faint);
+  text-align: left;
+  padding: 10px 10px 8px;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+.tbl td {
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--line2);
+  vertical-align: middle;
+  line-height: 1.65;
+}
+.tbl tbody tr { transition: background var(--t-fast); }
+.tbl tbody tr:nth-child(even) { background: var(--zebra); }
+.tbl tbody tr:hover { background: var(--row-hover); }
+.tbl tbody tr:last-child td { border-bottom: 0; }
+.tbl .mono { font-family: var(--mono); font-size: var(--fs-xs); color: var(--dim); font-variant-numeric: tabular-nums; }
+.tbl .strong { color: var(--tx-strong); font-weight: 600; }
+.tbl .dimtx { color: var(--dim); }
+.tbl .dimc { color: var(--faint); }
+.tbl th.num, .tbl td.num { text-align: right; font-variant-numeric: tabular-nums; }
+@media (prefers-reduced-motion: reduce) {
+  .tbl tbody tr { transition: none; }
+}
+
+/* ---- 占位视图（迁移期遗留，新视图自带样式） ---- */
+.view-ph { padding: var(--sp-8) 0 var(--sp-7); }
+.view-ph-title {
+  font-size: var(--fs-2xl);
+  font-weight: 600;
+  color: var(--tx);
+  letter-spacing: .02em;
+}
