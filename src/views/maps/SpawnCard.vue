@@ -1,24 +1,27 @@
 <script setup>
 // SpawnCard.vue — 出生点五段卡（工程师A）：legacy makeSpawn（L443-462）的声明式版本。
-// 打法思路 / 需要注意 / 能抽过点的位置 / 哪里要封烟 四宫格；默认收起，点击头行切换。
+// 打法思路 / 注意事项 / 可架枪点位 / 需封烟路段 四宫格；默认收起，点击头行切换；
+// 首张卡由父级 MapDetail 传 default-open 展开（§6.2）。
+// 入场不挂 .reveal——由父级 .spawn-list reveal-group 容器按 --ri 错峰驱动（§7.3）。
 import { ref } from 'vue'
 
-defineProps({
+const props = defineProps({
   spawn: { type: Object, required: true }, // { name, plan, watchOut, angles, smoke }
+  defaultOpen: { type: Boolean, default: false },
 })
 
-const open = ref(false)
+const open = ref(props.defaultOpen)
 
 const KVS = (s) => [
   ['打法思路', s.plan],
-  ['需要注意', s.watchOut],
-  ['能抽过点的位置', s.angles],
-  ['哪里要封烟', s.smoke],
+  ['注意事项', s.watchOut],
+  ['可架枪点位', s.angles],
+  ['需封烟路段', s.smoke],
 ]
 </script>
 
 <template>
-  <article class="spawn-card reveal" :class="{ open }">
+  <article class="spawn-card" :class="{ open }">
     <button class="spawn-head" type="button" :aria-expanded="String(open)" @click="open = !open">
       <span class="spawn-name">{{ spawn.name }}</span>
       <svg class="chev" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
@@ -39,16 +42,17 @@ const KVS = (s) => [
 </template>
 
 <style scoped>
-/* legacy CSS L172-193（spawn cards），取值令牌化；.reveal 走 base.css 全局 */
+/* legacy CSS L172-193（spawn cards），取值令牌化；卡片基底同 §5.2（面差+描边+顶缘高光） */
 .spawn-list { display: flex; flex-direction: column; gap: 10px; }
 .spawn-card {
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
   background: var(--card);
   overflow: clip;
-  transition: border-color var(--t-med);
+  box-shadow: var(--edge-light);
+  transition: border-color var(--t-med), box-shadow var(--t-med);
 }
-.spawn-card:hover { border-color: var(--line-hover); }
+.spawn-card:hover { border-color: var(--line-hover); box-shadow: var(--edge-light), inset 0 0 0 1px rgba(255, 255, 255, .02); }
 .spawn-card.open { border-color: var(--line-hover); }
 .spawn-head {
   display: flex;
@@ -87,8 +91,8 @@ const KVS = (s) => [
   color: var(--accent);
   margin-bottom: 8px;
 }
-.kv p { font-size: var(--fs-sm); color: var(--dim); line-height: 1.85; text-align: justify; margin: 0; }
-@media (max-width: 700px) {
+.kv p { font-size: var(--fs-sm); color: var(--dim); line-height: 1.85; text-align: left; margin: 0; }
+@media (max-width: 680px) {
   .spawn-grid { grid-template-columns: 1fr; }
   .spawn-grid .kv:nth-child(odd) { border-right: 0; }
   .spawn-grid .kv:nth-child(-n + 2) { border-top: 1px solid var(--line2); }

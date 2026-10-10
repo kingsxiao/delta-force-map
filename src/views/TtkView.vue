@@ -1,15 +1,16 @@
 <script setup>
 /* ============================================================
-   TtkView — TTK 击杀时间排行（/ttk）
+   TtkView — TTK 排行 · 全枪械（/ttk）
    自 legacy/ttk.html 迁移：数据/模型在 src/data/ttk/*（68 枪全组合对拍 7791 例逐值一致），
-   交互口径：部位（胸/腹/头）多选、目标护甲 0-6 多选、类别（7 兵种）多选、
-   子弹模式（最佳/全部）单选 + 穿透等级多选、排序（TTK/发数，#ctrl 内 segSort 与
-   rank-meta 内 segSort2 双控件同绑 state.sort）；
-   多选即叠加场景：列表按"枪 × 弹 × 部位 × 护甲"展开，
-   "每枪最佳弹药"模式每枪每场景取最快一发行。
-   排行行点开懒加载逐发模拟、弹药库全表、穿透×护甲判定矩阵。
+   交互口径：部位（胸/腹/头）多选、目标护甲 0-6 多选、类别（7 类武器）多选、
+   弹药模式（每枪最佳/全部组合）单选 + 穿透等级多选、排序（TTK/发数）单选；
+   多选即叠加场景：列表按「枪 × 弹 × 部位 × 护甲」展开，
+   「每枪最佳弹药」模式每枪每场景取最快一发行。
+   排行行点开懒加载逐发模拟、弹药库全表（默认收起）、穿透×护甲判定矩阵。
+   入场统一走 useReveal；rank-list / champs 容器挂 reveal-group 行级级联（§7.3）。
    ============================================================ */
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { useReveal } from '../composables/useReveal'
 import ControlSeg from './ttk/ControlSeg.vue'
 import ChampCards from './ttk/ChampCards.vue'
 import RankRow from './ttk/RankRow.vue'
@@ -39,7 +40,7 @@ const ARMOR_SEGS = [
   { v: 5, label: '5', dot: 'var(--lv5)' },
   { v: 6, label: '6', dot: 'var(--lv6)' },
 ]
-/* 兵种元信息（legacy CLS_META L704-712 原样）：类别段与场景最快卡共用 */
+/* 类别元信息（7 类武器，legacy CLS_META L704-712 原样）：类别段与场景最快卡共用 */
 const CLS_META = [
   { k: 'ar', zh: '步枪', en: 'AR' },
   { k: 'smg', zh: '冲锋枪', en: 'SMG' },
@@ -51,7 +52,7 @@ const CLS_META = [
 ]
 const CLASS_SEGS = [{ v: 'all', label: '全部' }].concat(CLS_META.map((m) => ({ v: m.k, label: m.zh })))
 const AMMO_MODE_SEGS = [
-  { v: 'best', label: '每枪最佳弹药', title: '每把枪在每个场景取符合筛选的弹药中最快的一发弹' },
+  { v: 'best', label: '每枪最佳弹药', title: '每枪取当前筛选下最快的一种弹药' },
   { v: 'full', label: '全部枪弹组合', title: '每把枪的每种可用弹药各占一行' },
 ]
 const PEN_SEGS = [
@@ -63,14 +64,14 @@ const PEN_SEGS = [
   { v: 4, label: '4', dot: 'var(--lv4)', title: '4 级穿透弹' },
   { v: 5, label: '5', dot: 'var(--lv5)', title: '5 级穿透弹（金弹）' },
   { v: 6, label: '6', dot: 'var(--lv6)', title: '6 级穿透弹' },
-  { v: 7, label: '7', dot: 'linear-gradient(135deg, var(--lv6), color-mix(in srgb, var(--lv6) 62%, var(--bg)))', title: '7 级穿透弹（全游戏仅 AWM / M82 可用）' },
+  { v: 7, label: '7', dot: 'var(--lv6)', title: '7 级穿透弹（全游戏仅 AWM / M82 可用）' },
 ]
 const SORT_SEGS = [
   { v: 'ttk', label: 'TTK' },
   { v: 'btk', label: '发数' },
 ]
 
-/* ---------- 状态：部位/护甲/类别/穿透等级均为多选（数组），子弹模式与排序单选 ---------- */
+/* ---------- 状态：部位/护甲/类别/穿透等级均为多选（数组），弹药模式与排序单选 ---------- */
 const state = reactive({ parts: ['chest'], armors: [5], cls: [], ammoMode: 'best', pens: [], sort: 'ttk' })
 
 /* 多选更新回调：部位/护甲至少保留一项；
@@ -169,15 +170,19 @@ const rankCountText = computed(() => {
   return bits.join(' · ')
 })
 
-/* 场景最快卡（legacy renderChamps L917-941：ALL + 所选类别各一张） */
+/* 场景最快卡（§6.3：收敛为 ALL + ≤3 张，一行 4 卡）：有类别筛选取所选类别前 3，
+   无类别筛选固定 步枪 / 冲锋枪 / 狙击枪 三张 */
 const champPicks = computed(() => {
   const combos = allCombos.value
+  if (!combos.length) return []
   const best = (list) => list.reduce((m, c) => (c.ttk < m.ttk ? c : m), list[0])
-  const picks = []
-  if (combos.length) picks.push({ label: '场景最快 · ALL', c: best(combos), top: true })
-  for (const m of CLS_META) {
-    if (state.cls.length && !state.cls.includes(m.k)) continue
-    const list = combos.filter((c) => c.gun.cls === m.k)
+  const picks = [{ label: '场景最快 · ALL', c: best(combos), top: true }]
+  const ks = state.cls.length
+    ? CLS_META.filter((m) => state.cls.includes(m.k)).slice(0, 3).map((m) => m.k)
+    : ['ar', 'smg', 'snp']
+  for (const k of ks) {
+    const m = CLS_META.find((x) => x.k === k)
+    const list = combos.filter((c) => c.gun.cls === k)
     if (list.length) picks.push({ label: m.zh + '最快 · ' + m.en, c: best(list) })
   }
   for (const p of picks) p.scen = scenLabel(p.c)
@@ -190,9 +195,9 @@ const hintText = computed(() => {
   if (state.parts.length === 1 && PARTS[state.parts[0]].hint) bits.push(PARTS[state.parts[0]].hint)
   if (state.armors.includes(6)) {
     if (state.parts.includes('head'))
-      bits.push('6 级头只有 6 级弹可对穿（同级 50%）；5 级金弹打红盔已是低一级，需先碎 60 耐久头盔。')
+      bits.push('6 级头只有 6 级弹可对穿（同级 50%）；5 级金弹打红盔已是低一级，需先击碎头盔 60 点耐久。')
     else if (state.parts.length === 1)
-      bits.push('6 级甲只有 6 级弹可对穿（同级 50%）；5 级弹打红甲已是低一级，需先碎甲 150 耐久。')
+      bits.push('6 级甲只有 6 级弹可对穿（同级 50%）；5 级弹打红甲已是低一级，需先击碎护甲 150 点耐久。')
   }
   if (state.pens.length) {
     bits.push(
@@ -203,7 +208,7 @@ const hintText = computed(() => {
       .map((g) => g.zh)
     if (miss.length) {
       const show = miss.slice(0, 8).join('、') + (miss.length > 8 ? ' 等 ' + miss.length + ' 把' : '')
-      bits.push(miss.length + ' 把枪无所选等级弹药未入列：' + show + '。')
+      bits.push('以下 ' + miss.length + ' 把枪没有所选等级的弹药，未进入排行：' + show + '。')
     }
   }
   if (state.parts.length === 1 && state.parts[0] === 'chest' && state.armors.length === 1 && state.armors[0] > 0)
@@ -211,11 +216,16 @@ const hintText = computed(() => {
   return bits.join(' ')
 })
 
-/* ---------- 弹药库（装配一次、展开态不随筛选重置，legacy L968 同口径） ---------- */
+/* ---------- 弹药库（装配一次、展开态不随筛选重置；默认全收起，§6.3） ---------- */
 const ammoKeys = Object.keys(CAL)
 const ammoTotal = ammoKeys.reduce((s, k) => s + CAL[k].ammo.length, 0)
 const ammoCountText = ammoKeys.length + ' 种口径 · ' + ammoTotal + ' 种弹药'
-const ammoOpen = reactive(Object.fromEntries(ammoKeys.map((k) => [k, true])))
+const ammoOpen = reactive(Object.fromEntries(ammoKeys.map((k) => [k, false])))
+const ammoAllOpen = computed(() => ammoKeys.every((k) => ammoOpen[k]))
+function toggleAllAmmo() {
+  const next = !ammoAllOpen.value
+  for (const k of ammoKeys) ammoOpen[k] = next
+}
 
 /* ---------- 静态折叠块开关（legacy 初始态：矩阵/护甲表/方法开，头盔/来源收） ---------- */
 const matrixOpen = ref(true)
@@ -224,34 +234,19 @@ const helmetOpen = ref(false)
 const methodOpen = ref(true)
 const sourceOpen = ref(false)
 
-/* ---------- reveal 入场（legacy 尾部 IntersectionObserver 同参） ---------- */
+/* ---------- 入场（§6.4：三页统一走 useReveal）与页标题 ---------- */
 const rootEl = ref(null)
-const PAGE_TITLE = '三角洲行动 · TTK 击杀时间排行（全枪械）'
-let io = null
+const PAGE_TITLE = '三角洲行动 · TTK 排行（全枪械）'
+const { observeRoot } = useReveal()
 let prevTitle = ''
 
 onMounted(() => {
   prevTitle = document.title
   document.title = PAGE_TITLE
-  const els = rootEl.value ? rootEl.value.querySelectorAll('.reveal') : []
-  const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-  if (!('IntersectionObserver' in window) || reduced) {
-    els.forEach((n) => n.classList.add('in'))
-    return
-  }
-  io = new IntersectionObserver((entries) => {
-    entries.forEach((en) => {
-      if (en.isIntersecting) {
-        en.target.classList.add('in')
-        io.unobserve(en.target)
-      }
-    })
-  }, { threshold: 0.04, rootMargin: '0px 0px -3% 0px' })
-  els.forEach((n) => io.observe(n))
+  observeRoot(rootEl.value)
 })
 
 onBeforeUnmount(() => {
-  if (io) io.disconnect()
   document.title = prevTitle
 })
 </script>
@@ -262,61 +257,71 @@ onBeforeUnmount(() => {
     <section class="page-head">
       <div class="wrap">
         <p class="kicker">DELTA FORCE · BALLISTICS LAB</p>
-        <h1>TTK 击杀时间排行 · 全枪械</h1>
-        <p class="lede">烽火地带口径下的理论击杀时间（TTK）与击杀所需子弹数（BTK）排行：基于武器面板、全部可用弹药与穿透 × 护甲减伤逐发模拟得出。部位、护甲、类别与穿透等级支持多选叠加，排行即时重算；模拟口径与未计入项见下方「计算口径」一节。</p>
+        <h1>TTK 排行 · 全枪械</h1>
+        <p class="lede">全枪械 × 全弹药 × 各部位与护甲逐发模拟的理论 TTK 与击杀发数排行；筛选多选叠加、即时重算，口径见「计算口径」一节。</p>
         <p class="meta">数据基线 S5 全枪表（2025-07）并补充至 S11（2026-09） · 减伤采用国服社区实测口径 · 非官方数据，仅供研究参考</p>
       </div>
     </section>
 
     <div id="top" class="wrap">
       <section aria-label="TTK 排行">
-        <!-- 控制面板：五组分段控件（legacy #ctrl，另有 rank-meta 内 segSort2 共六组） -->
+        <!-- 控制面板：六组筛选收敛为三行（视觉验收：原六行占满 900px 首屏、排行表不可见；
+             两项的「排序」单独成行右侧留白大）：行1 部位+护甲 · 行2 类别+穿透 · 行3 弹药+排序。
+             弹药与穿透仍不同行（§6.3 两组同款控件并排分不清）；排序并入弹药行——同为两项单选、成对易读 -->
         <div class="ctrl reveal">
           <div class="ctrl-rows">
             <div class="ctrl-row">
-              <span class="ctrl-label">部位</span>
-              <ControlSeg multiple :model-value="state.parts" :items="PART_SEGS" @update:model-value="setParts" />
+              <div class="ctrl-cell">
+                <span class="ctrl-label">部位</span>
+                <ControlSeg multiple :model-value="state.parts" :items="PART_SEGS" @update:model-value="setParts" />
+              </div>
+              <div class="ctrl-cell">
+                <span class="ctrl-label">目标护甲</span>
+                <ControlSeg multiple :model-value="state.armors" :items="ARMOR_SEGS" @update:model-value="setArmors" />
+              </div>
             </div>
             <div class="ctrl-row">
-              <span class="ctrl-label">目标护甲</span>
-              <ControlSeg multiple :model-value="state.armors" :items="ARMOR_SEGS" @update:model-value="setArmors" />
+              <div class="ctrl-cell">
+                <span class="ctrl-label">类别</span>
+                <ControlSeg multiple :model-value="state.cls.length ? state.cls : ['all']" :items="CLASS_SEGS" @update:model-value="setCls" />
+              </div>
+              <div class="ctrl-cell">
+                <span class="ctrl-label">穿透</span>
+                <ControlSeg multiple :model-value="state.pens.length ? state.pens : ['all']" :items="PEN_SEGS" @update:model-value="setPens" />
+              </div>
             </div>
             <div class="ctrl-row">
-              <span class="ctrl-label">类别</span>
-              <ControlSeg multiple :model-value="state.cls.length ? state.cls : ['all']" :items="CLASS_SEGS" @update:model-value="setCls" />
-            </div>
-            <div class="ctrl-row">
-              <span class="ctrl-label">子弹</span>
-              <ControlSeg v-model="state.ammoMode" :items="AMMO_MODE_SEGS" />
-              <ControlSeg multiple :model-value="state.pens.length ? state.pens : ['all']" :items="PEN_SEGS" @update:model-value="setPens" />
-            </div>
-            <div class="ctrl-row">
-              <span class="ctrl-label">排序</span>
-              <ControlSeg v-model="state.sort" :items="SORT_SEGS" />
+              <div class="ctrl-cell">
+                <span class="ctrl-label">弹药</span>
+                <ControlSeg v-model="state.ammoMode" :items="AMMO_MODE_SEGS" />
+              </div>
+              <div class="ctrl-cell">
+                <span class="ctrl-label">排序</span>
+                <ControlSeg v-model="state.sort" :items="SORT_SEGS" />
+              </div>
+              <!-- 行尾右对齐说明（视觉验收：该行选项最少、右侧留白明显大于其余行，用文案补齐行尾） -->
+              <span class="ctrl-note">多选叠加 · 即时重算</span>
             </div>
           </div>
           <p v-if="hintText" class="ctrl-hint">{{ hintText }}</p>
         </div>
 
-        <ChampCards class="reveal" :picks="champPicks" />
+        <!-- reveal-group：行级级联（§7.3）；并挂 reveal 适配 useReveal 现行选择器
+             （其扩入 .reveal-group 后容器上的 reveal 可去；两容器同此口径） -->
+        <ChampCards class="reveal reveal-group" :picks="champPicks" />
 
         <div class="rank-meta reveal">
           <span class="rank-count">{{ rankCountText }}</span>
-          <!-- segSort2：与 #ctrl 内 segSort 同绑 state.sort（legacy L308/L642） -->
-          <div class="rank-sort">
-            <span class="ctrl-label">按</span>
-            <ControlSeg v-model="state.sort" :items="SORT_SEGS" />
-          </div>
         </div>
 
-        <div class="rank-list reveal">
+        <div class="rank-list reveal reveal-group">
           <div class="rk-head">
             <span>#</span>
             <span>武器 / 口径</span>
             <span>弹药</span>
             <span class="num hide-m">射速</span>
             <span class="num hide-m">单发伤</span>
-            <span class="num">击杀</span>
+            <span class="num">击杀发数</span>
             <span class="th-ta">TTK<small>条越长越快</small></span>
           </div>
           <template v-if="rankRows.length">
@@ -332,16 +337,19 @@ onBeforeUnmount(() => {
               @toggle="toggleRow(c)"
             />
           </template>
-          <div v-else class="rk-empty">当前筛选组合下没有可用枪弹：该类别没有使用所选穿透等级（{{ state.pens.length ? state.pens.join('/') : '0-7' }}）的武器，换一个等级或类别试试。</div>
+          <div v-else class="rk-empty">当前筛选下没有可用枪弹：该类别没有所选穿透等级（{{ state.pens.length ? state.pens.join('/') : '0-7' }}）的弹药，换一个等级或类别再试。</div>
         </div>
-        <p class="rank-footnote">点击任意一行可展开该武器可用弹药（受当前子弹筛选限定）的逐发模拟对比。TTK 为首发命中后击倒所需的纯射击时间（不含首发出膛、腰射散布、换弹与网速），仅为站位对枪的理论上限；实战受距离衰减、命中率与压枪水平影响，通常显著更慢。</p>
+        <p class="rank-footnote">点击任意一行，展开该枪全部弹药的逐发对比（受当前穿透筛选限定）。TTK 为首发命中后击倒所需的纯射击时间，不含首发出膛、腰射散布、换弹与网速，是站位对枪的理论上限；实战受距离衰减、命中率与压枪影响，通常显著更慢。</p>
       </section>
 
       <!-- 弹药库 -->
       <h3 id="ammo" class="block-h reveal">
         <span class="bht">弹药库</span><span class="bhline"></span><span class="bhc">{{ ammoCountText }}</span>
       </h3>
-      <p class="sec-lede">全枪械涉及的 20 种口径全部弹药。穿透等级决定对各级护甲的伤害通过率（见下方矩阵），肉伤 / 甲伤系数乘算武器面板。表中"参考单发"为该口径基准枪的面板数值，实际随具体武器浮动。</p>
+      <p class="sec-lede">全枪械涉及的 {{ ammoKeys.length }} 种口径全部弹药。穿透等级决定对各级护甲的伤害通过率（见下方矩阵），肉伤 / 甲伤系数乘算武器面板。表中「参考单发」为该口径基准枪的面板数值，实际随具体武器浮动。</p>
+      <div class="ammo-tools">
+        <button type="button" class="ammo-toggle" @click="toggleAllAmmo">{{ ammoAllOpen ? '收起全部' : '展开全部' }}</button>
+      </div>
       <div class="ammo-list">
         <AmmoTable
           v-for="k in ammoKeys"
@@ -364,9 +372,9 @@ onBeforeUnmount(() => {
 
       <!-- 护甲与头盔 -->
       <h3 id="armor" class="block-h reveal">
-        <span class="bht">护甲与头盔</span><span class="bhline"></span><span class="bhc">6 级体系</span>
+        <span class="bht">护甲与头盔</span><span class="bhline"></span><span class="bhc">耐久与减伤</span>
       </h3>
-      <p class="sec-lede">护甲与头盔共用同一套 1-6 级判定，但耐久各表：躯干按护甲满耐久、头部按头盔满耐久（主流型号口径，见"头盔与部位覆盖"）。实战中残耐久甲会被更快击碎，TTK 介于满耐久与无甲之间。</p>
+      <p class="sec-lede">护甲与头盔共用同一套 1-6 级判定，但耐久各表：躯干按护甲满耐久、头部按头盔满耐久（主流型号口径，见「头盔与部位覆盖」）。实战中残耐久甲会被更快击碎，TTK 介于满耐久与无甲之间。</p>
       <div class="blocks reveal">
         <CollapseCol :open="armorTblOpen" label="护甲等级一览" note="满耐久口径" @toggle="armorTblOpen = !armorTblOpen">
           <div class="tbl-wrap">
@@ -392,11 +400,11 @@ onBeforeUnmount(() => {
                   <td class="dimc">DT-AVS 单品 100，按档位上限计</td><td class="dimc">瞄准 -4% · 移速 -3%</td>
                 </tr>
                 <tr>
-                  <td><PenBadge :p="5" /></td><td class="mono num">125</td><td class="dimtx">FS 复合防弹衣</td>
-                  <td class="dimc">金甲；金头耐久上限约 50</td><td class="dimc">瞄准 -5% · 移速 -3%</td>
+                  <td><PenBadge :p="5" solid /></td><td class="mono num">125</td><td class="dimtx">FS 复合防弹衣</td>
+                  <td class="dimc">金甲；主流金头耐久 50（铁壁 75）</td><td class="dimc">瞄准 -5% · 移速 -3%</td>
                 </tr>
                 <tr>
-                  <td><PenBadge :p="6" /></td><td class="mono num">150</td><td class="dimtx">HA-2 重型 / 特里克 MAS2.0</td>
+                  <td><PenBadge :p="6" solid /></td><td class="mono num">150</td><td class="dimtx">HA-2 重型 / 特里克 MAS2.0</td>
                   <td class="dimc">红甲；仅 6 级弹可对穿（同级 50%）</td><td class="dimc">瞄准 -6% · 移速 -5%</td>
                 </tr>
               </tbody>
@@ -407,15 +415,15 @@ onBeforeUnmount(() => {
         <CollapseCol :open="helmetOpen" label="头盔与部位覆盖" note="眩晕机制" @toggle="helmetOpen = !helmetOpen">
           <div class="method">
             <div class="m-row">
-              <span class="m-num">◆</span>
-              <div class="m-body">头盔与护甲同一等级体系、同一穿透判定，但<strong>耐久远低于同档护甲</strong>（6 级头最硬也只有 60，6 级甲可达 150）。本页"头部"场景假设目标佩戴与所选护甲同级的头盔，按主流型号满耐久计：3 级 40（DAS / MC201）、4 级 48（GT1；D6 上限 55）、5 级 50（GN 重型；Mask-1 铁壁特例 75）、6 级 60（GT5 指挥官 / H70）。头盔型号间耐久差异极大，残耐久头会被更快击穿。</div>
+              <span class="m-num">01</span>
+              <div class="m-body">头盔与护甲同一等级体系、同一穿透判定，但<strong>耐久远低于同档护甲</strong>（6 级头最硬也只有 60，6 级甲可达 150）。本页「头部」场景假设目标佩戴与所选护甲同级的头盔，按主流型号满耐久计：3 级 40（DAS / MC201）、4 级 48（GT1；D6 上限 55）、5 级 50（GN 重型；Mask-1 铁壁特例 75）、6 级 60（GT5 指挥官 / H70）。头盔型号间耐久差异极大，残耐久头会被更快击穿。</div>
             </div>
             <div class="m-row">
-              <span class="m-num">◆</span>
+              <span class="m-num">02</span>
               <div class="m-body">部分头盔<strong>不防护面部与耳部</strong>：裸脸 / 裸耳被击中即使不掉血（被头盔等级挡下）也会触发<strong>眩晕</strong>（屏幕干扰），实战中会显著拉长对方反应时间。</div>
             </div>
             <div class="m-row">
-              <span class="m-num">◆</span>
+              <span class="m-num">03</span>
               <div class="m-body">护甲只覆盖躯干（因型号而异覆盖胸 / 腹），<strong>四肢永远裸露</strong>（伤害 ×0.4，但可被打出流血 / 黑肢）。修复护甲会损失耐久上限；破损甲只要耐久尚存，减伤判定与全新一致。</div>
             </div>
           </div>
@@ -424,7 +432,7 @@ onBeforeUnmount(() => {
 
       <!-- 计算口径 -->
       <h3 id="method" class="block-h reveal">
-        <span class="bht">计算口径</span><span class="bhline"></span><span class="bhc">逐步说明</span>
+        <span class="bht">计算口径</span><span class="bhline"></span><span class="bhc">6 步模型</span>
       </h3>
       <div class="blocks reveal">
         <CollapseCol :open="methodOpen" label="TTK 是怎么算出来的" note="逐发模拟" @toggle="methodOpen = !methodOpen">
@@ -461,7 +469,7 @@ onBeforeUnmount(() => {
 
         <CollapseCol :open="sourceOpen" label="资料来源与已知限制" note="社区口径" @toggle="sourceOpen = !sourceOpen">
           <div class="src-body">
-            <p class="src-p"><strong>来源依据</strong>：武器肉伤 / 甲伤 / 射速以游民星空"树人"S1 全枪表与 TapTap《S5 烽火全枪表》为基线，S6-S11 新枪（MK47、RM277、MDR、AR-57、MCX LT、K437、汤姆逊、MK4、KC17 等）取各自赛季测评；RPM 经 Delta Force Fandom Wiki 全枪表交叉核验一致。减伤判定（0/50/75/100）、部位倍率、100 血模型与 TTK 公式来自 <a href="https://www.taptap.cn/moment/673910625788757239" target="_blank" rel="noopener">TapTap 官方攻略组·护甲系统全面解析</a>、<a href="https://sanjiaozhou.org/newcomers/delta-force-armor-system-guide" target="_blank" rel="noopener">sanjiaozhou.org 护甲机制解析</a>、日升软件等多来源一致的社区实测；弹药型号与穿透等级参考 The Delta Handbook 弹药表、deltagamehub 及 3DM / 游民星空图鉴。2026-10 全兵种扩充（射手步枪 / 狙击枪 / 轻机枪 / 霰弹枪 / 手枪与 7 个新口径）以 orzice 数据站实时面板为主源，经 deltaforcedb、萌娘百科武器库、Delta Force Fandom Wiki 与各赛季官方公告 / 攻略交叉核验。</p>
+            <p class="src-p"><strong>来源依据</strong>：武器肉伤 / 甲伤 / 射速以游民星空「树人」S1 全枪表与 TapTap《S5 烽火全枪表》为基线，S6-S11 新枪（MK47、RM277、MDR、AR-57、MCX LT、K437、汤姆逊、MK4、KC17 等）取各自赛季测评；RPM 经 Delta Force Fandom Wiki 全枪表交叉核验一致。减伤判定（0/50/75/100）、部位倍率、100 血模型与 TTK 公式来自 <a href="https://www.taptap.cn/moment/673910625788757239" target="_blank" rel="noopener">TapTap 官方攻略组·护甲系统全面解析</a>、<a href="https://sanjiaozhou.org/newcomers/delta-force-armor-system-guide" target="_blank" rel="noopener">sanjiaozhou.org 护甲机制解析</a>、日升软件等多来源一致的社区实测；弹药型号与穿透等级参考 The Delta Handbook 弹药表、deltagamehub 及 3DM / 游民星空图鉴。2026-10 全类别扩充（射手步枪 / 狙击枪 / 轻机枪 / 霰弹枪 / 手枪与 7 个新口径）以 orzice 数据站实时面板为主源，经 deltaforcedb、萌娘百科武器库、Delta Force Fandom Wiki 与各赛季官方公告 / 攻略交叉核验。</p>
             <p class="src-p"><strong>已知限制</strong>：官方从未公布完整数值表，本页为社区口径的静态整理，可能与游戏内实际面板有出入；MK4（另有 23/32 一说）与 MK47（另有 30/48 一说）存在来源冲突，MCX LT 甲伤缺实测（取同口径 K437 参考值 35）；.300 BLK 超音速 / 超压弹、5.45 超压、12.7x55 等新弹型号与穿透等级未完全验证；S8-S11 对 SG552、PTR-32、KC17、M7、ASh-12 等有平衡性调整，数值请以游戏内当前面板为准。栓狙三把（R93 / M700 / SV-98）另有旧社区口径 61/58，本表取当前面板 55/53；AA-12 甲伤与弹匣、Marlin RN 弹等级、部分手枪上线赛季未验证；S9-S11 赛季限定功能弹（CT 修脚、5.8 +P 超压、PLY、AP ST、.45 Super 金弹）因穿透等级 / 系数未披露未收录。</p>
             <p class="src-p"><strong>时效</strong>：整理于 2026-10。武器面板基线为 S5（2025-07）+ 赛季增补，减伤与部位倍率为国服现行口径。版本更新后请以游戏内训练场实测校准。</p>
           </div>
@@ -472,9 +480,8 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-/* ---------- 页头（legacy .site-head；字级/眉题/导语走 base.css 全局） ---------- */
+/* ---------- 页头（padding 走 base.css .page-head 公共规则 64/32，此处只留底缘线） ---------- */
 .page-head {
-  padding: 64px 0 40px;
   border-bottom: 1px solid var(--line2);
 }
 
@@ -487,31 +494,46 @@ onBeforeUnmount(() => {
   margin: -6px 0 18px;
 }
 
-/* ---------- 控制面板（legacy .ctrl，吸顶） ---------- */
+/* ---------- 控制面板（吸顶，§5.10：实底弃 blur）---------- */
 .ctrl {
   position: sticky;
-  top: 12px;
+  top: 8px;
   z-index: 30;
-  background: var(--panel);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  background: var(--panel-solid);
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
-  padding: 13px 16px 11px;
-  margin: 26px 0 0;
+  padding: 11px 14px 9px;
+  margin: var(--sp-4) 0 0;
   box-shadow: var(--shadow-md);
 }
+/* 三行各占一横行（column），行内两组并排；收紧行距/内边距压缩面板总高 */
 .ctrl-rows {
   display: flex;
-  flex-wrap: wrap;
-  gap: var(--sp-2) 26px;
+  flex-direction: column;
+  gap: var(--sp-2);
 }
 .ctrl-row {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--sp-2) 14px;
   flex-wrap: wrap;
   min-width: 0;
+}
+/* label+控件包成 ctrl-cell 整组换行：中窄宽度下组内标签不孤行 */
+.ctrl-cell {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+/* 末行行尾右对齐说明：补齐「弹药+排序」行（选项最少）的右侧留白；行内放不下时整条换行右贴 */
+.ctrl-note {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: var(--fs-2xs);
+  letter-spacing: .1em;
+  color: var(--faint);
+  white-space: nowrap;
 }
 .ctrl-label {
   font-family: var(--mono);
@@ -527,13 +549,31 @@ onBeforeUnmount(() => {
   line-height: 1.6;
 }
 
-/* ---------- rank-meta / 列表外壳 ---------- */
+/* ---------- 弹药库「展开全部 / 收起全部」（文本链按钮，§5.3：无底无边框） ---------- */
+.ammo-tools {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: var(--sp-2);
+}
+.ammo-toggle {
+  border: 0;
+  background: none;
+  padding: 0;
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  letter-spacing: .08em;
+  color: var(--accent);
+  cursor: pointer;
+}
+.ammo-toggle:hover { text-decoration: underline; }
+
+/* ---------- rank-meta / 列表外壳（上距 16：champs 与计数行同屏收紧） ---------- */
 .rank-meta {
   display: flex;
   align-items: baseline;
   gap: 14px;
   flex-wrap: wrap;
-  margin: 20px 0 10px;
+  margin: var(--sp-4) 0 var(--sp-3);
 }
 .rank-count {
   font-family: var(--mono);
@@ -541,28 +581,21 @@ onBeforeUnmount(() => {
   color: var(--faint);
   letter-spacing: .05em;
 }
-.rank-sort {
-  margin-left: auto;
-  display: flex;
-  align-items: center;
-  gap: var(--sp-2);
-}
-.rank-sort .ctrl-label { font-size: var(--fs-micro); }
 .rank-list {
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
   background: var(--card);
   overflow: hidden;
 }
-/* 表头（legacy .rk-head；栅格值与 RankRow 内 .rk-row 保持同值） */
+/* 表头（§5.4：底色 card2 比行亮、padding 与行 11px 对齐消除基线错位；栅格值与 RankRow 内 .rk-row 保持同值） */
 .rk-head {
   display: grid;
   grid-template-columns: 40px minmax(150px, 1.15fr) minmax(140px, 1fr) 52px 60px 62px minmax(150px, 1.2fr);
   gap: 12px;
   align-items: center;
-  padding: 9px 34px 9px 16px;
+  padding: 10px 34px 10px 16px;
   border-bottom: 1px solid var(--line);
-  background: var(--bg2);
+  background: var(--card2);
 }
 .rk-head span {
   font-family: var(--mono);
@@ -598,11 +631,11 @@ onBeforeUnmount(() => {
 .blocks { margin-bottom: 14px; }
 .tbl-wrap {
   overflow-x: auto;
-  padding: 2px 10px 12px;
+  padding: var(--sp-3) var(--sp-4);
 }
 .tbl { min-width: 640px; }
 
-.method { padding: 2px 16px 16px; }
+.method { padding: var(--sp-3) var(--sp-4); }
 .m-row {
   display: flex;
   gap: 13px;
@@ -639,7 +672,7 @@ onBeforeUnmount(() => {
   white-space: nowrap;
 }
 .m-formula .c { color: var(--faint); }
-.src-body { padding: 2px 16px 16px; }
+.src-body { padding: var(--sp-3) var(--sp-4); }
 .src-p {
   font-size: var(--fs-xs);
   color: var(--faint);
@@ -658,37 +691,39 @@ onBeforeUnmount(() => {
 }
 .src-p strong { color: var(--dim); }
 
-/* ---------- 响应式（legacy 断点 680 / 560） ---------- */
+/* ---------- 响应式（断点收敛为 820 / 680，§4.1） ---------- */
 @media (max-width: 680px) {
   .ctrl {
     padding: 12px 12px 10px;
-    top: 8px;
   }
   .ctrl-rows { gap: 10px 0; }
   .ctrl-row {
     flex-wrap: wrap;
     width: 100%;
   }
+  /* 每组（label+控件）整组占一横行，与旧六行结构的手机端堆叠形态一致 */
+  .ctrl-cell { width: 100%; }
+  /* 手机端控件已纵向堆叠、无行尾留白问题，说明文案退场（信息由 .ctrl-hint 承担） */
+  .ctrl-note { display: none; }
   .ctrl-label {
     width: 100%;
     margin-bottom: 3px;
   }
 }
 @media (max-width: 820px) {
-  /* legacy ≤820 断点：表头换窄栅格（padding 覆盖为 0 12px，与原页同表现） */
+  /* ≤820 断点：表头换窄栅格（padding 与行触达口径一致，§5.4） */
   .rk-head {
     grid-template-columns: 26px minmax(0, 1.25fr) minmax(0, 1fr) 42px 82px;
     gap: 7px;
-    padding: 0 12px;
+    padding: 10px 12px;
   }
   .rk-head .hide-m { display: none; }
 }
-@media (max-width: 560px) {
+@media (max-width: 680px) {
   .ctrl {
     padding: 11px 12px 9px;
-    top: 8px;
   }
-  .ctrl-rows { gap: 7px 18px; }
+  .ctrl-rows { gap: 7px; }
   .ctrl-row { gap: var(--sp-2); }
   .m-formula { white-space: normal; }
   .rank-meta {
@@ -696,6 +731,5 @@ onBeforeUnmount(() => {
     align-items: flex-start;
     gap: var(--sp-2);
   }
-  .rank-sort { margin-left: 0; }
 }
 </style>

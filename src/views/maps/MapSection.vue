@@ -1,6 +1,6 @@
 <script setup>
 // MapSection.vue — 单图分区（工程师A）：legacy renderMap（L755-768）的 Vue 版。
-// 结构：map-head 标题 → MapViewer（页内查看器）→ MapDetail（打法+爆率）。
+// 结构：map-head 标题 → MapViewer（页内查看器）→ MapDetail（打法+档位）。
 // section id = slug（scroll spy 与页内导航定位锚点；不写裸 hash，导航只 scrollIntoView）。
 import MapViewer from './MapViewer.vue'
 import MapDetail from './MapDetail.vue'

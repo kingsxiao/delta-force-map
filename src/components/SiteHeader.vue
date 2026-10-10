@@ -33,7 +33,7 @@ const tabs = [
       </nav>
     </div>
 
-    <!-- hero 特效挂载点：由 App.vue 注入 HeroFx（仅地图页实际渲染 canvas） -->
+    <!-- hero 特效插槽（机制保留）：v2.2 起特效迁入首页 .site-head，此处不再注入内容 -->
     <div class="hero-slot">
       <slot name="hero-fx" />
     </div>
@@ -108,14 +108,14 @@ const tabs = [
   height: 2px;
   background: var(--accent);
   transform: scaleX(0);
-  transform-origin: center;
+  transform-origin: left center;
   transition: transform var(--t-med) var(--ease), opacity var(--t-med);
 }
 .tab:hover { color: var(--tx); }
 .tab:hover::after { transform: scaleX(1); opacity: .3; }
 .tab.active { color: var(--accent); }
 .tab.active::after { transform: scaleX(1); opacity: 1; }
-/* 特效层容器：HeroFx 内部自行绝对定位画布，不影响导航条布局 */
+/* 特效层容器：绝对定位不影响导航条布局；v2.2 起不再注入内容，机制保留 */
 .hero-slot {
   position: absolute;
   inset: 0;
@@ -123,6 +123,12 @@ const tabs = [
 }
 .hero-slot > :deep(*) {
   pointer-events: auto;
+}
+/* 窄屏（--bp-mini 480px）：brand 收缩 + tab 间距收紧，消除 375px 视口溢出 */
+@media (max-width: 480px) {
+  .brand-sub { display: none; }
+  .brand-mark { letter-spacing: .12em; }
+  .tabs { gap: var(--sp-4); }
 }
 @media (prefers-reduced-motion: reduce) {
   .tab, .tab::after { transition: none; }

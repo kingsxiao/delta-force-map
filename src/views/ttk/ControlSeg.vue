@@ -98,7 +98,7 @@ function pick(it, modelValue, multiple) {
   .seg { flex-wrap: wrap; width: 100%; }
   .seg-btn { flex: 1 1 auto; justify-content: center; padding: 5px 9px; }
 }
-@media (max-width: 560px) {
+@media (max-width: 680px) {
   .seg-btn { padding: 4px 9px; font-size: var(--fs-2xs); }
 }
 @media (prefers-reduced-motion: reduce) {

@@ -1,7 +1,8 @@
 // useReveal.js — 入场渐显（工程师A）
 // 移植 legacy L840-854 setupReveal：IntersectionObserver 进入视口加 .in（阈值 0.05，
-// rootMargin 底部 -4%），reduced-motion 或无 IO 时直接全量显示；rescan() 供
-// /tactics 切换地图后对新渲染的 .reveal 元素重新观察。
+// rootMargin 底部 -4%），reduced-motion 或无 IO 时直接全量显示。
+// §7.3：容器级 .reveal-group 与普通 .reveal 同被观察——子项不挂 .reveal，
+// 筛选/切图重建的子项在容器已 .in 前提下自动播放入场，无 observe 死角。
 import { onBeforeUnmount } from 'vue'
 
 export function useReveal() {
@@ -9,7 +10,7 @@ export function useReveal() {
 
   function observeRoot(root) {
     if (!root) return
-    const els = root.querySelectorAll('.reveal:not(.in)')
+    const els = root.querySelectorAll('.reveal:not(.in), .reveal-group:not(.in)')
     if (!els.length) return
     const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
     if ('IntersectionObserver' in window && !reduced) {

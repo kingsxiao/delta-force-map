@@ -41,12 +41,19 @@ defineEmits(['toggle'])
   border-radius: var(--radius-lg);
   background: var(--card);
   overflow: hidden;
-  transition: border-color var(--t-med);
+  box-shadow: var(--edge-light);
+  transition: border-color var(--t-med), box-shadow var(--t-med);
 }
 .col + .col { margin-top: var(--sp-3); }
-.col:hover { border-color: var(--line-hover); }
-/* 展开态：左缘琥珀细条 + 提亮描边，折叠列表里一眼可辨哪些已展开 */
-.col.open { border-color: var(--line-hover); box-shadow: inset 2px 0 0 var(--accent-dim); }
+.col:hover {
+  border-color: var(--line-hover);
+  box-shadow: var(--edge-light), inset 0 0 0 1px rgba(255, 255, 255, .02);
+}
+/* 展开态：左缘主色细条（70% 感知充分）+ 提亮描边，折叠列表里一眼可辨哪些已展开 */
+.col.open {
+  border-color: var(--line-hover);
+  box-shadow: var(--edge-light), inset 2px 0 0 rgba(45, 212, 191, .7);
+}
 .col-head {
   display: flex;
   align-items: center;

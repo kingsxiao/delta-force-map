@@ -52,17 +52,18 @@ onBeforeUnmount(() => {
   justify-content: center;
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  background: var(--card2);
+  background: var(--panel-solid);
   color: var(--dim);
+  box-shadow: var(--shadow-sm);
   cursor: pointer;
-  transition: color .18s, border-color .18s, background .18s;
+  transition: color var(--t-med), border-color var(--t-med), background var(--t-med);
 }
 .to-top:hover {
-  color: var(--accent);
-  border-color: var(--accent-dim);
+  color: var(--tx);
+  border-color: var(--line-hover);
 }
 .totop-enter-active,
-.totop-leave-active { transition: opacity .2s, transform .2s; }
+.totop-leave-active { transition: opacity var(--t-med), transform var(--t-med); }
 .totop-enter-from,
 .totop-leave-to {
   opacity: 0;

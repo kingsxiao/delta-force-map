@@ -30,7 +30,7 @@ const rows = computed(() => {
   return out
 })
 
-const MX_NOTE = '对角线（弹等级 = 甲等级）为 50% 减半线：它就是社区说的"同级甲弹门槛"。低于对角线一律 0%（护甲破碎前不掉血），高于对角线一级 75%、两级及以上全额。7 级穿透弹为全游戏上限，仅 .338 AP（AWM）与 .50 BMG SLAP（M82）两款，可对 6 级甲保持 75% 通过率。'
+const MX_NOTE = '对角线（弹等级 = 甲等级）为 50% 减半线：它就是社区说的「同级甲弹门槛」。低于对角线一律 0%（护甲破碎前不掉血），高于对角线一级 75%、两级及以上全额。7 级穿透弹为全游戏上限，仅 .338 AP（AWM）与 .50 BMG SLAP（M82）两款，可对 6 级甲保持 75% 通过率。'
 </script>
 
 <template>
@@ -60,7 +60,7 @@ const MX_NOTE = '对角线（弹等级 = 甲等级）为 50% 减半线：它就�
 <style scoped>
 .matrix-wrap {
   overflow-x: auto;
-  padding: 2px 16px 18px;
+  padding: var(--sp-3) var(--sp-4);
 }
 .matrix {
   border-collapse: collapse;
@@ -94,7 +94,7 @@ const MX_NOTE = '对角线（弹等级 = 甲等级）为 50% 减半线：它就�
 /* 通过率语义色：绿=全额 / 琥珀=衰减 · 减半 / 红=仅碎甲（取自 base.css 反馈色） */
 .matrix td.m100 .pc { color: var(--ok); }
 .matrix td.m75 .pc { color: var(--accent); }
-.matrix td.m50 .pc { color: var(--accent); opacity: .78; }
+.matrix td.m50 .pc { color: var(--accent); }
 .matrix td.m0 .pc { color: var(--danger); }
 .matrix td.m100 { background: rgba(133, 181, 120, .10); background: color-mix(in srgb, var(--ok) 11%, transparent); }
 .matrix td.m75 { background: rgba(45, 212, 191, .10); background: color-mix(in srgb, var(--accent) 11%, transparent); }
@@ -103,7 +103,7 @@ const MX_NOTE = '对角线（弹等级 = 甲等级）为 50% 减半线：它就�
 .matrix td.diag { box-shadow: inset 0 0 0 1px var(--accent-dim); }
 .matrix :deep(.pen) { margin-right: 7px; }
 .mx-note {
-  padding: 0 16px 16px;
+  padding: 0 var(--sp-4) var(--sp-3);
   font-size: var(--fs-xs);
   color: var(--faint);
   line-height: 1.7;

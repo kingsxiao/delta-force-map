@@ -51,6 +51,12 @@ defineProps({
   pointer-events: auto;
   transform: translate(-50%, -50%) scale(var(--inv, 1));
 }
+/* §5.8 active 放大：合成式 transform 保留中心偏移与 --inv 反向缩放补偿；
+   不加 transform 过渡——--inv 随地图缩放连续变化，过渡会让拖拽缩放时点位回弹，
+   平滑感由 i 的 box-shadow 过渡承担（态切换瞬时跳变可接受） */
+.hs.active {
+  transform: translate(-50%, -50%) scale(calc(var(--inv, 1) * 1.15));
+}
 .hs i {
   display: block;
   width: 100%;

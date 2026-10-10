@@ -34,9 +34,21 @@ function onVis() {
 onMounted(() => {
   const canvas = canvasRef.value
 
+  /* §7.1 visibilitychange 修复：注册提至 mode 分流之前（hero 分支 return 之前可达），
+     hero/lb 两个实例共享；此前它位于 onMounted 末尾，hero 路径提前 return 永远注册不到，
+     pump() 内的 document.hidden 判断只在 IO 事件里被间接触发。
+     reduced 早退实例也会注册，但 sh 恒为 null、onVis 为 no-op，卸载时照常移除。 */
+  document.addEventListener('visibilitychange', onVis)
+
   if (props.mode === 'hero') {
     if (window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches) { fx('reduced'); return }
-    if (coarsePointer()) HERO_PRESET.components[1].props.count = 300
+    /* §7.1 coarse pointer：手机 GPU 开销大头在逐像素 Fog detail，不在粒子数——
+       粒子降 160、Fog detail 15→10 / speed 0.4→0.3 */
+    if (coarsePointer()) {
+      HERO_PRESET.components[1].props.count = 160
+      HERO_PRESET.components[0].props.detail = 10
+      HERO_PRESET.components[0].props.speed = 0.3
+    }
     if ('IntersectionObserver' in window) {
       io = new IntersectionObserver((ens) => { vis = ens[0].isIntersecting; pump() }, { threshold: 0 })
       io.observe(canvas.parentElement || canvas)
@@ -76,8 +88,6 @@ onMounted(() => {
   /* Vue 懒挂载差异：canvas 与观察器随灯箱首次 open 才就绪，此时 locked 可能已被置位——
      legacy 里两者是静态 DOM、先于任何点击存在，故无需此采样；不补首次采样 = 首开不挂载 */
   if (root.classList.contains('locked')) onLockedChange()
-
-  document.addEventListener('visibilitychange', onVis)
 })
 
 onBeforeUnmount(() => {
@@ -108,7 +118,7 @@ onBeforeUnmount(() => {
   height: 100%;
   z-index: 0;
   pointer-events: none;
-  opacity: 0.92;
+  opacity: 0.8;
 }
 .fx-canvas.fx-lb {
   position: absolute;

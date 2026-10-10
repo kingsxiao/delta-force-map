@@ -45,10 +45,10 @@ export function fmtCoef(v) {
   return v ? '×' + v.toFixed(2) : '×1.00'
 }
 
-/* 场景标签（多选部位/护甲时行内标注归属场景）："5级头" / "无甲胸" */
+/* 场景标签（多选部位/护甲时行内标注归属场景）："5 级头" / "无甲胸" */
 export const PART_CHAR = { chest: '胸', belly: '腹', head: '头' }
 export function scenLabel(c) {
-  return (c.armor > 0 ? c.armor + '级' : '无甲') + PART_CHAR[c.part]
+  return (c.armor > 0 ? c.armor + ' 级' : '无甲') + PART_CHAR[c.part]
 }
 
 /* 详情卡"部位单发"行：[['胸', 42], ...]，与排行"单发伤"列同口径（穿透全额后的肉伤）。

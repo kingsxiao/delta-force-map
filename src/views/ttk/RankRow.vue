@@ -15,7 +15,7 @@ const props = defineProps({
   best: { type: Number, required: true },   // 当前列表最快 TTK（条宽基准）
   open: { type: Boolean, default: false },
   combos: { type: Array, required: true },  // 当前筛选下全部组合（详情数据源）
-  showScen: { type: Boolean, default: false }, // 多场景时在副行标注归属（"5级头"）
+  showScen: { type: Boolean, default: false }, // 多场景时在副行标注归属（5 级头）
 })
 
 defineEmits(['toggle'])
@@ -58,7 +58,8 @@ const detail = computed(() => {
 </script>
 
 <template>
-  <div class="rk-row-wrap" :class="{ open }">
+  <!-- 根 wrapper 挂 --ri 供容器级级联错峰（§7.3）；hover 过渡留在内层 button、与入场 animation 正交 -->
+  <div class="rk-row-wrap" :class="{ open }" :style="{ '--ri': rank - 1 }">
     <button
       type="button"
       class="rk-row"
@@ -146,7 +147,7 @@ const detail = computed(() => {
               <span class="d-ttk">
                 <span class="d-ttv">{{ fmtMs(item.x.ttk) }}</span>
                 <span class="d-bar"><i :style="{ width: item.w }"></i></span>
-                <span class="d-btk">{{ item.x.btk }} 发击倒</span>
+                <span class="d-btk">{{ item.x.btk }} 发击杀</span>
               </span>
               <span class="d-parts">
                 <span
@@ -196,7 +197,7 @@ const detail = computed(() => {
   position: relative;
 }
 .rk-row:hover { background: var(--row-hover); }
-.rk-row.top1 { background: linear-gradient(90deg, rgba(45, 212, 191, .075), transparent 70%); }
+.rk-row.top1 { background: linear-gradient(90deg, var(--accent-bg), transparent 70%); }
 .rk-row.top1::before {
   content: "";
   position: absolute;
@@ -206,7 +207,7 @@ const detail = computed(() => {
   width: 2px;
   background: var(--accent);
 }
-.rk-row.open { background: rgba(255, 255, 255, .03); }
+.rk-row.open { background: var(--zebra); }
 .rk-num {
   font-family: var(--mono);
   font-size: var(--fs-xs);
@@ -215,7 +216,7 @@ const detail = computed(() => {
 }
 .rk-row.top1 .rk-num { color: var(--accent); }
 .rk-row.top2 .rk-num,
-.rk-row.top3 .rk-num { color: var(--accent-dim); }
+.rk-row.top3 .rk-num { color: var(--accent); }
 .rk-gun { min-width: 0; }
 .rk-gun .n {
   display: block;
@@ -230,8 +231,8 @@ const detail = computed(() => {
 .rk-gun .s {
   display: block;
   font-family: var(--mono);
-  font-size: var(--fs-micro);
-  color: var(--faint);
+  font-size: var(--fs-xs);
+  color: var(--dim);
   letter-spacing: .04em;
   white-space: nowrap;
   overflow: hidden;
@@ -240,10 +241,10 @@ const detail = computed(() => {
 }
 .rk-gun .s em {
   font-style: normal;
-  color: var(--dim);
+  color: var(--tx);
 }
 .rk-gun .s .scen {
-  color: var(--accent-dim);
+  color: var(--accent);
   font-weight: 600;
 }
 .rk-ammo {
@@ -367,7 +368,7 @@ const detail = computed(() => {
 .dh-meta {
   margin-top: 3px;
   font-family: var(--mono);
-  font-size: var(--fs-micro);
+  font-size: var(--fs-xs);
   color: var(--dim);
   letter-spacing: .04em;
 }
@@ -393,12 +394,14 @@ const detail = computed(() => {
 }
 .dh-note li + li { margin-top: 3px; }
 .dh-note li::before {
-  content: "◆";
+  content: "";
   position: absolute;
   left: 0;
-  top: 1px;
-  font-size: 7px;
-  color: var(--accent-dim);
+  top: 8px;
+  width: 4px;
+  height: 4px;
+  border-radius: 1px;
+  background: var(--accent-dim);
 }
 
 /* 弹药行栅格：排名 | 弹药 | TTK+条 | 部位单发 | 判定碎甲 */
@@ -422,9 +425,9 @@ const detail = computed(() => {
 }
 .drow.capt small {
   display: block;
-  font-size: var(--fs-micro);
+  font-size: var(--fs-xs);
   letter-spacing: .06em;
-  opacity: .72;
+  color: var(--faint);
   margin-top: 2px;
 }
 .drow.capt .d-ttk { display: block; }
@@ -507,7 +510,7 @@ const detail = computed(() => {
   color: var(--dim);
   font-variant-numeric: tabular-nums;
 }
-.d-pd.cur { color: var(--accent-dim); font-weight: 600; }
+.d-pd.cur { color: var(--accent); font-weight: 600; }
 .d-judge {
   grid-area: judge;
   display: flex;
@@ -524,17 +527,18 @@ const detail = computed(() => {
 .d-jline .warn { color: var(--danger); }
 .d-jnote {
   font-family: var(--mono);
-  font-size: var(--fs-micro);
-  color: var(--faint);
+  font-size: var(--fs-xs);
+  color: var(--dim);
   line-height: 1.5;
 }
 
 @media (max-width: 820px) {
-  /* legacy 同款：此处 padding:0 12px 覆盖基础 11px 上下内边距（保持原页窄屏表现） */
+  /* ≤820 行触达（§5.4）：上下 10px + min-height 44px 兜底，任何断点行高 ≥44px */
   .rk-row {
     grid-template-columns: 26px minmax(0, 1.25fr) minmax(0, 1fr) 42px 82px;
     gap: 7px;
-    padding: 0 12px;
+    padding: 10px 12px;
+    min-height: 44px;
   }
   .hide-m { display: none; }
   .rk-bar { min-width: 22px; }
@@ -570,7 +574,7 @@ const detail = computed(() => {
   .d-bar { min-width: 34px; }
   .d-btk { display: none; }
 }
-@media (max-width: 560px) {
+@media (max-width: 680px) {
   /* 排行行改两行式：第一行 排名+武器+BTK，第二行 弹药+TTK条 */
   .rk-row {
     grid-template-columns: 24px minmax(0, 1fr) auto;

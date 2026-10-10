@@ -119,10 +119,29 @@ onBeforeUnmount(() => viewer.detach())
         </div>
 
         <div class="fig-ctrl">
-          <button type="button" data-act="in" aria-label="放大" title="放大" @click="viewer.zoomIn()">＋</button>
-          <button type="button" data-act="out" aria-label="缩小" title="缩小" @click="viewer.zoomOut()">－</button>
-          <button type="button" data-act="reset" aria-label="复位 (0)" title="复位 (0)" @click="viewer.resetView()">⟲</button>
-          <button type="button" data-act="full" aria-label="全屏查看" title="全屏查看" @click="$emit('full', viewer.state.cur)">⤢</button>
+          <!-- §5.3：控制字符换 inline SVG（16×16 / stroke 1.6 / currentColor）；
+               button 元素、data-act、title/aria 与 click 行为不动（契约 3 依赖 data-act="full"） -->
+          <button type="button" data-act="in" aria-label="放大" title="放大" @click="viewer.zoomIn()">
+            <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+              <path d="M3 8h10M8 3v10" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
+            </svg>
+          </button>
+          <button type="button" data-act="out" aria-label="缩小" title="缩小" @click="viewer.zoomOut()">
+            <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+              <path d="M3 8h10" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
+            </svg>
+          </button>
+          <button type="button" data-act="reset" aria-label="复位" title="复位" @click="viewer.resetView()">
+            <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+              <path d="M13.66 10a6 6 0 1 1-1.41-6.24L15.33 6.67" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
+              <path d="M15.33 2.67v4h-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+          </button>
+          <button type="button" data-act="full" aria-label="放大查看" title="放大查看" @click="$emit('full', viewer.state.cur)">
+            <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+              <path d="M6 2H2v4M10 2h4v4M6 14H2v-4M10 14h4v-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+          </button>
         </div>
 
         <span class="fig-hint">拖拽平移 · 滚轮 / 双指缩放 · 双击放大 · 点标注看详情</span>
@@ -156,9 +175,10 @@ onBeforeUnmount(() => viewer.detach())
   overflow: hidden;
   border: 1px solid var(--line);
   background: var(--deep);
+  box-shadow: var(--edge-light);
   transition: border-color var(--t-med), box-shadow var(--t-med);
 }
-.fig-frame:hover { border-color: var(--line-hover); box-shadow: var(--shadow-md); }
+.fig-frame:hover { border-color: var(--line-hover); box-shadow: var(--edge-light), inset 0 0 0 1px rgba(255, 255, 255, .02); }
 .fig-frame:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .fig-vp { position: absolute; inset: 0; overflow: hidden; cursor: grab; touch-action: none; }
 .fig-vp.dragging { cursor: grabbing; }
@@ -188,11 +208,9 @@ onBeforeUnmount(() => viewer.detach())
   border-radius: var(--radius);
   border: 1px solid rgba(255, 255, 255, 0.14);
   background: var(--scrim);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(var(--panel-blur));
+  -webkit-backdrop-filter: blur(var(--panel-blur));
   color: var(--tx);
-  font-size: var(--fs-md);
-  line-height: 1;
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -200,6 +218,7 @@ onBeforeUnmount(() => viewer.detach())
   transition: color var(--t-fast), border-color var(--t-fast);
   padding: 0;
 }
+.fig-ctrl button svg { display: block; }
 .fig-ctrl button:hover { color: var(--accent); border-color: var(--accent-dim); }
 .hs-chips {
   position: absolute;
@@ -223,8 +242,8 @@ onBeforeUnmount(() => viewer.detach())
   border-radius: var(--radius-pill);
   border: 1px solid rgba(255, 255, 255, 0.13);
   background: var(--scrim);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(var(--panel-blur));
+  -webkit-backdrop-filter: blur(var(--panel-blur));
   cursor: pointer;
   transition: opacity var(--t-med);
   white-space: nowrap;
@@ -245,8 +264,8 @@ onBeforeUnmount(() => viewer.detach())
   letter-spacing: .05em;
   color: rgba(233, 238, 242, 0.85);
   background: rgba(7, 9, 11, 0.66);
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(var(--panel-blur));
+  -webkit-backdrop-filter: blur(var(--panel-blur));
   padding: 4px 10px;
   border-radius: var(--radius-sm);
   pointer-events: none;

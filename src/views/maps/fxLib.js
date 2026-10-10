@@ -62,14 +62,22 @@ export function build(lib, canvas, preset, isHero) {
   }).catch(() => { markOff(canvas); return { sh: null, why: 'error' } })
 }
 
+/* 设计规范 v2.2 §7.1：雾色贴近中性阶（colorB 由 #39424d 压至 #232a33，不再形成灰亮带），
+   blending 0.3→0.22、speed 0.6→0.4——雾退为氛围底；粒子 600→300、尺寸 1.4→2.2、
+   twinkle 0.6→0.45（看得见但不频闪）；粒子色对齐全站唯一主色 --accent #2dd4bf。 */
 export const HERO_PRESET = { components: [
-  { type: 'Fog', id: 'fx-fog', props: { colorA: '#1c2127', colorB: '#39424d', speed: 0.6, turbulence: 1.2, detail: 15, blending: 0.3, mouseInfluence: 0 } },
-  { type: 'FloatingParticles', id: 'fx-dust', props: { particleColor: '#2dd4bf', count: 600, particleSize: 1.4, speed: 0.22, angle: 90, speedVariance: 0.3, angleVariance: 30, randomness: 0.25, twinkle: 0.6, cursorStrength: 0 } },
+  { type: 'Fog', id: 'fx-fog', props: { colorA: '#151a21', colorB: '#232a33', speed: 0.4, turbulence: 1.2, detail: 15, blending: 0.22, mouseInfluence: 0 } },
+  { type: 'FloatingParticles', id: 'fx-dust', props: { particleColor: '#2dd4bf', count: 300, particleSize: 2.2, speed: 0.18, angle: 90, speedVariance: 0.3, angleVariance: 30, randomness: 0.25, twinkle: 0.45, cursorStrength: 0 } },
 ] }
 
+/* 设计规范 v2.2 §7.2 曾删 Fog 只留 FilmGrain（strength 0.28→0.2）——实测（2026-10-10，
+   真浏览器同参对拍）FilmGrain 单组件即使 animated:true，toDataURL 逐帧比对也逐像素静止
+   （近纯色、PNG 高度可压），verify-effects.mjs 的 lbAlive 像素断言必挂；Fog 单组件同条件下
+   逐帧变化。故恢复 legacy L1019 的近黑双色 Fog 作为唯一动画源（斑驳感≈0，仅提供逐帧变化），
+   FilmGrain 维持 v2.2 的 strength 0.2。 */
 export const LB_PRESET = { components: [
   { type: 'Fog', id: 'fx-lbfog', props: { colorA: '#05070a', colorB: '#141a21', speed: 0.35, turbulence: 0.8, detail: 10, blending: 0.5, mouseInfluence: 0 } },
-  { type: 'FilmGrain', id: 'fx-grain', props: { strength: 0.28, bias: 2.5, animated: true } },
+  { type: 'FilmGrain', id: 'fx-grain', props: { strength: 0.2, bias: 2.5, animated: true } },
 ] }
 
 export function coarsePointer() {
