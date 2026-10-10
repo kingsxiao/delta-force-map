@@ -1,6 +1,6 @@
 <script setup>
 // InfoCard.vue — 标注信息卡（工程师A）：legacy openCard（L667-711）的声明式版本。
-// 带 gl 的物资点附爆率行；带 gs 的出生点附「展开对应打法卡」联动（gs → guide.spawns[gs]，
+// 带 gl 的物资点附档位行；带 gs 的出生点附「展开该出生点打法」联动（gs → guide.spawns[gs]，
 // legacy L691）。展开/收起后 emit('expand') 交父级重算卡片定位（legacy 内直接 positionCard）。
 import { ref, computed } from 'vue'
 import { HS_TYPES, HS_TCOL } from '../../composables/useViewer'
@@ -26,9 +26,9 @@ const guideSpawn = computed(() =>
 function spawnKvs(g) {
   return [
     ['打法思路', g.plan],
-    ['需要注意', g.watchOut],
-    ['能抽过点的位置', g.angles],
-    ['哪里要封烟', g.smoke],
+    ['注意事项', g.watchOut],
+    ['可架枪点位', g.angles],
+    ['需封烟路段', g.smoke],
   ]
 }
 
@@ -62,20 +62,22 @@ function toggleExp() {
         <p>{{ lootRow.items }}</p>
       </div>
       <div class="kv">
-        <div class="kv-label">爆率与依据</div>
+        <div class="kv-label">档位与依据</div>
         <p>{{ lootRow.rate }}</p>
       </div>
     </div>
 
     <template v-if="guideSpawn">
       <button class="more-btn" type="button" @click="toggleExp">
-        {{ exp ? '收起打法卡' : '展开对应打法卡' }}
+        {{ exp ? '收起' : '展开该出生点打法' }}
       </button>
       <div class="hs-more">
-        <div class="rows">
-          <div v-for="kv in spawnKvs(guideSpawn)" :key="kv[0]" class="kv">
-            <div class="kv-label">{{ kv[0] }}</div>
-            <p>{{ kv[1] || '—' }}</p>
+        <div class="hs-more-clip">
+          <div class="rows">
+            <div v-for="kv in spawnKvs(guideSpawn)" :key="kv[0]" class="kv">
+              <div class="kv-label">{{ kv[0] }}</div>
+              <p>{{ kv[1] || '—' }}</p>
+            </div>
           </div>
         </div>
       </div>
@@ -84,7 +86,10 @@ function toggleExp() {
 </template>
 
 <style scoped>
-/* legacy CSS L112-135（.hs-card），取值令牌化 */
+/* legacy CSS L112-135（.hs-card），取值令牌化。
+   面底 --panel-solid + --shadow-md + --radius-lg（§5.8，浮在地图之上的信息层）。
+   入场（§5.8）：父级 v-show 从 display:none 翻可见时 CSS animation 重播，
+   只动 transform/opacity 不动布局轴（定位由内联 left/top 承担）。 */
 .hs-card {
   position: absolute;
   z-index: 6;
@@ -92,11 +97,16 @@ function toggleExp() {
   background: var(--panel-solid);
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-lg);
+  box-shadow: var(--shadow-md);
   pointer-events: auto;
   max-height: 64%;
   overflow-y: auto;
   scrollbar-width: thin;
+  animation: hs-card-in .14s var(--ease);
+}
+@keyframes hs-card-in {
+  from { opacity: 0; transform: translateY(6px) scale(.98); }
+  to   { opacity: 1; transform: none; }
 }
 .hd { display: flex; align-items: center; gap: var(--sp-2); padding: 10px 12px 0; }
 .tag {
@@ -137,7 +147,7 @@ h4 { font-size: var(--fs-sm); line-height: 1.5; margin: 9px 12px 0; padding-righ
   color: var(--accent);
   margin-bottom: 4px;
 }
-.kv p { margin: 0; font-size: var(--fs-xs); color: var(--dim); line-height: 1.65; text-align: justify; }
+.kv p { margin: 0; font-size: var(--fs-xs); color: var(--dim); line-height: 1.65; text-align: left; }
 .more-btn {
   display: block;
   width: calc(100% - 24px);
@@ -153,7 +163,17 @@ h4 { font-size: var(--fs-sm); line-height: 1.5; margin: 9px 12px 0; padding-righ
   transition: border-color var(--t-fast), background var(--t-fast);
 }
 .more-btn:hover { border-color: var(--accent-dim); background: var(--accent-bg); }
-.hs-more { display: none; }
-.exp .hs-more { display: block; }
+/* 展开与 SpawnCard / CollapseCol 同构：grid-rows 0fr→1fr（§5.7），display 裸切弃用 */
+.hs-more {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows .25s var(--ease);
+}
+.hs-card.exp .hs-more { grid-template-rows: 1fr; }
+.hs-more-clip { overflow: hidden; min-height: 0; }
 .exp .more-btn { color: var(--faint); border-color: var(--line2); }
+@media (prefers-reduced-motion: reduce) {
+  .hs-card { animation: none; }
+  .hs-more { transition: none; }
+}
 </style>

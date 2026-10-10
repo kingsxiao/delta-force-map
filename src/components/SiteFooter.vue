@@ -13,12 +13,12 @@ const showExtend = computed(() => route.path !== '/ttk')
   <footer class="site-foot">
     <div class="wrap">
       <p class="foot-brand">DELTA FORCE · FAN-MADE ATLAS</p>
-      <p class="foot-line">
+      <p class="foot-line foot-src">
         数据整理自公开资料（2026-10 版本）：官方地图工具点位数据，以及腾讯官网、3DM、游民星空、17173、NGA、TapTap、B
-        站等社区攻略。物资爆率均为社区统计口径，非官方数据，仅供参考。
+        站等社区攻略。物资档位均为社区主观分级，非官方数据，仅供参考。
       </p>
       <p v-if="showExtend" class="foot-line">
-        延伸内容：<router-link to="/ttk" class="foot-link">全枪械 TTK 击杀时间排行</router-link>——弹药穿透等级 ×
+        延伸内容：<router-link to="/ttk" class="foot-link">全枪械 TTK 排行</router-link>——弹药穿透等级 ×
         护甲减伤逐发模拟，附弹药库与判定矩阵。
       </p>
       <p class="foot-line foot-copy">
@@ -49,6 +49,8 @@ const showExtend = computed(() => route.path !== '/ttk')
   max-width: 76ch;
   margin-bottom: var(--sp-2);
 }
+/* 层次：来源段降一档，延伸段保持 --dim */
+.foot-src { color: var(--faint); }
 .foot-link {
   color: var(--accent);
   text-decoration: none;

@@ -6,15 +6,39 @@
 // active 高亮由滚动位置计算（legacy setActive 的 href 比对改为 scroll spy）。
 import { onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { MAPS } from '../data/mapIndex'
+import { GUNS } from '../data/ttk/guns.js'
+import { CAL } from '../data/ttk/calibers.js'
 import { useReveal } from '../composables/useReveal'
 import MapSection from './maps/MapSection.vue'
 import MapLightbox from './maps/MapLightbox.vue'
+import FxCanvas from './maps/FxCanvas.vue'
 
 const rootRef = ref(null)
 const { observeRoot } = useReveal()
 
 const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
 const scrollMode = () => (reduced ? 'auto' : 'smooth')
+
+/* §6.1 hero 数据大数带：一律数据插值、禁止手写（hotspots 求和 / GUNS / 口径键数） */
+const hsTotal = MAPS.reduce((n, m) => n + (m.hs ? m.hs.length : 0), 0)
+const ammoCount = Object.keys(CAL).length
+
+/* §QA 两轮点名（卡片网格明度断层）：六张 fig0 缩略可见带（图内 y≈38-62%，44px 条）
+   实测亮度差异大（90/52/39/82/45/78），无遮罩参与——按均值统一到 ~78 基线，
+   逐图 brightness 增益（>1 为提亮、<1 为压暗），消除 05 潮汐监狱等暗卡断层 */
+const THUMB_GAIN = {
+  linghaodaba: 0.86,
+  changgongxigu: 1.5,
+  bakeshi: 2.0,
+  hangtianjidi: 0.96,
+  chaoxijianyu: 1.9,
+  hedianzhan: 1.0,
+}
+function thumbFilter(slug) {
+  const g = THUMB_GAIN[slug]
+  /* 重提亮（≥1.5）会稀释对比度显灰蒙，补一小档 contrast 抵消（视觉复核意见） */
+  return g && g !== 1 ? `brightness(${g})${g >= 1.5 ? ' contrast(1.04)' : ''}` : 'none'
+}
 
 /* ---- 页内导航（scrollIntoView only，不写裸 hash） ---- */
 function scrollToSection(slug) {
@@ -45,7 +69,7 @@ function onScrollThrottled() {
   }
 }
 
-/* ---- 灯箱（全局单例；MapSection 的「全屏查看」按钮打开） ---- */
+/* ---- 灯箱（全局单例；MapSection 的「放大查看」按钮打开） ---- */
 const lb = reactive({ open: false, map: null, idx: 0 })
 function openLightbox({ map, idx }) {
   lb.map = map
@@ -66,23 +90,38 @@ onBeforeUnmount(() => {
 <template>
   <div ref="rootRef" class="maps-page">
     <header class="site-head">
+      <FxCanvas mode="hero" canvas-id="fxHero" />
       <div class="wrap">
-        <p class="kicker">DELTA FORCE · OPERATIONS ATLAS</p>
-        <h1>三角洲行动 · 地图与打法</h1>
-        <p class="lede">
-          六张烽火地带地图的高清标注大图与实战打法：出生点思路、撤离点、资源路线、Boss
-          情报与物资爆率参考。点击地图可放大查看细节。
-        </p>
-        <p class="meta">数据整理自公开资料（2026-10 版本） · 爆率为社区统计口径，非官方数据</p>
-        <p class="head-cta">
-          <router-link class="cta" to="/ttk">全枪械 TTK 击杀排行 →</router-link>
-        </p>
+        <div class="hero-main">
+          <p class="kicker">DELTA FORCE · OPERATIONS ATLAS</p>
+          <h1>三角洲行动 · 地图与打法</h1>
+          <p class="lede">
+            六张烽火地带地图的标注大图与实战打法：出生点思路、撤离、资源路线、Boss
+            情报与物资档位。地图支持拖拽缩放与标注点选，双击或右下角放大按钮可查看大图。
+          </p>
+          <p class="meta">数据整理自公开资料（2026-10 版本） · 物资价值为社区主观分级，非官方数据</p>
+          <p class="head-cta">
+            <router-link class="cta" to="/ttk">全枪械 TTK 排行 →</router-link>
+          </p>
+        </div>
+        <div class="hero-stats" aria-label="站点数据概览">
+          <p class="stat">
+            <span class="stat-num">{{ hsTotal }}</span><span class="stat-label">个标注点位</span>
+          </p>
+          <p class="stat">
+            <span class="stat-num">{{ MAPS.length }}</span><span class="stat-label">张地图</span>
+          </p>
+          <p class="stat">
+            <span class="stat-num">{{ GUNS.length }}</span><span class="stat-label">把枪</span>
+            <span class="stat-x">×</span>
+            <span class="stat-num">{{ ammoCount }}</span><span class="stat-label">种口径</span>
+          </p>
+        </div>
       </div>
     </header>
 
-    <nav class="topbar" aria-label="地图导航">
+    <nav class="topbar sticky-bar" aria-label="地图导航">
       <div class="pills">
-        <router-link class="pill" to="/ttk">TTK 排行</router-link>
         <a
           v-for="m in MAPS"
           :key="m.slug"
@@ -92,6 +131,22 @@ onBeforeUnmount(() => {
           @click.prevent="scrollToSection(m.slug)"
         >{{ m.map }}</a>
       </div>
+    </nav>
+
+    <!-- 六图索引（§6.1）：桌面补首屏总览、移动端补 <1024px 无索引的缺环；不新增 .hs / .map-section -->
+    <nav class="wrap map-index reveal" aria-label="地图索引">
+      <a
+        v-for="(m, i) in MAPS"
+        :key="m.slug"
+        class="mi-card"
+        :href="'#' + m.slug"
+        @click.prevent="scrollToSection(m.slug)"
+      >
+        <span class="mi-thumb"><img :src="m.fig[0].src" :alt="m.map + ' 缩略图'" :style="{ filter: thumbFilter(m.slug) }" loading="lazy" decoding="async"></span>
+        <span class="mi-num">{{ String(i + 1).padStart(2, '0') }}</span>
+        <span class="mi-name">{{ m.map }}</span>
+        <span class="mi-mode">{{ m.mode }}</span>
+      </a>
     </nav>
 
     <div id="top" class="wrap layout">
@@ -114,8 +169,8 @@ onBeforeUnmount(() => {
         <p class="sidenav-title sn-gap">资料 / DATA</p>
         <router-link class="nav-item" to="/ttk">
           <span class="nav-num">↗</span>
-          <span class="nav-name">TTK 击杀排行</span>
-          <span class="nav-mode">全枪械 · 7 兵种</span>
+          <span class="nav-name">TTK 排行</span>
+          <span class="nav-mode">全枪械 · 7 类武器</span>
         </router-link>
       </aside>
 
@@ -129,32 +184,98 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-/* legacy CSS L36-40（header）+ L265-271（head-cta / sn-gap）原样，取值令牌化。
-   页头字级/眉题/导语走 base.css 全局 .kicker/.lede/.meta 与 h1 规则。
-   特效画布位于全站 SiteHeader 的 #hero-fx slot（脚手架冻结接线），本页头不再挂 canvas。 */
-.site-head { padding: 78px 0 46px; border-bottom: 1px solid var(--line2); position: relative; }
-.head-cta { margin-top: 20px; }
+/* 页头 padding 走 base.css .site-head 公共规则（64/32）；字级/眉题/导语走全局
+   .kicker/.lede/.meta 与 h1 规则。特效画布（#fxHero）按 §6.1/§7.1 挂本页头，
+   铺满 hero 区；.wrap 置于其上。 */
+.site-head { border-bottom: 1px solid var(--line2); position: relative; }
+.site-head .wrap {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--sp-7);
+  align-items: end;
+}
+/* hero 右侧数据大数带：mono 大数 + faint 小标（§6.1 第 3 条） */
+.hero-stats { display: flex; flex-direction: column; gap: var(--sp-3); }
+.stat { display: flex; align-items: baseline; gap: var(--sp-2); justify-content: flex-end; white-space: nowrap; margin: 0; }
+.stat-num {
+  font-family: var(--mono);
+  font-size: var(--fs-display);
+  font-weight: 600;
+  line-height: var(--lh-tight);
+  color: var(--tx-strong);
+  font-variant-numeric: tabular-nums;
+}
+.stat-label { font-family: var(--mono); font-size: var(--fs-2xs); letter-spacing: .12em; color: var(--faint); }
+.stat-x { font-family: var(--mono); font-size: var(--fs-sm); color: var(--faint); margin: 0 var(--sp-1); }
+@media (max-width: 820px) {
+  .site-head .wrap { grid-template-columns: 1fr; }
+  .stat { justify-content: flex-start; }
+}
+
+/* 主 CTA（§5.3 一级）：页头唯一行动点 */
+.head-cta { margin-top: var(--sp-5); }
 .head-cta .cta {
   display: inline-flex;
   align-items: center;
   gap: var(--sp-2);
-  padding: 8px 17px;
-  border: 1px solid var(--accent-dim);
+  padding: 10px 20px;
+  border: 1px solid var(--accent);
   border-radius: var(--radius);
   color: var(--accent);
   text-decoration: none;
-  font-size: var(--fs-sm);
+  font-size: var(--fs-md);
   letter-spacing: .05em;
   background: var(--accent-bg);
-  transition: border-color var(--t-med), background var(--t-med);
+  transition: background var(--t-med), border-color var(--t-med);
 }
-.head-cta .cta:hover { border-color: var(--accent); background: rgba(45, 212, 191, .15); }
+.head-cta .cta:hover { background: var(--accent-soft); border-color: var(--accent); }
 
-/* legacy CSS L42-70（layout / sidenav / topbar pills）原样，取值令牌化 */
+/* 六图索引（§6.1）：44px 缩略条 + 编号 + 图名 + 模式标签，卡片语言同 §5.2 */
+.map-index { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: var(--sp-3); padding-top: var(--sp-5); }
+.mi-card {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--card);
+  box-shadow: var(--edge-light);
+  overflow: clip;
+  text-decoration: none;
+  transition: border-color var(--t-med), box-shadow var(--t-med);
+}
+.mi-card:hover { border-color: var(--line-hover); box-shadow: var(--edge-light), inset 0 0 0 1px rgba(255, 255, 255, .02); }
+.mi-thumb { display: block; height: 44px; background: var(--deep); border-bottom: 1px solid var(--line2); }
+.mi-thumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
+/* §QA 两轮视觉回归：编号/模式副标题小字再提亮一档（--faint→--dim 未达标）：
+   --dim(6.1:1) → --tx，仍属 base.css 四级正文灰阶，层级仍低于图名 --tx-strong */
+.mi-num { font-family: var(--mono); font-size: var(--fs-2xs); color: var(--tx); letter-spacing: .1em; margin: 10px 12px 0; }
+.mi-name { font-size: var(--fs-sm); font-weight: 600; color: var(--tx-strong); margin: 2px 12px 0; }
+.mi-mode { font-family: var(--mono); font-size: var(--fs-2xs); letter-spacing: .12em; color: var(--tx); margin: 3px 12px 12px; }
+
+/* legacy CSS L42-70（layout / sidenav / topbar pills），取值令牌化；
+   断点统一 min-width: 1024px 一种写法（§4.1），移动端胶囊条默认显示 */
 .layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0; padding-top: 6px; }
 .sidenav { display: none; }
-.topbar { display: none; }
+.pills { display: flex; gap: var(--sp-2); overflow-x: auto; padding: 10px 28px; scrollbar-width: none; }
+.pills::-webkit-scrollbar { display: none; }
+.pill {
+  flex: none;
+  padding: 7px 15px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--line);
+  background: var(--bg2);
+  color: var(--dim);
+  font-size: var(--fs-xs);
+  text-decoration: none;
+  white-space: nowrap;
+  transition: color var(--t-med), border-color var(--t-med);
+}
+.pill:hover { color: var(--tx); border-color: var(--line-hover); }
+.pill.on { color: var(--accent); border-color: var(--accent-dim); background: var(--accent-bg); }
 @media (min-width: 1024px) {
+  .topbar { display: none; }
   .layout { grid-template-columns: 212px minmax(0, 1fr); gap: 52px; align-items: start; }
   .sidenav { display: block; position: sticky; top: 28px; padding-top: 40px; }
   .sidenav-title {
@@ -184,37 +305,9 @@ onBeforeUnmount(() => {
   .nav-name { display: block; font-size: var(--fs-sm); font-weight: 600; margin-top: 1px; }
   .nav-mode { display: block; font-size: var(--fs-micro); color: var(--faint); margin-top: 1px; }
 }
-@media (max-width: 1023.5px) {
-  .topbar {
-    display: block;
-    position: sticky;
-    top: 0;
-    z-index: var(--z-header);
-    background: var(--panel);
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
-    border-bottom: 1px solid var(--line2);
-  }
-  .pills { display: flex; gap: var(--sp-2); overflow-x: auto; padding: 10px 20px; scrollbar-width: none; }
-  .pills::-webkit-scrollbar { display: none; }
-  .pill {
-    flex: none;
-    padding: 7px 15px;
-    border-radius: var(--radius-pill);
-    border: 1px solid var(--line);
-    background: var(--bg2);
-    color: var(--dim);
-    font-size: var(--fs-xs);
-    text-decoration: none;
-    white-space: nowrap;
-    transition: color var(--t-med), border-color var(--t-med);
-  }
-  .pill:hover { color: var(--tx); border-color: var(--line-hover); }
-  .pill.on { color: var(--accent); border-color: var(--accent-dim); background: var(--accent-bg); }
-}
 main { min-width: 0; padding-bottom: 30px; }
 
 @media (prefers-reduced-motion: reduce) {
-  .nav-item, .pill, .head-cta .cta { transition: none; }
+  .nav-item, .pill, .head-cta .cta, .mi-card { transition: none; }
 }
 </style>

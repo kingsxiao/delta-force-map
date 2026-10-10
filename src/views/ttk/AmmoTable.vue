@@ -1,7 +1,7 @@
 <script setup>
 // 弹药库单口径折叠列（legacy renderAmmo L855-916 的组件化）：
 // "参考单发"= 口径基准枪面板 × 弹药系数（四舍五入到 0.1）；
-// 备注列聚合弹药 note / est 与口径 est。open 状态由父组件持有（初始全展开，
+// 备注列聚合弹药 note / est 与口径 est。open 状态由父组件持有（初始全收起，§6.3；
 // 与 legacy renderAmmo 仅装配一次、筛选切换不重置的口径一致）。
 import { computed } from 'vue'
 import { GUNS } from '../../data/ttk/guns.js'
@@ -67,12 +67,12 @@ function remark(am) {
 /* 表格基座（.tbl：表头/斑马纹/数字对齐）由 base.css 全局提供 */
 .tbl-wrap {
   overflow-x: auto;
-  padding: 2px 10px 12px;
+  padding: var(--sp-3) var(--sp-4);
 }
 .tbl { min-width: 640px; }
 .cal-note {
   font-size: var(--fs-xs);
   color: var(--faint);
-  padding: 0 10px 6px;
+  padding: 0 var(--sp-4) var(--sp-2);
 }
 </style>

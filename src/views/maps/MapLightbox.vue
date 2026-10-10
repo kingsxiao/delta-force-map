@@ -198,7 +198,7 @@ onBeforeUnmount(() => {
       :hidden="!visible"
       role="dialog"
       aria-modal="true"
-      aria-label="地图放大查看"
+      aria-label="放大查看"
     >
       <div id="lbBackdrop" class="lb-backdrop" @click="requestClose">
         <FxCanvas mode="lb" canvas-id="fxLb" />
@@ -224,12 +224,26 @@ onBeforeUnmount(() => {
 
       <header class="lb-top">
         <div id="lbTitle" class="lb-title">{{ titleText }}</div>
+        <!-- §5.6 工具条合并：一个容器统一 backdrop 采样（--scrim + blur(--panel-blur)），
+             按钮本体与 id（lbOut/lbIn/lbFit/lbClose）不动；字符图标换 SVG（§5.3） -->
         <div class="lb-tools">
-          <button id="lbOut" class="lb-btn" aria-label="缩小" @click="zoomOutCenter">−</button>
+          <button id="lbOut" class="lb-btn" aria-label="缩小" @click="zoomOutCenter">
+            <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+              <path d="M3 8h10" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
+            </svg>
+          </button>
           <span id="lbPct" class="lb-pct">{{ pct }}</span>
-          <button id="lbIn" class="lb-btn" aria-label="放大" @click="zoomInCenter">+</button>
-          <button id="lbFit" class="lb-btn lb-btn-fit" aria-label="重置视图" @click="fit">适应</button>
-          <button id="lbClose" ref="closeRef" class="lb-btn" aria-label="关闭 (ESC)" @click="requestClose">✕</button>
+          <button id="lbIn" class="lb-btn" aria-label="放大" @click="zoomInCenter">
+            <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+              <path d="M3 8h10M8 3v10" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
+            </svg>
+          </button>
+          <button id="lbFit" class="lb-btn lb-btn-fit" aria-label="复位" @click="fit">复位</button>
+          <button id="lbClose" ref="closeRef" class="lb-btn" aria-label="关闭 (ESC)" @click="requestClose">
+            <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+              <path d="M3.5 3.5l9 9M12.5 3.5l-9 9" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
+            </svg>
+          </button>
         </div>
       </header>
 
@@ -294,26 +308,40 @@ onBeforeUnmount(() => {
   pointer-events: none;
 }
 .lb-title { font-size: var(--fs-sm); color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.lb-tools { display: flex; align-items: center; gap: var(--sp-2); pointer-events: auto; flex: none; }
+/* §5.6 工具条容器：一次 backdrop 采样（--scrim + 唯一 blur 值 --panel-blur）+ --shadow-sm */
+.lb-tools {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  pointer-events: auto;
+  flex: none;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  background: var(--scrim);
+  backdrop-filter: blur(var(--panel-blur));
+  -webkit-backdrop-filter: blur(var(--panel-blur));
+  box-shadow: var(--shadow-sm);
+}
 .lb-btn {
   width: 32px;
   height: 32px;
+  border: 0;
   border-radius: var(--radius);
-  border: 1px solid var(--line);
-  background: var(--scrim);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
+  background: none;
   color: var(--dim);
-  font-size: 15px;
+  font-size: var(--fs-2xs);
   line-height: 1;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: color var(--t-med), border-color var(--t-med);
+  transition: color var(--t-med), background var(--t-med);
+  padding: 0;
 }
-.lb-btn:hover { color: var(--accent); border-color: var(--accent-dim); }
-.lb-btn-fit { width: auto; padding: 0 10px; font-size: var(--fs-2xs); }
+.lb-btn svg { display: block; }
+.lb-btn:hover { color: var(--tx); background: var(--lift); }
+.lb-btn-fit { width: auto; padding: 0 10px; letter-spacing: .06em; }
 .lb-pct { font-family: var(--mono); font-size: var(--fs-2xs); color: var(--faint); min-width: 46px; text-align: center; }
 .lb-tabs {
   position: absolute;
@@ -323,10 +351,11 @@ onBeforeUnmount(() => {
   display: flex;
   gap: 3px;
   background: var(--scrim);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(var(--panel-blur));
+  -webkit-backdrop-filter: blur(var(--panel-blur));
   border: 1px solid var(--line);
   border-radius: var(--radius-pill);
+  box-shadow: var(--shadow-sm);
   padding: 4px;
   max-width: 92vw;
   overflow-x: auto;
@@ -356,7 +385,7 @@ onBeforeUnmount(() => {
   color: var(--faint);
   pointer-events: none;
 }
-@media (max-width: 760px) {
+@media (max-width: 680px) {
   .lb-hint { display: none; }
   .lb-title { font-size: var(--fs-xs); }
 }

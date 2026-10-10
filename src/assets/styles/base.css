@@ -1,38 +1,47 @@
 /* ============================================================
-   base.css — 全站设计令牌 + 基础样式
+   base.css — 全站设计令牌 + 基础样式（设计规范 v2.2）
    设计语言：深色战术指挥台。蓝黑中性阶 + 唯一冷钢青主色 + 等宽字标签体系；
    护甲/穿透等级色为游戏语义色（1白 2绿 3蓝 4紫 5金 6红），统一收编为
    --lv* 变量并轻微降饱和，使其融入深色基调。
    约定：全站样式只从这里取值（var(--xxx)）；字号/间距/圆角/阴影/动效一律走变量。
-   中性阶取值沿用 legacy/index.html :root（L11-16）；主色自 v2 起为冷钢青
-   #2dd4bf（初版琥珀 #d9a45c 已弃用，仅存于 legacy 留档）。
+   用色硬约束：正文只许 --tx-strong/--tx/--dim/--faint；强调/链接/选中文字唯一
+   --accent；--accent-dim 仅限边框/描边/指示条、禁止作文字色；危险语义唯一 --danger；
+   阴影只给「浮在内容之上」的元素（吸顶面板/信息卡/BackTop/灯箱），普通卡片靠
+   --card 面差 + --line 描边 + --edge-light 顶缘高光成立、不加投影。
+
+   响应式断点（全仓约定；CSS 变量不能用于 media query，数值记此备查）：
+   --bp-mid:    1024px  侧栏出现 / 布尔顿分
+   --bp-pad:    820px   平板：排行窄栅格、champ 卡 2 列、表头精简
+   --bp-mobile: 680px   手机：控件全宽换行、出生点卡单列
+   --bp-mini:   480px   顶栏压缩（brand-sub 隐藏、字距减半）
    ============================================================ */
 
 :root {
-  /* ---- 中性色阶（背景 → 前景，蓝黑基调） ---- */
+  /* ---- 中性色阶（背景 → 前景，蓝黑基调；card 提亮一档让面块成立） ---- */
   --bg: #0d1013;          /* 页面最底色 */
   --bg2: #11151a;         /* 次级背景（顶栏/带状区） */
-  --card: #151a20;        /* 卡片面 */
-  --card2: #1a2028;       /* 卡片强调面 / 分段控件选中面 */
-  --line: #262d35;        /* 主分隔线 / 卡片描边 */
-  --line2: #1d232a;       /* 弱分隔线 */
-  --line-hover: #343e48;  /* 卡片 / 图框 hover 描边 */
+  --card: #171d24;        /* 卡片面（vs bg 1.12:1） */
+  --card2: #1e252e;       /* 卡片强调面 / 分段控件选中面（vs card 1.10:1） */
+  --line: #29313b;        /* 主分隔线 / 卡片描边 */
+  --line2: #1f262e;       /* 弱分隔线 */
+  --line-hover: #39434f;  /* 卡片 / 图框 hover 描边 */
   --tx-strong: #f0f4f7;   /* 标题 / 强数字 */
   --tx: #d9dee3;          /* 主文字 */
-  --dim: #9aa4ad;         /* 次级文字 */
-  --faint: #7e8890;       /* 弱化文字/标注（card 上 ≥ 4.5:1） */
+  --dim: #9aa4ad;         /* 次级文字（全场景 ≥6.1:1） */
+  --faint: #848e97;       /* 弱化文字（全场景 ≥4.63:1 达 AA） */
 
-  /* ---- 叠层面板（吸顶控件 / 地图内浮层） ---- */
-  --panel: rgba(17, 21, 26, .92);       /* 吸顶控制面板 */
-  --scrim: rgba(9, 12, 15, .74);        /* 地图内 chips / 按钮 */
-  --panel-solid: #12171d;               /* 信息卡等不透明浮层 */
+  /* ---- 叠层面板 ---- */
+  --panel-solid: #141a21; /* 吸顶面板 / 信息卡等不透明浮层 */
+  --panel: var(--panel-solid);           /* 兼容旧引用：语义改为实底 */
+  --scrim: rgba(9, 12, 15, .74);         /* 地图图框内 chips / 按钮浮层（保留 blur 的场景） */
+  --panel-blur: 8px;                     /* 全站唯一 backdrop-blur 值：仅图框内浮层与灯箱工具条 */
 
-  /* ---- 主色（冷钢青，唯一强调色） ---- */
-  --accent: #2dd4bf;
-  --accent-dim: rgba(45, 212, 191, .38);
-  --accent-bg: rgba(45, 212, 191, .09);
-  --accent-hover: rgba(45, 212, 191, .15);
-  --deep: #07090b;   /* 地图图框底色（衬卫星图） */
+  /* ---- 主色（冷钢青，唯一强调色；初版琥珀已弃用，仅存于 legacy 留档） ---- */
+  --accent: #2dd4bf;                     /* 唯一可作文字色的主色变体（on card 9.12:1） */
+  --accent-dim: rgba(45, 212, 191, .38); /* 仅限边框/描边/指示条，禁止作文字色 */
+  --accent-soft: rgba(45, 212, 191, .62);/* hover 面与次级强调底 */
+  --accent-bg: rgba(45, 212, 191, .09);  /* 强调底 */
+  --deep: #07090b;                       /* 地图图框底色（衬卫星图） */
 
   /* ---- 护甲/穿透等级语义色（游戏内 1白 2绿 3蓝 4紫 5金 6红；轻微降饱和） ---- */
   --lv0: #79828b;
@@ -40,47 +49,48 @@
   --lv2: #85b578;
   --lv3: #619fce;
   --lv4: #9d82cf;
-  --lv5: #e3b25e;   /* 金级（金甲），游戏语义色，不再跟随主色 */
+  --lv5: #e3b25e;   /* 金级（金甲），游戏语义色，不跟随主色 */
   --lv6: #d96a59;
 
-  /* ---- 地图标注类型色（复用等级色板，保证全站只有一套功能色） ---- */
+  /* ---- 地图标注类型色（复用等级色板，全站只有一套功能色） ---- */
   --hs-spawn: var(--lv2);     /* 出生 */
   --hs-extract: var(--accent); /* 撤离 */
   --hs-boss: var(--lv6);      /* Boss */
   --hs-loot: var(--lv3);      /* 物资 */
 
-  /* ---- 反馈 / 数据色 ---- */
+  /* ---- 反馈 / 数据色（「危险」全站唯一色：Boss 危险区、超弹匣、m0 档） ---- */
   --ok: var(--lv2);
   --warn: var(--lv5);
   --danger: var(--lv6);
   --info: var(--lv3);
 
-  /* ---- 行为色（斑马纹 / 悬浮） ---- */
-  --zebra: rgba(255, 255, 255, .016);
-  --row-hover: rgba(255, 255, 255, .03);
-  --lift: rgba(255, 255, 255, .04);   /* 通用 hover 面 */
+  /* ---- 行为色（斑马纹提亮一档，与 row-hover 拉开） ---- */
+  --zebra: rgba(255, 255, 255, .03);
+  --row-hover: rgba(255, 255, 255, .05);
+  --lift: rgba(255, 255, 255, .06);      /* 通用 hover 面 */
+  --edge-light: inset 0 1px 0 rgba(255, 255, 255, .04); /* 卡片顶缘微高光 */
 
   /* ---- 字体 ---- */
   --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
   --sans: -apple-system, BlinkMacSystemFont, "SF Pro SC", "PingFang SC", "Hiragino Sans GB", "Segoe UI", "Microsoft YaHei", sans-serif;
 
-  /* ---- 字号阶梯 ---- */
-  --fs-micro: 10px;  /* 表头微标注 / 角标 */
-  --fs-2xs: 11px;    /* kicker / 表头 / meta */
-  --fs-xs: 12px;     /* 辅助说明 / chips */
-  --fs-sm: 13px;     /* 表格正文 / 次级正文 */
+  /* ---- 字号阶梯（单调递增；display 为数据大数、3xl 为页面标题上限） ---- */
+  --fs-micro: 10px;  /* 唯一用途：字段名标签/表头/编号/单位等白名单标签类，不承载实义数据 */
+  --fs-2xs: 11px;    /* kicker / mono 小标签 / 表头 */
+  --fs-xs: 12px;     /* 辅助说明 / chips / 最小实义数据字号（下限） */
+  --fs-sm: 13px;     /* 表格正文 / 次级正文 / 按钮 */
   --fs-md: 14px;     /* 正文基准 */
-  --fs-lg: 16px;     /* 大号正文 / lede / 卡片标题 */
+  --fs-lg: 16px;     /* lede / 卡片标题 */
   --fs-xl: 20px;     /* 小节标题 */
-  --fs-2xl: 26px;    /* 页面标题下限 / 数据大数 */
-  --fs-display: 24px;/* 数据展示大数（champ TTK 等） */
-  --fs-3xl: 34px;    /* 页面标题上限 */
+  --fs-2xl: 26px;    /* 页面标题下限 */
+  --fs-display: 30px;/* 数据展示大数（champ TTK 等） */
+  --fs-3xl: 40px;    /* 页面标题上限（hero 锚点） */
 
-  /* ---- 行高 ---- */
+  /* ---- 行高（两档） ---- */
   --lh-tight: 1.3;
   --lh-body: 1.7;
 
-  /* ---- 间距尺度 ---- */
+  /* ---- 间距尺度（4/8/12/16/24/32/48/64 八档，禁 ad-hoc 值） ---- */
   --sp-1: 4px;
   --sp-2: 8px;
   --sp-3: 12px;
@@ -90,13 +100,13 @@
   --sp-7: 48px;
   --sp-8: 64px;
 
-  /* ---- 圆角 ---- */
+  /* ---- 圆角（全站禁用其他圆角值） ---- */
   --radius-sm: 6px;    /* 徽标 / 分段选中面 */
   --radius: 8px;       /* 按钮 / 输入 */
   --radius-lg: 12px;   /* 卡片 / 面板 / 图框 */
   --radius-pill: 999px;/* 胶囊 chips / 标签 */
 
-  /* ---- 阴影（深色柔和，三层） ---- */
+  /* ---- 阴影（三档，只给浮在内容之上的元素） ---- */
   --shadow-sm: 0 2px 10px rgba(0, 0, 0, .28);
   --shadow-md: 0 8px 30px rgba(0, 0, 0, .35);
   --shadow-lg: 0 14px 44px rgba(0, 0, 0, .55);
@@ -121,14 +131,17 @@ html { scroll-behavior: smooth; }
 html.locked { overflow: hidden; }
 body {
   font-family: var(--sans);
-  background: var(--bg);
   color: var(--tx);
   font-size: var(--fs-md);
   line-height: var(--lh-body);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
-  background-image: radial-gradient(1100px 420px at 50% -120px, #171d24 0%, var(--bg) 62%);
-  background-repeat: no-repeat;
+  /* 两层氛围：顶部冷钢灰光晕（hero 区可感知）+ 64px 平铺静态噪点（零动画成本） */
+  background-color: var(--bg);
+  background-image:
+    radial-gradient(1200px 520px at 50% -140px, #1e2630 0%, transparent 65%),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='64' height='64'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='64' height='64' filter='url(%23n)' opacity='0.05'/%3E%3C/svg%3E");
+  background-repeat: no-repeat, repeat;
 }
 ::selection { background: rgba(45, 212, 191, .28); }
 a { color: inherit; }
@@ -146,11 +159,46 @@ button { font-family: inherit; }
 /* ---- 通用布局 ---- */
 .wrap { max-width: var(--wrap); margin: 0 auto; padding: 0 28px; }
 
+/* ---- 页头公共（三页统一 64/32；各视图 scoped 重复声明应删除，以本规则为准） ---- */
+.page-head,
+.site-head { padding: var(--sp-8) 0 var(--sp-6); }
+
+/* ---- 吸顶面板（三页共用；弃 blur 改实底） ---- */
+.sticky-bar {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-header);
+  background: var(--panel-solid);
+  border-bottom: 1px solid var(--line);
+  box-shadow: var(--shadow-md);
+}
+
 /* ---- 页面级入场（useReveal 加 .in；各视图不再重复定义） ---- */
-.reveal { opacity: 0; transform: translateY(12px); transition: opacity .5s ease, transform .5s var(--ease); }
+.reveal {
+  opacity: 0;
+  transform: translateY(12px);
+  transition: opacity .42s var(--ease), transform .42s var(--ease);
+}
 .reveal.in { opacity: 1; transform: none; }
+
+/* ---- 列表级联入场（§7.3 animation 方案）----
+   容器挂 .reveal-group（IO 只观察容器），直接子项按 --ri 错峰入场；
+   入场走 animation 与组件 hover 的 transition 属性正交，互不干扰。
+   容器滚入视口前 paused（含 delay 计时冻结），.in 后 running 恢复。 */
+@keyframes reveal-row {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: none; }
+}
+.reveal-group > * {
+  animation: reveal-row .42s var(--ease) both;
+  animation-play-state: paused;
+  animation-delay: calc(min(var(--ri, 0), 5) * 60ms);
+}
+.reveal-group.in > * { animation-play-state: running; }
+
 @media (prefers-reduced-motion: reduce) {
   .reveal { opacity: 1; transform: none; transition: none; }
+  .reveal-group > * { animation: none; }
 }
 
 /* ---- 小节标题（地图页 / TTK 页共用）：等宽字 + 拉线 + 右注 ---- */
@@ -197,7 +245,7 @@ button { font-family: inherit; }
   letter-spacing: .06em;
 }
 
-/* ---- 数据表基座（爆率表 / 弹药库 / 护甲一览共用）：表头 + 斑马纹 + 数字对齐 ---- */
+/* ---- 数据表基座（物资档位表 / 弹药库 / 护甲一览共用）：表头 + 斑马纹 + 数字对齐 ---- */
 .tbl {
   width: 100%;
   border-collapse: collapse;
@@ -213,6 +261,7 @@ button { font-family: inherit; }
   text-align: left;
   padding: 10px 10px 8px;
   border-bottom: 1px solid var(--line);
+  background: var(--card2);
   white-space: nowrap;
 }
 .tbl td {

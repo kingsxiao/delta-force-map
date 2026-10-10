@@ -10,8 +10,8 @@ const props = defineProps({
   map: { type: Object, required: true },
 })
 
-/* 默认展开状态同 legacy：仅「简介」默认 open，其余点击切换（互不联动） */
-const openState = reactive({ intro: true, extractions: false, routes: false, boss: false, tips: false, source: false })
+/* §6.2 默认展开策略：「简介」与「撤离点」两列默认 open，其余点击切换（互不联动） */
+const openState = reactive({ intro: true, extractions: true, routes: false, boss: false, tips: false, source: false })
 const toggle = (k) => { openState[k] = !openState[k] }
 
 /* legacy splitLead（L392-397）：「：」前 ≤20 字时前缀加粗 */
@@ -103,7 +103,8 @@ const bossSplit = (() => {
 
 <style scoped>
 /* legacy CSS L153-170（intro / rows / boss / source）+ col-pad，取值令牌化；.reveal 走全局 */
-.col-pad { padding: 2px 16px 16px; }
+/* 折叠壳内容统一：左右 16px（--sp-4）、纵向 12px（--sp-3）（§4.1） */
+.col-pad { padding: var(--sp-3) var(--sp-4); }
 .intro-p { font-size: var(--fs-md); color: var(--dim); line-height: 1.9; padding-top: 4px; }
 .rows { padding: 2px 8px 10px; }
 .row { display: flex; gap: var(--sp-3); padding: 9px 9px; border-radius: var(--radius); transition: background var(--t-fast); }
@@ -113,18 +114,19 @@ const bossSplit = (() => {
 .row-dia { flex: none; width: 5px; height: 5px; background: var(--accent); transform: rotate(45deg); opacity: 0.7; margin-top: 9px; }
 .row-body { font-size: var(--fs-sm); color: var(--dim); line-height: 1.8; min-width: 0; }
 .row-lead { color: var(--tx-strong); font-weight: 600; }
-.boss-wrap { padding: 2px 16px 16px; }
+.boss-wrap { padding: var(--sp-3) var(--sp-4); }
 .boss-p { font-size: var(--fs-sm); color: var(--dim); line-height: 1.9; padding-top: 4px; }
+/* 危险语义全站唯一色 --danger（§2.3）：左边条 + 8% 底，不再用主色表达危险 */
 .danger {
   margin-top: 14px;
   padding: 11px 14px;
-  border-left: 2px solid var(--accent-dim);
-  background: var(--accent-bg);
+  border-left: 2px solid var(--danger);
+  background: rgba(217, 106, 89, .08);
   border-radius: 0 var(--radius) var(--radius) 0;
 }
-.danger-label { display: block; font-family: var(--mono); font-size: var(--fs-micro); letter-spacing: .28em; color: var(--accent); margin-bottom: 6px; }
+.danger-label { display: block; font-family: var(--mono); font-size: var(--fs-micro); letter-spacing: .28em; color: var(--danger); margin-bottom: 6px; }
 .danger p { font-size: var(--fs-sm); color: var(--dim); line-height: 1.8; }
-.src-body { padding: 2px 16px 16px; }
+.src-body { padding: var(--sp-3) var(--sp-4); }
 .src-p { font-size: var(--fs-xs); color: var(--faint); line-height: 1.85; margin-bottom: 14px; }
 .src-p:last-child { margin-bottom: 0; }
 .kv-label {
