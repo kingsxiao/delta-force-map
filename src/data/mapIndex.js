@@ -22,19 +22,19 @@ import hedianzhanHs from './hotspots/hedianzhan.json'
 const FIG_META = {
   linghaodaba: [
     { label: '标注图', cap: '官方工具全量点位标注：出生点 14 处 · 打法卡详写 5 类主要出生点 / 撤离点 8 处 / 赛伊德 / 约 360 个物资点', hs: true },
-    { label: '原始底图', cap: '官方瓦片拼接原始底图（4096×4096，同一图幅）', hs: true },
+    { label: '原始底图', cap: '官方瓦片拼接原始底图（已裁剪至地图主体范围）', hs: true },
   ],
   changgongxigu: [
     { label: '全点位标注', cap: '社区交互地图底图 + 335 个点位合成标注：出生点 22 处 · 打法卡详写 5 类主要出生点 / 撤离点 7 处 / 钥匙房 21 处 / 保险箱 / 服务器 / 鸟窝', hs: true },
     { label: '纯净底图', cap: 'deltaforce-maps 瓦片拼接纯净底图（同一图幅）', hs: true },
   ],
   bakeshi: [
-    { label: '全图底图', cap: '官方暗色底图瓦片拼接全图，可点标注基于官方点位数据', hs: true },
+    { label: '全图底图', cap: '官方暗色底图瓦片拼接（已裁剪至地图主体，可点标注基于官方点位数据）', hs: true },
     { label: '撤离点标注', cap: '官方地图工具撤离点截图拼合（静态拼图，无交互标注）', hs: false },
   ],
   hangtianjidi: [
     { label: '标注图', cap: '官方区域数据对齐后自绘标注：13 个区域 / 出生点 / 撤离点 / 保险柜', hs: true },
-    { label: '纯净底图', cap: '官方瓦片拼接提亮版（同一图幅）', hs: true },
+    { label: '纯净底图', cap: '官方瓦片拼接提亮版（已裁剪至地图主体范围）', hs: true },
   ],
   chaoxijianyu: [
     { label: '标注图', cap: '官方点位数据渲染标注：出生点 14 处 · 打法卡详写 5 类主要出生点 / 撤离点 5 处 / 16 个区域 / 443 个容器', hs: true },
@@ -42,7 +42,7 @@ const FIG_META = {
   ],
   hedianzhan: [
     { label: '标注图', cap: '官方点位数据自绘标注：出生点 / 撤离点 / 区域', hs: true },
-    { label: '纯净底图', cap: '官方瓦片拼接提亮版（同一图幅）', hs: true },
+    { label: '纯净底图', cap: '官方瓦片拼接提亮版（已裁剪至地图主体范围）', hs: true },
   ],
 }
 
