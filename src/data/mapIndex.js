@@ -33,7 +33,7 @@ const FIG_META = {
     { label: '撤离点标注', cap: '官方地图工具撤离点截图拼合（静态拼图，无交互标注）', hs: false },
   ],
   hangtianjidi: [
-    { label: '标注图', cap: '官方区域数据对齐后自绘标注：13 个区域 / 出生点 / 撤离点 / 保险柜', hs: true },
+    { label: '标注图', cap: '官方瓦片底图 + 程序化标注：13 个区域 / 出生点 / 撤离点 / 保险柜', hs: true },
     { label: '纯净底图', cap: '官方瓦片拼接提亮版（已裁剪至地图主体范围）', hs: true },
   ],
   chaoxijianyu: [
