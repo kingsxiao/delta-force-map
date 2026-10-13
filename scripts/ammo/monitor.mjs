@@ -1,28 +1,35 @@
 /* ============================================================
-   monitor.mjs — 子弹行情实时监控主程序
+   monitor.mjs — 子弹行情实时监控主程序（不开 live 服务时的通知器）
    ------------------------------------------------------------
-   循环：默认每 30 分钟抓取一次（上游数据约每小时更新，version 未变则跳过）；
+   循环：默认每 10 分钟抓取一次（主源 moligod 分钟级；上游 version/指纹
+   未变则跳过写盘，但每轮仍核对信号——冷却到期、信号切换需补发通知）。
+   每轮抓取按曲线缓存状态自动选模式：冷启动 / 缓存过期时自动补抓缺失
+   曲线（mode 'auto' 内核），缓存新鲜时每轮只打 1 次 catalog——不会把
+   过期缓存当新数据，也不会产出全「数据不足」的快照。
    出现新的买入/卖出信号时发 macOS 系统通知，通知内容具体到：
-     · 哪种子弹
-     · 多少价格可以买入（当前价）
-     · 什么时候卖出（目标挂单价 + 到手价，以及"贴近7天高位就出"的判定）
+     · 哪种子弹 / 多少价格可以买入（当前价）
+     · 什么时候卖出（目标挂单价 + 到手价）
      · 能赚多少（每发利润 + 收益率，已扣交易税）
-   去重：state 记录每子弹上次通知的信号/价格/时间；同信号 6 小时冷却，
-         信号切换（如 BUY→SELL）立即通知，冷却期内价格再跌 5% 也重新提示。
-   用法：node scripts/ammo/monitor.mjs [--interval 分钟=30] [--once] [--no-notify]
+   去重（notify-policy.mjs，与 live.mjs 共用 state 文件）：每轮全量记录
+   信号与 streak；首次出现立即通知；信号切换需连续 2 轮确认（分钟级
+   数据在分位边界抖动防刷屏）；同信号 6 小时冷却；BUY 冷却期内价格再
+   跌 5% 重新提示。
+   要页面级实时（SSE ≤5s 反映落盘），改跑 npm run ammo:live。
+   用法：node scripts/ammo/monitor.mjs [--interval 分钟=10] [--once] [--no-notify]
+         （--no-notify 仅停通知；去抖 state 仍逐轮记录，恢复通知后不爆发）
+   注意：live / monitor / 手动 ammo:fetch 同为写盘者，同时只跑一个。
    ============================================================ */
-import { readFile, writeFile, mkdir } from 'node:fs/promises'
+import { readFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { fetchOnce } from './fetch-once.mjs'
+import { fetchOnce, writeJsonAtomic } from './fetch-once.mjs'
+import { judgeSignals, sendNotifications, emptyState } from './notify-policy.mjs'
 import { notify } from './notify.mjs'
-import { fmtPrice, fmtPct } from './analyze.mjs'
+import { primeCurveCache } from './moligod-client.mjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const STATE_PATH = path.join(ROOT, 'data', 'ammo', 'monitor-state.json')
-const COOLDOWN_MS = 6 * 60 * 60 * 1000
-const REDROP_PCT = 0.05 // 冷却期内价格再跌 5% 重新提示
 
 // ---- CLI 参数 ----
 const argv = process.argv.slice(2)
@@ -31,7 +38,7 @@ const opt = (name, dflt) => {
   const i = argv.indexOf(`--${name}`)
   return i >= 0 && argv[i + 1] && !argv[i + 1].startsWith('--') ? Number(argv[i + 1]) : dflt
 }
-const INTERVAL_MIN = opt('interval', 30)
+const INTERVAL_MIN = opt('interval', 10)
 const ONCE = flag('once')
 const NO_NOTIFY = flag('no-notify')
 
@@ -39,84 +46,52 @@ async function loadState() {
   try {
     return JSON.parse(await readFile(STATE_PATH, 'utf8'))
   } catch {
-    return { items: {} }
+    return emptyState()
   }
 }
 
 async function saveState(state) {
-  await mkdir(path.dirname(STATE_PATH), { recursive: true })
-  await writeFile(STATE_PATH, JSON.stringify(state))
+  // 原子写：与 live.mjs 共用本文件，裸 writeFile 可能留下半截 state
+  await writeJsonAtomic(STATE_PATH, JSON.stringify(state))
 }
 
-/** 买入通知正文：哪种子弹 / 多少价格买 / 什么时候卖 / 能赚多少 */
-function buyLine(i) {
-  const high = `7天高点到手${fmtPrice(i.netHigh)}`
-  return `${i.name} 买入≤${fmtPrice(i.current)} → 挂卖${fmtPrice(i.targetSell)}(到手${fmtPrice(i.netSell)}) 预赚${fmtPrice(i.profitPerRound)}/发(${fmtPct(i.profitPct)})，${high}`
+const state = await loadState()
+
+// 启动预热：现有 market.json 的曲线进缓存，冷启动第一轮不必全量打 history
+{
+  const marketPath = path.join(ROOT, 'public', 'ammo', 'market.json')
+  if (existsSync(marketPath)) {
+    try {
+      primeCurveCache(JSON.parse(await readFile(marketPath, 'utf8')).items)
+    } catch {
+      /* 损坏快照忽略 */
+    }
+  }
 }
 
-function sellLine(i) {
-  return `${i.name} 现价${fmtPrice(i.current)}，处7天${Math.round(i.rank * 100)}%高位，建议立即挂卖`
-}
-
-/** 判断某子弹某信号是否值得通知（冷却 + 信号切换 + 深跌重报） */
-function shouldNotify(state, item, signal) {
-  const prev = state.items[item.name]
-  const now = Date.now()
-  if (!prev) return true
-  if (prev.signal !== signal) return true
-  if (now - prev.at >= COOLDOWN_MS) return true
-  if (signal === 'BUY' && prev.price && item.current <= prev.price * (1 - REDROP_PCT)) return true
-  return false
-}
-
-async function runCycle(state) {
+async function runCycle() {
   let r
   try {
+    // mode 默认 'auto'：曲线缓存有过期/缺失才补抓，稳态每轮只打 1 次 catalog
     r = await fetchOnce()
   } catch (e) {
     console.error(`[${new Date().toLocaleString('zh-CN')}] 抓取失败: ${e.message}`)
     return
   }
-  if (!r.changed) {
-    // version 未变也要跑信号判断：首次启动、冷却到期、信号切换都需要补发通知；
-    // version 未变时信号集合基本不变，冷却逻辑会挡住重复通知。
-    console.log(`[${new Date().toLocaleString('zh-CN')}] version ${r.version} 未变化，仅核对信号`)
-  } else {
-    console.log(
-      `[${new Date().toLocaleString('zh-CN')}] version ${r.version} · 买入 ${r.analysis.stats.buy} / 卖出 ${r.analysis.stats.sell} / 关注 ${r.analysis.stats.watch}`
-    )
-  }
-  const { analysis } = r
+  console.log(
+    `[${new Date().toLocaleString('zh-CN')}] [${r.source}] version ${r.version} · 买入 ${r.analysis.stats.buy} / 卖出 ${r.analysis.stats.sell} / 关注 ${r.analysis.stats.watch}` +
+      (r.changed ? '' : '（内容未变，仅核对信号）')
+  )
 
-  const buys = analysis.signals.buy.filter((i) => shouldNotify(state, i, 'BUY'))
-  const sells = analysis.signals.sell.filter((i) => shouldNotify(state, i, 'SELL'))
-
-  if (buys.length && !NO_NOTIFY) {
-    const top = buys.slice(0, 3) // 通知正文有限，最多报 3 条，其余进页面
-    const body = top.map((i) => `🎯 ${buyLine(i)}`).join('\n')
-    await notify({
-      title: `三角洲子弹买入信号 ×${buys.length}`,
-      body: buys.length > top.length ? body + `\n…还有${buys.length - top.length}种见 #/ammo 页` : body,
-      sound: 'Glass',
-    })
-  }
-  if (sells.length && !NO_NOTIFY) {
-    const top = sells.slice(0, 3)
-    const body = top.map((i) => `📈 ${sellLine(i)}`).join('\n')
-    await notify({
-      title: `三角洲子弹卖出信号 ×${sells.length}`,
-      body: sells.length > top.length ? body + `\n…还有${sells.length - top.length}种见 #/ammo 页` : body,
-      sound: 'Hero',
-    })
-  }
-  for (const i of buys) state.items[i.name] = { signal: 'BUY', price: i.current, at: Date.now() }
-  for (const i of sells) state.items[i.name] = { signal: 'SELL', price: i.current, at: Date.now() }
+  // 去抖 state 无论如何逐轮记录（静默期也推进冷却/切换确认）——否则静默跑
+  // ≥6h 后恢复通知时，全部现存信号冷却到期会一次性爆发；仅发送受 --no-notify 控制
+  const { buys, sells } = judgeSignals(state, r.analysis.items)
+  if (!NO_NOTIFY) await sendNotifications(buys, sells, notify)
   await saveState(state)
 }
 
-const state = await loadState()
 console.log(`子弹行情监控启动：每 ${INTERVAL_MIN} 分钟抓取一次（Ctrl+C 退出）`)
-await runCycle(state)
+await runCycle()
 if (!ONCE) {
-  setInterval(() => runCycle(state), INTERVAL_MIN * 60 * 1000)
+  setInterval(() => runCycle(), INTERVAL_MIN * 60 * 1000)
 }

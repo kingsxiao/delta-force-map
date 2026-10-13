@@ -3,17 +3,30 @@
    AmmoMarketView — 子弹行情 · 实时监控（/ammo）
    ------------------------------------------------------------
    数据源：public/ammo/market.json（由 scripts/ammo/fetch-once.mjs 生成，
-   来自 KK三角洲一图流 kkrb.net 的交易行子弹盈亏接口，约每小时更新）。
-   本页为静态快照展示；后台跑 `npm run ammo:monitor` 时，出现买入/卖出
-   信号会弹 macOS 系统通知（哪种子弹 / 什么价买 / 挂多少钱卖 / 预赚多少）。
+   主源 moligod.com 分钟级，kkrb.net 小时级兜底，json.source 标明来源）。
+   刷新链路（按环境自动取最优）：
+     · 本地 dev + npm run ammo:live：SSE（127.0.0.1:8787）落盘后 ≤5s 推送，
+       页面收到 event:market 自拉 market.json；
+     · 其余环境：静默轮询 + 手动『刷新数据』——本地 http 每 60s；纯静态部署
+       （live 通道不适用，快照永不变化）自动退回 30 分钟，且自动刷新仅在
+       版本前进时才闪提示，不误导「正在更新」。
+   纯静态部署（无后端）不白屏：吃构建时快照，并如实标注数据年龄与来源；
+   时效阈值按 source 分档（moligod 10/30min，kkrb 沿用 60/360min）。
+   后台跑 live / monitor 时，出现买入/卖出信号会弹 macOS 系统通知
+   （哪种子弹 / 什么价买 / 挂多少钱卖 / 预赚多少）。
    口径与 scripts/ammo/analyze.mjs 一致：7 天小时级曲线分位数回归，
    P25 以下买入、P75 以上卖出，利润为税后到手价减买入价。
+   版本展示 / 阈值分档 / 通道门槛等纯逻辑在 ./ammo/marketMeta.js（自测共用）。
    ============================================================ */
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { useReveal } from '../composables/useReveal'
 import SignalCard from './ammo/SignalCard.vue'
 import Sparkline from './ammo/Sparkline.vue'
 import PriceChart from './ammo/PriceChart.vue'
+import {
+  formatVersionLabel, staleness, sourceLabel, methodDataLine,
+  liveChannelEligible, staleTipText,
+} from './ammo/marketMeta.js'
 
 const { observeRoot } = useReveal()
 
@@ -39,6 +52,7 @@ async function load(opts = {}) {
   if (silent) refreshing.value = true
   else loadState.value = 'loading'
   try {
+    const prevVersion = market.value?.version
     const res = await fetch(`${import.meta.env.BASE_URL}ammo/market.json?t=${Date.now()}`)
     if (res.status === 404) {
       if (silent) throw new Error('快照不存在（HTTP 404）')
@@ -51,10 +65,14 @@ async function load(opts = {}) {
     market.value = json
     loadState.value = 'ready'
     if (silent) {
-      refreshTip.value = `已更新至 ${versionLabel.value}`
-      refreshTipKind.value = 'ok'
-      if (tipTimer) clearTimeout(tipTimer)
-      tipTimer = setTimeout(() => { refreshTip.value = '' }, 4000)
+      // 自动轮询/SSE 触发的刷新只在版本真的前进时提示——纯静态环境快照永不
+      // 变化，每分钟闪一次「已更新至 <旧版本>」是在误导；手动点击仍给反馈
+      if (!opts.auto || json.version !== prevVersion) {
+        refreshTip.value = `已更新至 ${versionLabel.value}`
+        refreshTipKind.value = 'ok'
+        if (tipTimer) clearTimeout(tipTimer)
+        tipTimer = setTimeout(() => { refreshTip.value = '' }, 4000)
+      }
     }
     await nextTick()
     observeRoot(pageRef.value)
@@ -112,11 +130,45 @@ const ageLabel = computed(() => {
     : `${Math.round(ageMin.value / 60)} 小时前`
 })
 
-/* 数据版本号 "2026101310" → "2026-10-13 10:00" */
-const versionLabel = computed(() => {
-  const v = market.value?.version
-  if (!v) return '—'
-  return `${v.slice(0, 4)}-${v.slice(4, 6)}-${v.slice(6, 8)} ${v.slice(8, 10)}:00`
+/* 数据版本：12 位分钟档（moligod）显示到 HH:mm，10 位小时档（kkrb）显示 HH:00 */
+const versionLabel = computed(() => formatVersionLabel(market.value?.version))
+
+/* ---------- 来源与时效（按 json.source 分档，纯函数在 ./ammo/marketMeta.js） ---------- */
+const thresholds = computed(() => staleness(market.value?.source))
+const srcLabel = computed(() => sourceLabel(market.value?.source))
+const dataLine = computed(() => methodDataLine(market.value?.source))
+const staleTipMsg = computed(() => staleTipText(market.value?.source, ageMin.value))
+
+/* ---------- 本地实时通道（SSE，仅本地 http 环境；https 连本地 http 会被 mixed content 拦） ---------- */
+const LIVE_EVENTS_URL = 'http://127.0.0.1:8787/events'
+const liveChannel = ref('off') // off(环境不适用) | connecting | on | down
+let es = null
+function connectLive() {
+  if (!liveChannelEligible(location)) return
+  liveChannel.value = 'connecting'
+  es = new EventSource(LIVE_EVENTS_URL)
+  es.addEventListener('hello', (e) => {
+    liveChannel.value = 'on'
+    try {
+      const meta = JSON.parse(e.data)
+      // hello 携带的版本比页面当前新（页面先于服务连上）：主动补拉一次
+      if (market.value && meta.version && meta.version !== market.value.version) load({ silent: true, auto: true })
+    } catch { /* hello 数据异常只标记连接态，不影响链路 */ }
+  })
+  es.addEventListener('market', () => { load({ silent: true, auto: true }) })
+  es.addEventListener('error', () => {
+    // live 服务不在 / 已停：关闭连接（EventSource 默认会自动重连，这里明确
+    // 放弃），回落 60s 轮询，UI 如实标注
+    try { es && es.close() } catch { /* 已关闭 */ }
+    es = null
+    liveChannel.value = 'down'
+  })
+}
+const liveText = computed(() => {
+  if (liveChannel.value === 'on') return '实时通道已连接（落盘 ≤5s 达）'
+  if (liveChannel.value === 'down') return '实时通道未连接，60s 轮询兜底'
+  if (liveChannel.value === 'connecting') return '实时通道连接中…'
+  return '' // off：纯静态环境不显示，避免误导
 })
 
 /* ---------- 展示工具 ---------- */
@@ -265,22 +317,32 @@ function showAllSell() {
 const buyList = computed(() => items.value.filter((i) => i.signal === 'BUY').sort((a, b) => b.profitPct - a.profitPct))
 const sellList = computed(() => items.value.filter((i) => i.signal === 'SELL').sort((a, b) => b.rank - a.rank))
 
-/* ---------- 生命周期：静默轮询 + 分钟钟 + 全局监听（统一在此挂/卸） ---------- */
+/* ---------- 生命周期：SSE + 静默轮询 + 分钟钟 + 全局监听（统一在此挂/卸） ---------- */
+/* 轮询节奏按环境分档：live 通道不适用（https/file 纯静态部署，market.json 永不
+   变化）时退回 30 分钟，避免 60s×缓存穿透对静态主机打无效流量（快照约
+   400KB，60s 轮 ≈ 23MB/小时/标签页）；本地 http（live 已连或 monitor/手动
+   fetch 在写盘）保持 60s。逐轮重排而非固定 setInterval，节奏可随通道状态切换 */
+function schedulePoll() {
+  const delay = liveChannel.value === 'off' ? 30 * 60 * 1000 : 60 * 1000
+  pollTimer = setTimeout(() => {
+    if (document.visibilityState === 'visible' && market.value) load({ silent: true, auto: true })
+    schedulePoll()
+  }, delay)
+}
 onMounted(() => {
   load()
-  // 页面可见且已有数据时每 30 分钟静默拉一次，不整页 loading
-  pollTimer = setInterval(() => {
-    if (document.visibilityState === 'visible' && market.value) load({ silent: true })
-  }, 30 * 60 * 1000)
+  connectLive() // 本地 live 服务在跑时走 SSE（≤5s）；不在 / 不适用则轮询兜底
+  schedulePoll()
   clockTimer = setInterval(() => { nowTs.value = Date.now() }, 60 * 1000)
   window.addEventListener('resize', syncTblFade)
   window.addEventListener('keydown', onGlobalKeydown)
 })
 onUnmounted(() => {
-  clearInterval(pollTimer)
+  clearTimeout(pollTimer)
   clearInterval(clockTimer)
   if (tipTimer) clearTimeout(tipTimer)
   if (ctlRO) ctlRO.disconnect()
+  if (es) { try { es.close() } catch { /* 已关闭 */ } es = null }
   window.removeEventListener('resize', syncTblFade)
   window.removeEventListener('keydown', onGlobalKeydown)
 })
@@ -291,21 +353,21 @@ onUnmounted(() => {
     <!-- 页头 -->
     <header class="page-head">
       <p class="kicker">AMMO MARKET / 交易行 · 子弹行情</p>
-      <h1>子弹价格监控 <span class="live-dot" :class="{ stale: ageMin !== null && ageMin > 60 }" aria-hidden="true"></span></h1>
+      <h1>子弹价格监控 <span class="live-dot" :class="{ stale: ageMin !== null && ageMin > thresholds.staleDotMin }" aria-hidden="true"></span></h1>
       <p class="lede">
-        88 种交易行子弹的实时价格与买卖建议：贴近 7 天低位、税后仍有利润空间的弹种给出
+        {{ items.length }} 种交易行子弹的实时价格与买卖建议：贴近 7 天低位、税后仍有利润空间的弹种给出
         <b>买入信号</b>；贴近 7 天高位给出<b>卖出信号</b>。每发预赚多少已按交易税折算。
       </p>
       <p class="meta">
-        数据版本 {{ versionLabel }} · 来源 KK三角洲一图流（约每小时更新）·
-        本机后台监控 <code>npm run ammo:monitor</code> 触达系统通知<span v-if="ageLabel"> ·
-        更新于 <span :class="{ 'meta-stale': ageMin > 120 }">{{ ageLabel }}</span></span>
+        数据版本 {{ versionLabel }} · 来源 {{ srcLabel }}<span v-if="liveText"> · {{ liveText }}</span> ·
+        本机 <code>npm run ammo:live</code> / <code>ammo:monitor</code> 触达系统通知<span v-if="ageLabel"> ·
+        更新于 <span :class="{ 'meta-stale': ageMin > thresholds.staleDotMin * 2 }">{{ ageLabel }}</span></span>
       </p>
     </header>
 
-    <!-- 数据过期提醒（>6 小时） -->
-    <p v-if="ageMin !== null && ageMin > 360" class="state-tip stale-tip" role="status">
-      数据已 {{ Math.round(ageMin / 60) }} 小时未更新，价格可能已变化，可点『刷新数据』重试
+    <!-- 数据过期提醒（moligod 30min / kkrb 6h，文案如实注明静态快照边界） -->
+    <p v-if="ageMin !== null && ageMin > thresholds.staleTipMin" class="state-tip stale-tip" role="status">
+      {{ staleTipMsg }}
     </p>
 
     <!-- 加载 / 空态 -->
@@ -313,7 +375,7 @@ onUnmounted(() => {
     <div v-else-if="loadState === 'empty'" class="state-card">
       <p>还没有行情数据。先运行一次抓取脚本生成快照：</p>
       <pre><code>npm run ammo:fetch</code></pre>
-      <p class="dim">之后用 <code>npm run ammo:monitor</code> 挂后台监控，出现买入信号会弹系统通知。</p>
+      <p class="dim">本地分钟级用 <code>npm run ammo:live</code>（配 <code>npm run dev</code>，落盘 ≤5s 到页面）；只挂通知用 <code>npm run ammo:monitor</code>。</p>
     </div>
     <div v-else-if="loadState === 'error'" class="state-card">
       <p>行情加载失败：{{ loadError }}</p>
@@ -498,7 +560,7 @@ onUnmounted(() => {
               <li><b>买入条件</b>：当前价处近 7 天价格曲线 ≤ 25% 分位，且按 P75 挂卖、扣除交易税后收益率 ≥ 8%。</li>
               <li><b>卖出条件</b>：当前价处 ≥ 80% 分位（贴近 7 天高位）。</li>
               <li><b>能赚多少</b>：每发利润 = 目标挂卖价 × (1−税率) − 当前买入价；税率按上游税后价实测反推（约 15%，逐弹计算）。</li>
-              <li><b>数据</b>：KK三角洲一图流（kkrb.net）交易行口径，约每小时更新一次；趋势为近 7 天每小时均价。</li>
+              <li><b>数据</b>：{{ dataLine }}</li>
               <li><b>提醒</b>：交易行价格受版本、活动与大盘供需影响，历史分位不代表未来走势；利润测算未计挂单时间成本。</li>
             </ul>
           </section>
