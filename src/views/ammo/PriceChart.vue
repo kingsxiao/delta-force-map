@@ -30,8 +30,8 @@ const geo = computed(() => {
   const y = (v) => PAD.t + ih - ((v - min) / span) * ih
   const line = pts.map(([, v], i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)} ${y(v).toFixed(1)}`).join(' ')
   const lastIdx = pts.length - 1
-  // 首尾时间标签（YYYYMMDDHHmm → MM-DD HH:00）
-  const fmtTs = (ts) => `${ts.slice(4, 6)}-${ts.slice(6, 8)} ${ts.slice(8, 10)}时`
+  // 首尾时间标签（YYYYMMDDHHmm → MM-DD HH:mm；kkrb 小时档键分钟位为 00，显示不变）
+  const fmtTs = (ts) => `${ts.slice(4, 6)}-${ts.slice(6, 8)} ${ts.slice(8, 10)}:${ts.slice(10, 12) || '00'}`
 
   // 分位标注防撞取 y：三级回退（线上方 → 线下方 → 再抬高 8px），距避让基线均需 ≥11px
   const XL_Y = H - 8 // 两条 X 轴时间标签基线

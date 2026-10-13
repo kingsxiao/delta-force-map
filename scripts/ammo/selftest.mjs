@@ -1,0 +1,805 @@
+/* ============================================================
+   selftest.mjs — 子弹行情刷新链路离线自测（node 直接运行，零 npm 依赖）
+   ------------------------------------------------------------
+   全程不打外网：上游 moligod / kkrb 用注入 globalThis.fetch 的桩替代
+   （按 URL 分流，含裸 gzip 响应与 kkrb 三步会话 cookie）；监听一律走
+   127.0.0.1 + 临时端口（port 0）。覆盖：
+     ① 跨年补年 / 时间键规则（moligod-client 纯函数）
+     ② catalog → kkrb 形状适配 + full 模式铺缓存 + fast 模式 0 次 history
+     ③ auto 模式只补过期/缺失曲线；fast 缺缓存判「数据不足」绝不补发
+     ④ 端到端 analyze：信号值域 / P25≤P75 / 构造 BUY·SELL 命中
+     ⑤ notify-policy：首次立即报 / 同信号冷却 / 切换需 streak≥2 确认 /
+        冷却到期 / BUY 深跌重报（单轮跳变 + 渐进阴跌按累计跌幅）
+     ⑥ fetchOnce：指纹门槛（变化才写、同指纹静默、5min 心跳）+ source 字段
+        + dist 联动
+     ⑦ 主源故障自动回落 kkrb（兜底分支：重试 3 次、来源如实切换、旧口径兼容）
+     ⑧ 留档 ≥10min 门槛 + 超 7 天 / 超 1000 份清理
+     ⑨ 并发读写原子性（写盘全程读方 JSON.parse 不炸、无 .tmp 残留）
+     ⑨b 并发写者共写同一目标（违反「只跑一个写盘者」时的安全网）
+     ⑩ SSE：连接即收 event:hello、落盘广播 event:market（wire 格式断言，
+        127.0.0.1 临时端口）；--no-notify 下 state 仍全量记录（防恢复爆发）
+     ⑪ 页面纯逻辑（src/views/ammo/marketMeta.js）：版本双格式 / 阈值分档 /
+        实时通道环境门槛 / 过期文案分钟·小时·天分档（纯静态部署的如实标注分支）
+   可选 --online：追加真实上游连通性检查（默认跳过，保证离线可跑）。
+   全部通过 exit 0；任何失败把原因写 stderr 后 exit 1。
+   用法：node scripts/ammo/selftest.mjs [--online]
+   ============================================================ */
+import { mkdtemp, mkdir, readFile, writeFile, readdir, utimes, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
+import { gzipSync } from 'node:zlib'
+
+import {
+  inferYear, historyTimeToKey, getSnapshot, primeCurveCache, clearCurveCache, curveCacheStats,
+  CURVE_TTL_MS, beijingParts,
+} from './moligod-client.mjs'
+import { fetchOnce, writeJsonAtomic, HEARTBEAT_MS } from './fetch-once.mjs'
+import { judgeSignals, emptyState, POLICY } from './notify-policy.mjs'
+import { analyzeItem, analyzeMarket } from './analyze.mjs'
+import { createLiveServer } from './live.mjs'
+import {
+  formatVersionLabel, staleness, sourceLabel, liveChannelEligible, staleTipText,
+} from '../../src/views/ammo/marketMeta.js'
+
+const ONLINE = process.argv.includes('--online')
+const pad2 = (n) => String(n).padStart(2, '0')
+
+/* ---------- 断言与用例框架 ---------- */
+function assert(cond, msg) {
+  if (!cond) throw new Error(msg)
+}
+const checks = []
+const check = (name, fn) => checks.push([name, fn])
+
+/* ---------- fixture：moligod / kkrb 上游形状 ---------- */
+const NAMES = Array.from({ length: 55 }, (_, i) => `测试弹${i}号`)
+const DAY_KEY = '2026-10-13'
+const LAST_UPDATE = '10:18:00.000'
+
+/** 北京墙钟 'MM-DD HH:mm'（history 的 time 无年份，fixture 贴着 now 生成） */
+function bjTimeStr(date) {
+  const p = beijingParts(date)
+  return `${pad2(p.month)}-${pad2(p.day)} ${pad2(p.hour)}:${pad2(p.minute)}`
+}
+
+/** 168 个小时级 'YYYYMMDDHHmm' 键（kkrb 形状 priceCurve 用） */
+function hourlyKeys(n = 168) {
+  const keys = []
+  for (let i = n - 1; i >= 0; i--) {
+    const p = beijingParts(new Date(Date.now() - i * 3600 * 1000))
+    keys.push(`${p.year}${pad2(p.month)}${pad2(p.day)}${pad2(p.hour)}${pad2(p.minute)}`)
+  }
+  return keys
+}
+
+/**
+ * 168 个小时点的曲线 fixture。tailPrice 控制末点价格（构造 BUY/SELL 用）。
+ * 返回 moligod history 形状 { status:'ok', data:[{time,avg,min,max,last}] }
+ */
+function historyFixture(basePrice = 100, tailPrice = null) {
+  const now = Date.now()
+  const data = []
+  for (let i = 167; i >= 0; i--) {
+    const price = i === 0 && tailPrice != null ? tailPrice : basePrice
+    data.push({ time: bjTimeStr(new Date(now - i * 3600 * 1000)), avg: price, min: price, max: price, last: price })
+  }
+  return { status: 'ok', data }
+}
+
+function catalogFixture({ priceOf = (i) => 100 + i, dayKey = DAY_KEY, lastUpdate = LAST_UPDATE } = {}) {
+  return {
+    status: 'ok',
+    ttl_seconds: 60,
+    encoding: 'json',
+    generated_at: Date.now(),
+    items: NAMES.map((name, i) => ({
+      id: 1000 + i,
+      name,
+      display_name: name,
+      alias_name: null,
+      icon_url: `https://playerhub.df.qq.com/icon/${i}.png`,
+      grade: String(3 + (i % 3)),
+      subcategory: 'ammo.test',
+      subcategory_label: 'test',
+      latest_price: priceOf(i),
+      today_price_day_key: dayKey,
+      last_update: lastUpdate,
+      seven_day_high_price: 200,
+      seven_day_low_price: 50,
+    })),
+  }
+}
+
+/** kkrb 快照 fixture（兜底分支用；version 为 10 位小时档，曲线带税后价对） */
+function kkrbFixture(version = '2026101310') {
+  const curve = Object.fromEntries(hourlyKeys().map((k, idx) => [k, 100 + (idx % 10)]))
+  return {
+    code: 1,
+    version,
+    data: NAMES.map((name, i) => ({
+      itemName: name,
+      grade: 4,
+      pic: null,
+      currectPrice: 300 + i,
+      thisWeekHighestPrice: 400,
+      thisWeekHighestPriceAfterTax: 340,
+      priceCurve: curve,
+    })),
+  }
+}
+
+/* ---------- 上游桩：按 URL 分流，替换 globalThis.fetch ---------- */
+function respondGzip(obj, status = 200) {
+  // moligod 实测行为：响应体恒为裸 gzip 且不带 Content-Encoding 头
+  return new Response(gzipSync(Buffer.from(JSON.stringify(obj))), { status })
+}
+
+function installStub({ catalog, histories = {}, kkrb = null } = {}) {
+  const realFetch = globalThis.fetch
+  const calls = { catalog: 0, history: [], kkrbHome: 0, kkrbMenu: 0, kkrbData: 0 }
+  globalThis.fetch = async (input) => {
+    const url = typeof input === 'string' ? input : input && input.url
+    // 本机回环请求（SSE 读 127.0.0.1 临时端口）不走桩，透传真 fetch
+    if (url && /^http:\/\/(127\.0\.0\.1|localhost)(:|\/)/.test(url)) return realFetch(input)
+    if (url && url.includes('moligod.com/api/market/ammo-catalog')) {
+      calls.catalog++
+      if (catalog instanceof Error) throw catalog
+      const fixture = typeof catalog === 'function' ? catalog() : catalog
+      return respondGzip(fixture)
+    }
+    if (url && url.includes('moligod.com/api/market/history')) {
+      const name = new URL(url).searchParams.get('name')
+      calls.history.push(name)
+      const h = typeof histories === 'function' ? histories(name) : histories[name]
+      if (h instanceof Error) throw h
+      if (!h) return respondGzip({ status: 'ok', data: [] })
+      return respondGzip(h)
+    }
+    if (url && url.includes('kkrb.net')) {
+      if (!kkrb) throw new Error(`stub: 意外的 kkrb 调用 ${url}`)
+      const res = (body, setCookie) =>
+        new Response(body, { headers: setCookie ? [['set-cookie', setCookie]] : {} })
+      if (url.includes('/getMenu')) {
+        calls.kkrbMenu++
+        return res('', 'csrf_token=stub-token')
+      }
+      if (url.includes('/getAmmoPLData')) {
+        calls.kkrbData++
+        return Response.json(kkrb)
+      }
+      calls.kkrbHome++
+      return res('', 'PHPSESSID=stub-sess')
+    }
+    throw new Error(`stub: 未预期的请求 ${url}`)
+  }
+  return { calls, restore: () => (globalThis.fetch = realFetch) }
+}
+
+/* ---------- SSE 读取器（Node 无内建 EventSource，按 wire 格式手解） ---------- */
+class SseReader {
+  constructor(port) {
+    this.url = `http://127.0.0.1:${port}/events`
+    this.ctrl = new AbortController()
+    this.frames = []
+    this.waiters = []
+    this.buf = ''
+  }
+  async start() {
+    this.res = await fetch(this.url, { signal: this.ctrl.signal })
+    assert(this.res.ok, `SSE HTTP ${this.res.status}`)
+    assert(
+      /text\/event-stream/.test(this.res.headers.get('content-type') || ''),
+      'SSE Content-Type 应为 text/event-stream'
+    )
+    const reader = this.res.body.getReader()
+    const dec = new TextDecoder()
+    this.pump = (async () => {
+      try {
+        for (;;) {
+          const { done, value } = await reader.read()
+          if (done) break
+          this.buf += dec.decode(value, { stream: true })
+          let idx
+          while ((idx = this.buf.indexOf('\n\n')) >= 0) {
+            const raw = this.buf.slice(0, idx)
+            this.buf = this.buf.slice(idx + 2)
+            const frame = { event: null, data: null }
+            for (const line of raw.split('\n')) {
+              if (line.startsWith(':')) continue // 注释心跳
+              if (line.startsWith('event:')) frame.event = line.slice(6).trim()
+              if (line.startsWith('data:')) frame.data = line.slice(5).trim()
+            }
+            if (frame.event != null || frame.data != null) {
+              this.frames.push(frame)
+              for (const w of this.waiters.splice(0)) w(frame)
+            }
+          }
+        }
+      } catch {
+        /* abort 后的正常结束 */
+      }
+    })()
+  }
+  waitFor(eventName, timeoutMs = 5000) {
+    const hit = this.frames.find((f) => f.event === eventName)
+    if (hit) return Promise.resolve(hit)
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(
+        () => reject(new Error(`等待 SSE 事件 ${eventName} 超时 ${timeoutMs}ms`)),
+        timeoutMs
+      )
+      const onFrame = (f) => {
+        if (f.event === eventName) {
+          clearTimeout(timer)
+          resolve(f)
+        } else {
+          this.waiters.push(onFrame) // 非目标事件，继续等
+        }
+      }
+      this.waiters.push(onFrame)
+    })
+  }
+  close() {
+    this.ctrl.abort()
+  }
+}
+
+/* ============================================================
+   ① 跨年补年 / 时间键规则
+   ============================================================ */
+check('跨年补年与时间键规则', () => {
+  const now = new Date()
+  const p = beijingParts(now)
+  assert(inferYear('10-06 14:00', now) === p.year, '同年 time 应返回当年')
+  const newYear = new Date(`${p.year + 1}-01-02T00:00:00Z`)
+  assert(inferYear('12-31 22:00', newYear) === p.year, '年初取到去年 12-31 应判上一年')
+  const key = historyTimeToKey('10-06 14:05', now)
+  assert(/^\d{12}$/.test(key || ''), `时间键应为 12 位，实际 ${key}`)
+  assert(key === `${p.year}10061405`, `时间键数值不符：${key}`)
+  assert(historyTimeToKey('bad-format', now) === null, '格式不符应返回 null')
+})
+
+/* ============================================================
+   ② 形状适配 + full 铺缓存 + fast 0 次 history
+   ============================================================ */
+check('catalog→kkrb 形状适配；full 铺缓存；fast 模式 0 次 history 请求', async () => {
+  clearCurveCache()
+  const stub = installStub({
+    catalog: catalogFixture(),
+    histories: () => historyFixture(),
+  })
+  try {
+    const snap = await getSnapshot({ mode: 'full', paceMs: 0 })
+    assert(snap.source === 'moligod' && snap.code === 1, '快照应标记 source=moligod / code=1')
+    assert(
+      snap.version === '202610131018',
+      `version 应由 day_key+last_update 推出 12 位分钟档，实际 ${snap.version}`
+    )
+    const it = snap.data[0]
+    assert(it.itemName === NAMES[0], 'itemName 应映射 name')
+    assert(typeof it.grade === 'number' && it.grade === 3, `grade 应转数字，实际 ${typeof it.grade}`)
+    assert(/^https:\/\//.test(it.pic), 'pic 应映射 icon_url')
+    assert(Number.isFinite(it.currectPrice) && it.currectPrice > 0, 'currectPrice 应映射 latest_price')
+    const keys = Object.keys(it.priceCurve)
+    assert(keys.length === 168, `曲线应 168 点，实际 ${keys.length}`)
+    assert(keys.every((k) => /^\d{12}$/.test(k)), '曲线键应为 12 位 YYYYMMDDHHmm')
+    assert(
+      stub.calls.history.length === NAMES.length,
+      `full 应铺 ${NAMES.length} 条曲线，实际 ${stub.calls.history.length}`
+    )
+    assert(curveCacheStats(NAMES).fresh === NAMES.length, '铺完后缓存应全新鲜')
+
+    const before = stub.calls.history.length
+    await getSnapshot({ mode: 'fast', paceMs: 0 })
+    assert(
+      stub.calls.history.length === before,
+      `fast 模式绝不补发 history（打了 ${stub.calls.history.length - before} 次）`
+    )
+  } finally {
+    stub.restore()
+  }
+})
+
+/* ============================================================
+   ③ auto 只补过期/缺失；fast 缺缓存判数据不足
+   ============================================================ */
+check('auto 模式只补过期/缺失曲线；fast 缺缓存→「数据不足」不补发', async () => {
+  clearCurveCache()
+  const curveItems = NAMES.map((name) => ({
+    name,
+    curve: hourlyKeys().map((k, idx) => [k, 100 + (idx % 7)]),
+  }))
+  const staleAt = Date.now() - CURVE_TTL_MS - 1000
+  const stub = installStub({
+    catalog: catalogFixture(),
+    histories: () => historyFixture(),
+  })
+  try {
+    primeCurveCache(curveItems.filter((_, i) => i !== 9)) // 缺第 9 条
+    primeCurveCache([curveItems[7]], { fetchedAt: staleAt }) // 第 7 条过期
+    const stats = curveCacheStats(NAMES)
+    assert(
+      stats.fresh === NAMES.length - 2 && stats.stale === 2,
+      `缓存应恰有 2 条不新鲜，实际 fresh=${stats.fresh} stale=${stats.stale}`
+    )
+    await getSnapshot({ mode: 'auto', paceMs: 0 })
+    const fetched = new Set(stub.calls.history)
+    assert(stub.calls.history.length === 2, `auto 只应补 2 条，实际 ${stub.calls.history.length}`)
+    assert(fetched.has(NAMES[7]) && fetched.has(NAMES[9]), `应恰好补过期(${NAMES[7]})与缺失(${NAMES[9]})`)
+
+    // fast 遇缺失缓存：留空曲线、判数据不足、零 history 请求
+    clearCurveCache()
+    primeCurveCache(curveItems.slice(0, 10))
+    const nBefore = stub.calls.history.length
+    const snap = await getSnapshot({ mode: 'fast', paceMs: 0 })
+    assert(stub.calls.history.length === nBefore, 'fast 对缺失曲线也不应补发 history')
+    const missing = snap.data.find((d) => d.itemName === NAMES[50])
+    assert(missing && Object.keys(missing.priceCurve).length === 0, '缺失曲线应留空 priceCurve')
+    const analyzed = analyzeItem(missing)
+    assert(
+      analyzed.signal === 'WAIT' && analyzed.rank === null,
+      `缺曲线应判「数据不足」，实际 signal=${analyzed.signal} rank=${analyzed.rank}`
+    )
+  } finally {
+    stub.restore()
+  }
+})
+
+/* ============================================================
+   ④ 端到端 analyze（P25 买 / P75 卖口径保留）
+   ============================================================ */
+check('端到端 analyze：信号值域 / P25≤P75 / 构造 BUY·SELL 命中', async () => {
+  clearCurveCache()
+  const stub = installStub({
+    catalog: catalogFixture({ priceOf: (i) => (i === 0 ? 40 : i === 1 ? 180 : 100 + i) }),
+    histories: (name) => {
+      const i = NAMES.indexOf(name)
+      if (i === 0) return historyFixture(100, 40) // 现价 40：贴近 7 天低位 → BUY
+      if (i === 1) return historyFixture(100, 180) // 现价 180：贴近 7 天高位 → SELL
+      return historyFixture()
+    },
+  })
+  try {
+    const snap = await getSnapshot({ mode: 'full', paceMs: 0 })
+    const analysis = analyzeMarket(snap)
+    assert(analysis.items.length === NAMES.length, '分析应覆盖全部弹种')
+    for (const it of analysis.items) {
+      assert(['BUY', 'WATCH', 'SELL', 'WAIT'].includes(it.signal), `信号值域异常：${it.signal}`)
+      if (it.rank != null) assert(it.p25 <= it.p75, `${it.name} P25(${it.p25}) 应 ≤ P75(${it.p75})`)
+      if (it.signal === 'BUY') {
+        assert(it.rank <= 0.25 && it.profitPct >= 0.08, `BUY 口径不符：${it.name} rank=${it.rank} pct=${it.profitPct}`)
+      }
+    }
+    const buy = analysis.items.find((i) => i.name === NAMES[0])
+    const sell = analysis.items.find((i) => i.name === NAMES[1])
+    assert(buy.signal === 'BUY', `构造低位弹应 BUY，实际 ${buy.signal}（rank=${buy.rank}）`)
+    assert(sell.signal === 'SELL', `构造高位弹应 SELL，实际 ${sell.signal}（rank=${sell.rank}）`)
+    assert(buy.taxRate === 0.15, `moligod 无税后字段应回退 15% 税率，实际 ${buy.taxRate}`)
+  } finally {
+    stub.restore()
+  }
+})
+
+/* ============================================================
+   ⑤ notify-policy 去抖语义
+   ============================================================ */
+check('notify-policy：首次即报 / 冷却 / 切换 streak≥2 确认 / 到期 / 深跌重报', () => {
+  const t0 = 1_800_000_000_000
+  const mk = (name, signal, current) => ({
+    name, signal, current, rank: 0.2, targetSell: 100, netSell: 85, netHigh: 120,
+    profitPerRound: 20, profitPct: 0.3,
+  })
+
+  // 首次出现 → 立即通知
+  let state = emptyState()
+  let r = judgeSignals(state, [mk('A', 'BUY', 100)], t0)
+  assert(r.buys.length === 1, '首次出现应通知')
+
+  // 同信号第二轮（冷却内、无深跌）→ 不通知
+  r = judgeSignals(state, [mk('A', 'BUY', 99)], t0 + 60_000)
+  assert(r.buys.length === 0, '冷却期内同信号不应重复通知')
+
+  // 信号切换当轮 → 不通知（防分位边界抖动刷屏）
+  r = judgeSignals(state, [mk('A', 'SELL', 200)], t0 + 120_000)
+  assert(r.buys.length === 0 && r.sells.length === 0, '切换当轮不应通知')
+
+  // 新信号连续第 2 轮 → 确认通知
+  r = judgeSignals(state, [mk('A', 'SELL', 200)], t0 + 180_000)
+  assert(r.sells.length === 1, '切换后连续第 2 轮应确认通知')
+
+  // 确认后的下一轮 → 冷却静默
+  r = judgeSignals(state, [mk('A', 'SELL', 200)], t0 + 240_000)
+  assert(r.sells.length === 0, '确认后冷却期内应静默')
+
+  // 冷却到期 → 再报
+  r = judgeSignals(state, [mk('A', 'SELL', 200)], t0 + 240_000 + POLICY.COOLDOWN_MS + 1)
+  assert(r.sells.length === 1, '冷却到期应再报')
+
+  // BUY 冷却期内深跌 ≥5% → 重报；跌幅不足则不报
+  state = emptyState()
+  judgeSignals(state, [mk('B', 'BUY', 100)], t0)
+  r = judgeSignals(state, [mk('B', 'BUY', 94)], t0 + 60_000)
+  assert(r.buys.length === 1, '深跌 5% 应重报')
+  state = emptyState()
+  judgeSignals(state, [mk('B', 'BUY', 100)], t0)
+  r = judgeSignals(state, [mk('B', 'BUY', 96)], t0 + 60_000)
+  assert(r.buys.length === 0, '跌幅不足 5% 不应重报')
+
+  // 渐进阴跌回归：每轮跌幅 <5% 但累计 ≥5% → 必须重报（深跌参考价是
+  // 「上次通知价」，不得被逐轮观察价冲淡）；重报后参考价刷新
+  state = emptyState()
+  judgeSignals(state, [mk('D', 'BUY', 100)], t0) // 通知，参考价 100
+  r = judgeSignals(state, [mk('D', 'BUY', 99)], t0 + 60_000) // -1%
+  assert(r.buys.length === 0, '阴跌 -1% 不应重报')
+  r = judgeSignals(state, [mk('D', 'BUY', 98)], t0 + 120_000) // 累计 -2%
+  assert(r.buys.length === 0, '阴跌累计 -2% 不应重报')
+  r = judgeSignals(state, [mk('D', 'BUY', 95)], t0 + 180_000) // 累计 -5%
+  assert(r.buys.length === 1, '阴跌累计 -5% 应重报（参考价须为上次通知价 100）')
+  r = judgeSignals(state, [mk('D', 'BUY', 94)], t0 + 240_000) // 重报后参考价 95，-1.05%
+  assert(r.buys.length === 0, '重报后参考价应刷新为新通知价 95')
+  r = judgeSignals(state, [mk('D', 'BUY', 90)], t0 + 300_000) // 距 95 累计 -5.26%
+  assert(r.buys.length === 1, '距新参考价累计 -5% 应再次重报')
+
+  // WAIT 弹也逐轮入 state（streak 计算的前提）
+  state = emptyState()
+  judgeSignals(state, [mk('C', 'WAIT', 50)], t0)
+  assert(state.items['C'] && state.items['C'].signal === 'WAIT', 'WAIT 信号也应全量记录')
+})
+
+/* ============================================================
+   ⑥ fetchOnce：指纹门槛 / source 字段 / dist 联动 / 心跳
+   ============================================================ */
+check('fetchOnce：指纹门槛（变化才写/同指纹静默/心跳重写）+ source + dist 联动', async () => {
+  clearCurveCache()
+  const root = await mkdtemp(path.join(tmpdir(), 'ammo-selftest-6-'))
+  await mkdir(path.join(root, 'dist', 'ammo'), { recursive: true }) // 模拟跑过 build
+  let priceBump = 0
+  const stub = installStub({
+    catalog: () => catalogFixture({ priceOf: (i) => 100 + i + priceBump }),
+    histories: () => historyFixture(),
+  })
+  try {
+    const pub = path.join(root, 'public', 'ammo', 'market.json')
+    const dist = path.join(root, 'dist', 'ammo', 'market.json')
+
+    // 首次：必写，含 source/fingerprint，dist 联动
+    let r = await fetchOnce({ rootDir: root, mode: 'full', paceMs: 0 })
+    assert(
+      r.changed === true && r.source === 'moligod',
+      `首次应落盘且 source=moligod，实际 changed=${r.changed} source=${r.source}`
+    )
+    const j1 = JSON.parse(await readFile(pub, 'utf8'))
+    assert(
+      j1.source === 'moligod' && /^[0-9a-f]{64}$/.test(j1.fingerprint),
+      'market.json 顶层应含 source 与 sha256 指纹'
+    )
+    const d1 = JSON.parse(await readFile(dist, 'utf8'))
+    assert(d1.version === j1.version && d1.source === 'moligod', 'dist/ammo/market.json 应联动写入')
+
+    // 同内容再抓：changed=false 不写
+    r = await fetchOnce({ rootDir: root, mode: 'fast', paceMs: 0 })
+    assert(r.changed === false, '同指纹应静默（不写盘）')
+
+    // 心跳：把 market.json mtime 拨回 6 分钟前 → 重写（fetchedAt 刷新）
+    const old = new Date(Date.now() - HEARTBEAT_MS - 60_000)
+    await utimes(pub, old, old)
+    r = await fetchOnce({ rootDir: root, mode: 'fast', paceMs: 0 })
+    assert(r.changed === true, '超 5 分钟心跳应重写')
+
+    // 内容变化：写盘 + 指纹翻转
+    priceBump = 5
+    r = await fetchOnce({ rootDir: root, mode: 'fast', paceMs: 0 })
+    assert(r.changed === true, '价格变化应写盘')
+    const j2 = JSON.parse(await readFile(pub, 'utf8'))
+    assert(j2.fingerprint !== j1.fingerprint, '指纹应随价格翻转')
+  } finally {
+    stub.restore()
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+/* ============================================================
+   ⑦ 主源故障 → 自动回落 kkrb（兜底分支）
+   ============================================================ */
+check('主源故障自动回落 kkrb：重试 3 次、来源如实切换、旧口径兼容', async () => {
+  clearCurveCache()
+  const root = await mkdtemp(path.join(tmpdir(), 'ammo-selftest-7-'))
+  // 先用 moligod 落一份正常数据
+  const okStub = installStub({ catalog: catalogFixture(), histories: () => historyFixture() })
+  try {
+    await fetchOnce({ rootDir: root, mode: 'full', paceMs: 0 })
+  } finally {
+    okStub.restore()
+  }
+
+  // 再让 moligod 全面失败（含重试），kkrb 桩正常 → 回落
+  const badStub = installStub({
+    catalog: new Error('moligod 挂了（模拟）'),
+    kkrb: kkrbFixture('2026101314'),
+  })
+  try {
+    const r = await fetchOnce({ rootDir: root, mode: 'auto', paceMs: 0 })
+    assert(r.source === 'kkrb', `应回落 kkrb，实际 ${r.source}`)
+    assert(r.version === '2026101314', 'kkrb 路径 version 应保持上游 10 位小时档')
+    assert(badStub.calls.catalog === 3, `主源应重试 2 次（共 3 次尝试），实际 ${badStub.calls.catalog}`)
+    assert(
+      badStub.calls.kkrbHome >= 1 && badStub.calls.kkrbMenu >= 1 && badStub.calls.kkrbData >= 1,
+      'kkrb 三步会话应完整走通'
+    )
+    const j = JSON.parse(await readFile(path.join(root, 'public', 'ammo', 'market.json'), 'utf8'))
+    assert(j.source === 'kkrb' && j.version === '2026101314', '落盘应如实标记 kkrb 兜底')
+    assert(j.items.length === NAMES.length && j.items[0].taxRate > 0, 'kkrb 快照照常产出分析字段')
+    // 页面侧对 10 位版本的兼容由 ⑪ 的 formatVersionLabel 断言覆盖
+  } finally {
+    badStub.restore()
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+/* ============================================================
+   ⑧ 留档门槛与清理
+   ============================================================ */
+check('留档 ≥10min 门槛 + 超 7 天 / 超 1000 份清理', async () => {
+  clearCurveCache()
+  const root = await mkdtemp(path.join(tmpdir(), 'ammo-selftest-8-'))
+  const histDir = path.join(root, 'data', 'ammo', 'history')
+  await mkdir(histDir, { recursive: true })
+  const now = Date.now()
+  // 预置：一份 8 天前旧档（验证超龄清理）+ 一份 11 分钟前的近期档
+  //（提供「距上次留档 ≥10min」的门槛基准，同时是稍后超量清理里最旧的一份）
+  const oldF = path.join(histDir, '2026010100.json')
+  const recentF = path.join(histDir, '2026101309.json')
+  await writeFile(oldF, '{}')
+  await writeFile(recentF, '{}')
+  await utimes(oldF, new Date(now - 8 * 24 * 3600 * 1000), new Date(now - 8 * 24 * 3600 * 1000))
+  await utimes(recentF, new Date(now - 11 * 60 * 1000), new Date(now - 11 * 60 * 1000))
+
+  let priceBump = 0
+  const stub = installStub({
+    catalog: () => catalogFixture({ priceOf: (i) => 100 + i + priceBump }),
+    histories: () => historyFixture(),
+  })
+  try {
+    // 第一次（内容变化、距上次留档 11min）：留档 + 清掉超龄旧档
+    await fetchOnce({ rootDir: root, mode: 'fast', paceMs: 0 })
+    let files = new Set(await readdir(histDir))
+    assert(!files.has('2026010100.json'), '超 7 天旧档应被清理')
+    assert(files.has('202610131018.json'), `应留档 <version>.json，实际 ${[...files].join(',')}`)
+    assert(files.has('2026101309.json'), '7 天内旧档不应误删')
+
+    // 第二次（10min 内、内容变化）：门槛拦截，不重复留档
+    priceBump = 1
+    await fetchOnce({ rootDir: root, mode: 'fast', paceMs: 0 })
+    files = new Set(await readdir(histDir))
+    assert(files.size === 2, `10min 内不应重复留档，实际 ${files.size} 份`)
+
+    // 灌 1005 份触发上限：清理按 mtime 从最旧开始，收敛到恰好 1000 份。
+    // 注意：先前唯一一份留档的 mtime 早于全部 fillers，属「最旧的 7 份」之列，
+    // 按 mtime 逐出规约同样会被清理——这是设计行为，不是丢数据（内容仍以
+    // public/ammo/market.json 为准，留档只是备份）。
+    priceBump = 2
+    for (let i = 0; i < 1005; i++) {
+      await writeFile(path.join(histDir, `filler-${String(i).padStart(5, '0')}.json`), '{}')
+    }
+    await fetchOnce({ rootDir: root, mode: 'fast', paceMs: 0 })
+    const list = (await readdir(histDir)).filter((f) => f.endsWith('.json'))
+    assert(list.length === 1000, `留档应收敛到恰好 1000 份，实际 ${list.length}`)
+    assert(!list.includes('2026101309.json'), '最旧的近期档应作为超额部分被清理')
+    assert(!list.includes('202610131018.json'), '早于 fillers 的留档属最旧 7 份，按 mtime 规约被逐')
+    assert(list.includes('filler-01004.json'), '最新的 filler 应保留')
+  } finally {
+    stub.restore()
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+/* ============================================================
+   ⑨ 并发读写原子性
+   ============================================================ */
+check('原子写：写盘全程并发读者 JSON.parse 不炸、无 .tmp 残留', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'ammo-selftest-9-'))
+  const target = path.join(root, 'public', 'ammo', 'market.json')
+  const big = JSON.stringify({ items: Array.from({ length: 2000 }, (_, i) => ({ n: i, s: 'x'.repeat(200) })) })
+  let stop = false
+  let reads = 0
+  const reader = (async () => {
+    while (!stop) {
+      try {
+        JSON.parse(await readFile(target, 'utf8'))
+        reads++
+      } catch (e) {
+        if (e.code !== 'ENOENT') throw new Error(`读到半截 JSON：${e.message}`)
+      }
+      await new Promise((r) => setTimeout(r, 0))
+    }
+  })()
+  try {
+    for (let i = 0; i < 60; i++) {
+      await writeJsonAtomic(target, i % 2 ? big : JSON.stringify({ items: [], flip: i }))
+    }
+    stop = true
+    await reader
+    assert(reads > 10, `并发读取应成功多次，实际 ${reads} 次`)
+    const leftovers = (await readdir(path.dirname(target))).filter((f) => f.endsWith('.tmp'))
+    assert(leftovers.length === 0, `写完不应残留 .tmp，实际 ${leftovers.join(',')}`)
+  } finally {
+    stop = true
+    await reader.catch(() => {})
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+/* ============================================================
+   ⑨b 并发写者（违反「同时只跑一个写盘者」时的安全网）
+   ============================================================ */
+check('并发写者共写同一目标：独立 tmp 名，读方全程可解析、无 tmp 残留', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'ammo-selftest-9b-'))
+  const target = path.join(root, 'public', 'ammo', 'market.json')
+  let stop = false
+  let reads = 0
+  const reader = (async () => {
+    while (!stop) {
+      try {
+        JSON.parse(await readFile(target, 'utf8'))
+        reads++
+      } catch (e) {
+        if (e.code !== 'ENOENT') throw new Error(`并发写者下读到半截 JSON：${e.message}`)
+      }
+      await new Promise((r) => setTimeout(r, 0))
+    }
+  })()
+  try {
+    const writers = [0, 1, 2].map((k) => (async () => {
+      for (let i = 0; i < 40; i++) {
+        // 三个写者共用同一固定目标、交错写不同载荷（模拟 monitor 与手动
+        // fetch 同时跑：A 的 rename 不得搬走 B 正在写的半截内容）
+        await writeJsonAtomic(target, JSON.stringify({ w: k, i, pad: 'y'.repeat(40000) }))
+      }
+    })())
+    await Promise.all(writers)
+    stop = true
+    await reader
+    assert(reads > 10, `并发读取应成功多次，实际 ${reads} 次`)
+    const leftovers = (await readdir(path.dirname(target))).filter((f) => f.endsWith('.tmp'))
+    assert(leftovers.length === 0, `并发写完不应残留 .tmp，实际 ${leftovers.join(',')}`)
+    const final = JSON.parse(await readFile(target, 'utf8'))
+    assert(['0', '1', '2'].includes(String(final.w)), '最终内容应完整属于某个写者')
+  } finally {
+    stop = true
+    await reader.catch(() => {})
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+/* ============================================================
+   ⑩ SSE：hello 初始事件 + 落盘广播 market（127.0.0.1 临时端口）
+   ============================================================ */
+check('SSE：连接即收 event:hello；落盘广播 event:market（wire 格式）', async () => {
+  clearCurveCache()
+  const root = await mkdtemp(path.join(tmpdir(), 'ammo-selftest-10-'))
+  const stub = installStub({
+    catalog: catalogFixture(),
+    histories: () => historyFixture(),
+  })
+  const live = createLiveServer({
+    rootDir: root,
+    statePath: path.join(root, 'data', 'ammo', 'monitor-state.json'),
+    noNotify: true,
+  })
+  let reader = null
+  try {
+    await new Promise((resolve) => live.server.listen(0, '127.0.0.1', resolve))
+    const port = live.server.address().port
+    assert(Number.isInteger(port) && port > 0, '应监听在 127.0.0.1 临时端口')
+
+    reader = new SseReader(port)
+    await reader.start()
+    // hello 是连接即发的确定性初始事件（不依赖落盘时机，防 flaky）
+    const hello = await reader.waitFor('hello', 1500)
+    const helloData = JSON.parse(hello.data)
+    assert(
+      typeof helloData === 'object' && 'version' in helloData && 'source' in helloData,
+      'hello 应携带 {version, source, ...}'
+    )
+
+    // 触发一轮真实 cycle：fetchOnce(桩上游) → 落盘 → 广播 market
+    await live.triggerCycle('fast')
+    const market = await reader.waitFor('market', 5000)
+    const mData = JSON.parse(market.data)
+    assert(
+      mData.source === 'moligod' && /^\d{12}$/.test(mData.version),
+      `market 广播应带 moligod 12 位版本，实际 ${market.data}`
+    )
+    assert(mData.version === live.status.version, '广播版本应与 health 状态一致')
+    const j = JSON.parse(await readFile(path.join(root, 'public', 'ammo', 'market.json'), 'utf8'))
+    assert(j.version === mData.version, '广播版本应与落盘一致')
+
+    // --no-notify 回归：静默模式仍须逐轮记录去抖 state（否则静默 ≥6h 后恢复
+    // 通知时，全部现存信号冷却到期一次性爆发）
+    const stateFile = path.join(root, 'data', 'ammo', 'monitor-state.json')
+    const st = JSON.parse(await readFile(stateFile, 'utf8'))
+    const recorded = Object.keys(st.items || {})
+    assert(recorded.length === NAMES.length, `no-notify 下 state 应全量记录（${NAMES.length} 项），实际 ${recorded.length}`)
+    assert(st.items[NAMES[0]] && 'signal' in st.items[NAMES[0]], 'state 记录应含 signal 字段')
+  } finally {
+    if (reader) reader.close()
+    await live.close()
+    stub.restore()
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+/* ============================================================
+   ⑪ 页面纯逻辑：版本双格式 / 阈值分档 / 通道门槛 / 过期文案（静态回退分支）
+   ============================================================ */
+check('页面纯逻辑：版本双格式 / 阈值按 source 分档 / SSE 环境门槛 / 静态过期文案', () => {
+  // 12 位分钟档（moligod）
+  assert(
+    formatVersionLabel('202610131018') === '2026-10-13 10:18',
+    `12 位应显示到分钟，实际 ${formatVersionLabel('202610131018')}`
+  )
+  // 10 位小时档（kkrb 兜底）维持 HH:00
+  assert(
+    formatVersionLabel('2026101310') === '2026-10-13 10:00',
+    `10 位应显示 HH:00，实际 ${formatVersionLabel('2026101310')}`
+  )
+  assert(formatVersionLabel('') === '—', '空版本显示 —')
+
+  const tM = staleness('moligod')
+  const tK = staleness('kkrb')
+  assert(tM.staleDotMin === 10 && tM.staleTipMin === 30, 'moligod 阈值应为 10/30 分钟')
+  assert(tK.staleDotMin === 60 && tK.staleTipMin === 360, 'kkrb 阈值应沿用 60/360 分钟')
+
+  assert(liveChannelEligible({ protocol: 'http:', hostname: 'localhost' }) === true, '本地 http dev 应可用 SSE')
+  assert(liveChannelEligible({ protocol: 'http:', hostname: '127.0.0.1' }) === true, '127.0.0.1 应可用 SSE')
+  assert(
+    liveChannelEligible({ protocol: 'https:', hostname: 'example.com' }) === false,
+    'https 站点连本地 http SSE 会被 mixed content 拦，应 gate 掉'
+  )
+  assert(liveChannelEligible({ protocol: 'file:', hostname: '' }) === false, 'file:// 打开应 gate 掉')
+
+  const tipM = staleTipText('moligod', 42)
+  assert(
+    tipM.includes('42 分钟') && tipM.includes('静态快照'),
+    `moligod 过期文案应如实注明分钟数与静态快照边界，实际：${tipM}`
+  )
+  // 分钟/小时/天分档：静态部署多天未更新时不得输出原始分钟数
+  assert(staleTipText('moligod', 4320).includes('3 天'), `4320 分钟应显示「3 天」，实际：${staleTipText('moligod', 4320)}`)
+  assert(!staleTipText('moligod', 4320).includes('4320'), '不得输出原始分钟数')
+  assert(staleTipText('moligod', 300).includes('5 小时'), `300 分钟应显示「5 小时」，实际：${staleTipText('moligod', 300)}`)
+  const tipK = staleTipText('kkrb', 420)
+  assert(tipK.includes('7 小时') && !tipK.includes('静态快照'), `kkrb 过期文案应保持小时口径，实际：${tipK}`)
+  assert(sourceLabel('moligod').includes('moligod') && sourceLabel('kkrb').includes('kkrb'), '来源文案应按 source 切换')
+})
+
+/* ============================================================
+   可选：--online 追加真实上游连通性（默认跳过）
+   ============================================================ */
+if (ONLINE) {
+  check('[online] 真实 moligod catalog / history 连通性', async () => {
+    const { fetchCatalog, fetchHistory } = await import('./moligod-client.mjs')
+    const cat = await fetchCatalog()
+    assert(cat.status === 'ok' && cat.items.length >= 50, `真实 catalog 异常：${cat.items && cat.items.length} 条`)
+    const pts = await fetchHistory(cat.items[0].name)
+    assert(pts.length >= 24, `真实 history 点数不足：${pts.length}`)
+    console.log(`      （真实源 ${cat.items.length} 种 / 首弹 ${pts.length} 点）`)
+  })
+}
+
+/* ---------- 运行 ---------- */
+let failed = 0
+for (const [name, fn] of checks) {
+  try {
+    await fn()
+    console.log(`✓ ${name}`)
+  } catch (e) {
+    failed++
+    console.error(`✗ ${name}`)
+    console.error(`    ${e.message}`)
+  }
+}
+console.log(
+  `\n${failed === 0 ? `全部 ${checks.length} 项通过` : `${failed}/${checks.length} 项失败`}` +
+    `${ONLINE ? '（含 --online）' : '（离线模式，未打外网；--online 可追加真实源检查）'}`
+)
+process.exit(failed === 0 ? 0 : 1)

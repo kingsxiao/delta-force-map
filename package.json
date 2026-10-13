@@ -11,7 +11,9 @@
     "build": "vite build",
     "preview": "vite preview",
     "ammo:fetch": "node scripts/ammo/fetch-once.mjs",
-    "ammo:monitor": "node scripts/ammo/monitor.mjs"
+    "ammo:monitor": "node scripts/ammo/monitor.mjs",
+    "ammo:live": "node scripts/ammo/live.mjs",
+    "ammo:selftest": "node scripts/ammo/selftest.mjs"
   },
   "dependencies": {
     "vue": "^3.5.0",
