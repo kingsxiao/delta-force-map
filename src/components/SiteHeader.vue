@@ -3,11 +3,12 @@ import { useRoute } from 'vue-router'
 
 const route = useRoute()
 
-// 三个主 tab；active 高亮按 route.path 精确比对（'/' 不应匹配到所有路由）
+// 四个主 tab；active 高亮按 route.path 精确比对（'/' 不应匹配到所有路由）
 const tabs = [
   { to: '/', label: '地图' },
   { to: '/tactics', label: '打法' },
   { to: '/ttk', label: 'TTK排行' },
+  { to: '/ammo', label: '子弹行情' },
 ]
 </script>
 
