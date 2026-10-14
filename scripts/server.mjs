@@ -1,19 +1,26 @@
 /* ============================================================
    server.mjs — 同源部署服务：静态站 + 实时行情（node:http 零依赖）
    ------------------------------------------------------------
-   一个进程三件事：定时抓上游（复用 ammo/live.mjs 的 fast/slow 双循环与
-   kkrb 兜底）→ 原子写快照（public 与 dist 联动）→ SSE 推送 + 静态托管。
+   一个进程四件事：定时抓上游（弹药 fast/slow 双循环 + 雷达循环，均复用
+   既有抓取器与 kkrb 兜底）→ 原子写快照（public 与 dist 联动）→ SSE 推送
+   （event:market / event:radar）→ 静态托管 dist。
    站点与 /events 同源是关键：https 部署下无 mixed content、无 CORS，
    页面端 liveChannelUrl() 直接连 ${origin}/events 即为实时模式。
+   雷达节奏默认 10 分钟（榜单约每小时滚动、分钟现价对分位信号翻转不
+   敏感，10 分钟已跟上实际变化；请求量 ~126 次/小时，与弹药侧合计仍
+   低于每秒 1 次）——--radar-interval N 可调。
    路由：
-     /events  SSE（连接即 hello、落盘广播 market，实现同 live.mjs）
-     /health  {ok, source, version, cycles, ...}
+     /events  SSE（连接即 hello；落盘广播 market / radar，实现同 live.mjs）
+     /health  {ok, source, version, cycles, ...}（弹药侧状态）
      其余     dist/ 静态文件（/ → index.html；/assets/ 哈希文件长缓存；
               *.json 数据与 html 走 no-cache；路径归一化防目录穿越）
    通知默认关闭（部署形态通常无桌面）；--notify 开启。
    用法：npm run build && npm run serve [--port 8080] [--host 0.0.0.0] [--notify]
-   环境变量 PORT / HOST 与参数同义。上 https 用 nginx/caddy 反代即可。
-   注意：与 ammo:live / ammo:monitor / 手动 ammo:fetch 同为写盘者，只跑一个。
+         [--radar-interval 10]
+   环境变量 PORT / HOST / RADAR_INTERVAL_MIN 与参数同义。上 https 用
+   nginx/caddy 反代即可。
+   注意：与 ammo:live / ammo:monitor / radar:monitor / 手动 fetch 同为写盘者，
+   同时只跑一个。
    ============================================================ */
 import { readFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
@@ -21,6 +28,7 @@ import http from 'node:http'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createLiveServer } from './ammo/live.mjs'
+import { runRadarCycle } from './market/radar.mjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const log = (msg) => console.log(`[${new Date().toLocaleString('zh-CN')}] ${msg}`)
@@ -40,12 +48,48 @@ const MIME = {
 
 /**
  * 创建同源站点服务（不 listen；selftest 用 port 0 自取临时端口）。
- * @param {{rootDir?:string, noNotify?:boolean}} opts
- * @returns {{server:http.Server, live:object, start:Function, close:Function}}
+ * @param {{rootDir?:string, noNotify?:boolean, radarCycle?:Function,
+ *          radarMs?:number}} opts radarCycle 可注入（selftest 桩用）
+ * @returns {{server:http.Server, live:object, start:Function, close:Function,
+ *            triggerRadarCycle:Function}}
  */
-export function createSiteServer({ rootDir = ROOT, noNotify = true } = {}) {
+export function createSiteServer({
+  rootDir = ROOT,
+  noNotify = true,
+  radarCycle = runRadarCycle,
+  radarMs = 10 * 60 * 1000,
+} = {}) {
   const distDir = path.join(rootDir, 'dist')
   const live = createLiveServer({ rootDir, noNotify })
+  let radarTimer = null
+  let closing = false
+
+  /* 雷达循环：失败只记日志不重试加速（榜单小时级滚动，下一轮自然补）；
+     计时在本轮完成后重启，稳态无并发写 */
+  async function cycleRadar() {
+    try {
+      const out = await radarCycle({ rootDir, noNotify: true })
+      live.broadcast('radar', {
+        version: out.version,
+        total: out.stats.total,
+        anomaly: out.stats.anomaly,
+        buy: out.stats.buy,
+        sell: out.stats.sell,
+      })
+      log(`[radar] version ${out.version} · 榜单 ${out.stats.total} 项 · 异常 ${out.stats.anomaly}`)
+      return out
+    } catch (e) {
+      console.error(`[${new Date().toLocaleString('zh-CN')}] [radar] 抓取失败：${e.message}`)
+      return null
+    }
+  }
+
+  async function radarLoop() {
+    if (closing) return
+    await cycleRadar()
+    if (closing) return
+    radarTimer = setTimeout(radarLoop, radarMs)
+  }
 
   function cacheControlFor(pathname) {
     if (pathname.startsWith('/assets/')) return 'public, max-age=31536000, immutable'
@@ -103,10 +147,18 @@ export function createSiteServer({ rootDir = ROOT, noNotify = true } = {}) {
   })
 
   async function close() {
+    closing = true
+    clearTimeout(radarTimer)
     await live.close()
     await new Promise((resolve) => server.close(resolve))
   }
-  return { server, live, start: live.start, close }
+  /** 启动序列：弹药（live.start 自带冷启动 + 双循环）与雷达初始轮并行；
+      雷达失败不阻塞（catch 在 cycleRadar 内），下一轮计时照常 */
+  async function start() {
+    await Promise.all([live.start(), cycleRadar()])
+    radarTimer = setTimeout(radarLoop, radarMs)
+  }
+  return { server, live, start, close, triggerRadarCycle: cycleRadar }
 }
 
 // ---- CLI 直跑 ----
@@ -118,15 +170,21 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   }
   const port = Number(argOf('port') || process.env.PORT || 8080)
   const host = argOf('host') || process.env.HOST || '0.0.0.0'
+  const radarIntervalMin = Number(
+    argOf('radar-interval') || process.env.RADAR_INTERVAL_MIN || 10
+  )
   if (!existsSync(path.join(ROOT, 'dist', 'index.html'))) {
     console.error('缺少 dist/index.html：先运行 npm run build，再启动服务')
     process.exit(1)
   }
   const notify = argv.includes('--notify')
-  const site = createSiteServer({ noNotify: !notify })
+  const site = createSiteServer({
+    noNotify: !notify,
+    radarMs: Math.max(1, radarIntervalMin) * 60 * 1000,
+  })
   site.server.listen(port, host, () => {
     log(`站点已启动：http://${host}:${port}/ · SSE /events · health /health（Ctrl+C 退出）`)
-    log(`静态目录 dist/ · 系统通知${notify ? '开启' : '关闭（--notify 可开启）'} · 上游抓取循环随服务常驻`)
+    log(`静态目录 dist/ · 雷达循环每 ${radarIntervalMin} 分钟 · 系统通知${notify ? '开启' : '关闭（--notify 可开启）'} · 上游抓取循环随服务常驻`)
   })
   await site.start()
   const shutdown = (sig) => {

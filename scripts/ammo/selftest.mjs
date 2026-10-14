@@ -24,6 +24,7 @@
      ⑫ 页面纯逻辑（src/views/ammo/sellEta.js）：预计卖出——历史到达历时 /
         日内节律 / 时钟标签 / 通知文案（样本门槛）
      ⑬ server.mjs 同源部署服务：静态托管 + 缓存头 + SSE·health 复用 + 防穿越
+        + 雷达落盘广播 event:radar（注入桩，不打外网）
    可选 --online：追加真实上游连通性检查（默认跳过，保证离线可跑）。
    全部通过 exit 0；任何失败把原因写 stderr 后 exit 1。
    用法：node scripts/ammo/selftest.mjs [--online]
@@ -846,7 +847,7 @@ check('页面纯逻辑：预计卖出（历史到达历时 / 日内节律 / 时�
 /* ============================================================
    ⑬ server.mjs 同源部署服务：静态托管 / 缓存头 / SSE·health 复用 / 防穿越
    ============================================================ */
-check('server.mjs 同源部署服务：静态托管 / 缓存头 / SSE·health 复用 / 防穿越', async () => {
+check('server.mjs 同源部署服务：静态托管 / 缓存头 / SSE·health 复用 / 防穿越 / 雷达广播', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'ammo-selftest-13-'))
   const dist = path.join(root, 'dist')
   await mkdir(path.join(dist, 'ammo'), { recursive: true })
@@ -855,7 +856,13 @@ check('server.mjs 同源部署服务：静态托管 / 缓存头 / SSE·health �
   await writeFile(path.join(dist, 'assets', 'app-abc.js'), 'x')
   await writeFile(path.join(dist, 'ammo', 'market.json'), '{}')
   await writeFile(path.join(root, 'secret.txt'), 'topsecret')
-  const site = createSiteServer({ rootDir: root, noNotify: true })
+  // 雷达循环注入桩（不打外网）：只验证「落盘后广播 event:radar」的接线
+  const radarOut = { version: '202610141200', stats: { total: 10, anomaly: 1, buy: 0, sell: 3, watch: 6 } }
+  const site = createSiteServer({
+    rootDir: root,
+    noNotify: true,
+    radarCycle: async () => radarOut,
+  })
   try {
     await new Promise((resolve) => site.server.listen(0, '127.0.0.1', resolve))
     const port = site.server.address().port
@@ -883,6 +890,15 @@ check('server.mjs 同源部署服务：静态托管 / 缓存头 / SSE·health �
     const helloData = JSON.parse(hello.data)
     assert(typeof helloData === 'object' && 'version' in helloData && 'source' in helloData, 'SSE hello 应携带 {version, source}')
     assert(helloData.version === site.live.status.version, 'hello 版本应与服务状态一致')
+
+    // 雷达落盘广播：注入桩触发一轮 → SSE 收到 event:radar（版本 + 统计）
+    await site.triggerRadarCycle()
+    const radar = await reader.waitFor('radar', 1500)
+    const radarData = JSON.parse(radar.data)
+    assert(
+      radarData.version === radarOut.version && radarData.total === radarOut.stats.total && radarData.anomaly === 1,
+      `radar 事件应携带版本与统计，实际 ${radar.data}`
+    )
     reader.close()
 
     // 防目录穿越：node 原生请求保留 %2e%2e（fetch 会提前归一化路径）

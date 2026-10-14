@@ -77,10 +77,11 @@ nginx 配置已处理 SSE 关键点（`proxy_buffering off` + 长读超时；服
 
 ## 运维要点
 
-- **不要同时跑第二个写盘者**（ammo:live / ammo:monitor / 手动 ammo:fetch），
-  serve 进程内已包含等价的抓取循环。
+- **不要同时跑第二个写盘者**（ammo:live / ammo:monitor / radar:monitor / 手动 fetch），
+  serve 进程内已包含弹药 + 雷达两套抓取循环（雷达默认 10 分钟一轮，`--radar-interval N`
+  或环境变量 `RADAR_INTERVAL_MIN` 可调）。
 - 上游故障自动回落 kkrb（小时级），恢复后自动切回 moligod；两源全挂指数退避。
-- 日志：`journalctl -u delta-force-map -f`；状态：`/health` 的
-  `consecutiveFailures` 持续 >0 说明上游或网络有问题。
+- 日志：`journalctl -u delta-force-map -f`（弹药 `[moligod]` / 雷达 `[radar]` 两路）；
+  状态：`/health` 的 `consecutiveFailures` 持续 >0 说明上游或网络有问题。
 - 磁盘占用极小：站点几 MB + `data/ammo/` 留档（超 7 天 / 1000 份自动清理）。
 - 内存占用：单进程 ~100MB 内，1G 机型足够。

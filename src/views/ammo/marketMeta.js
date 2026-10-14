@@ -43,27 +43,9 @@ export function methodDataLine(source) {
     : 'KK三角洲一图流（kkrb.net）交易行口径，约每小时更新一次；趋势为近 7 天每小时均价。'
 }
 
-/** 判定是否本地 http 开发环境（vite dev 页面与本地 live 服务分进程的形态） */
-export function isLocalHttpHost({ protocol, hostname } = {}) {
-  return (
-    protocol === 'http:' &&
-    (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]' || hostname === '::1')
-  )
-}
-
-/** 实时通道（SSE）端点：本地 http 开发 → 独立 live 服务
- *  http://127.0.0.1:8787/events（npm run ammo:live，跨端口靠 ACAO:*）；
- *  其余 http(s) → 同源 /events（scripts/server.mjs 部署形态，同源无
- *  CORS / mixed-content）；file:// 等无 origin 场景不可用。返回 null 表示
- *  本环境没有可用的实时通道。 */
-export function liveChannelUrl(loc = {}) {
-  if (isLocalHttpHost(loc)) return 'http://127.0.0.1:8787/events'
-  const { protocol, origin } = loc
-  if ((protocol === 'http:' || protocol === 'https:') && origin && origin !== 'null') {
-    return `${origin}/events`
-  }
-  return null
-}
+/** 实时通道端点判定（本地 8787 / 同源 /events / file 不可用）——实现在
+ *  共享模块 src/composables/liveChannel.js（子弹页 / 雷达页共用），此处再导出 */
+export { isLocalHttpHost, liveChannelUrl } from '../../composables/liveChannel.js'
 
 /** 官方弹药图标 → CDN 缩略图：playerhub 原图最大 1.2MB（整套 7.6MB），
  *  经腾讯云 imageMogr2 按宽缩到展示尺寸（实测 96x ≈ 17KB，74 倍压缩）；

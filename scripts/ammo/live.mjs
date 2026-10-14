@@ -236,7 +236,7 @@ export function createLiveServer({
     await new Promise((resolve) => server.close(resolve))
   }
 
-  return { server, triggerCycle: cycle, status, start, close }
+  return { server, triggerCycle: cycle, status, start, close, broadcast }
 }
 
 // ---- CLI 直跑 ----

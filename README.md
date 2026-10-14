@@ -23,9 +23,11 @@ npm run refresh    # 手动刷一次弹药 + 雷达数据（CI 定时任务同�
   也可在 Actions 页面手动 Run workflow。快照不回传仓库（避免定时提交刷屏 git 历史），
   仓库内快照仅服务 PR 构建与本地开发。
 - **自托管实时服务（SSE 实时）**：`npm run build && npm run serve`（默认 `0.0.0.0:8080`，
-  `PORT` / `HOST` 环境变量可改）。一个进程三件事：定时抓上游（复用 live 双循环与 kkrb 兜底）→
-  原子写快照 → 静态托管 dist + `/events` SSE 推送，页面端到端延迟 = 源分钟粒度 + 60s 快轮询 + 5s。
-  站点与 SSE 同源，https 反代（nginx / caddy）即可上线；系统通知默认关闭，`--notify` 开启。
+  `PORT` / `HOST` 环境变量可改）。一个进程四件事：定时抓上游（弹药 fast/slow 双循环 +
+  雷达循环默认 10 分钟，均带 kkrb 兜底）→ 原子写快照 → 静态托管 dist + `/events` SSE
+  推送（`market` / `radar` 两个事件，两个页面都实时），页面端到端延迟 = 源分钟粒度 +
+  60s 快轮询 + 5s。站点与 SSE 同源，https 反代（nginx / caddy）即可上线；系统通知默认
+  关闭，`--notify` 开启；雷达节奏 `--radar-interval N` 可调。
   **云服务器部署**（阿里云 ECS 等）见 [deploy/aliyun.md](deploy/aliyun.md)：systemd 常驻 +
   nginx https 反代 + 一键更新脚本，`deploy/` 目录里有现成物料。
 
