@@ -3,11 +3,14 @@
    数据：public/market/radar.json（scripts/market/radar.mjs 落盘）
    口径与子弹页一致（scripts/ammo/analyze.mjs 分位数回归）；榜单来自 kkrb
    涨幅榜 Top10，曲线主源 moligod，双源中位偏差 >15% 压制信号（anomaly）。
-   刷新节奏 30 分钟级：无 SSE，60s 轮询兜底即可。 */
+   刷新：同源 SSE（serve 部署，radar 事件静默重拉；端点判定与子弹页共用
+   src/composables/liveChannel.js）+ 60s 轮询兜底；数据节奏 = 服务端雷达
+   循环（默认 10 分钟，radar:monitor 常驻时同口径）。 */
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import Sparkline from './ammo/Sparkline.vue'
 import PriceChart from './ammo/PriceChart.vue'
 import { formatVersionLabel } from './ammo/marketMeta.js'
+import { liveChannelUrl, isLocalHttpHost } from '../composables/liveChannel.js'
 
 const market = ref(null)
 const loadState = ref('loading') // loading | ready | empty | error
@@ -141,8 +144,46 @@ const stats = computed(() => {
   return c
 })
 
+/* ---------- 实时通道（同源 SSE，serve 部署形态）：先探测 /health 再连
+   /events，收到 radar 事件静默重拉。本地 dev 探不到保持「未连接」（60s
+   轮询兜底）；非本地探不到判「不适用」——纯静态托管退回轮询不打无效
+   流量（分流口径与子弹页一致，逻辑在 composables/liveChannel.js） ---------- */
+const LIVE_SSE_URL = liveChannelUrl(location)
+const liveChannel = ref('off') // off(环境不适用) | connecting | on | down
+let es = null
+const liveShort = computed(
+  () => ({ on: '实时推送', down: '60s 轮询', connecting: '连接中…' }[liveChannel.value] || '')
+)
+function connectLive() {
+  if (!LIVE_SSE_URL) return
+  liveChannel.value = 'connecting'
+  const ctl = new AbortController()
+  const timer = setTimeout(() => ctl.abort(), 4000)
+  fetch(LIVE_SSE_URL.replace(/\/events$/, '/health'), { signal: ctl.signal })
+    .then((r) => {
+      if (!r.ok) throw new Error(`HTTP ${r.status}`)
+      clearTimeout(timer)
+      openLive()
+    })
+    .catch(() => {
+      clearTimeout(timer)
+      liveChannel.value = isLocalHttpHost(location) ? 'down' : 'off'
+    })
+}
+function openLive() {
+  es = new EventSource(LIVE_SSE_URL)
+  es.addEventListener('hello', () => { liveChannel.value = 'on' })
+  es.addEventListener('radar', () => { load({ silent: true }) })
+  es.addEventListener('error', () => {
+    try { es && es.close() } catch { /* 已关闭 */ }
+    es = null
+    liveChannel.value = 'down'
+  })
+}
+
 onMounted(() => {
   load()
+  connectLive()
   pollTimer = setInterval(() => {
     nowTs.value = Date.now()
     load({ silent: true })
@@ -150,6 +191,7 @@ onMounted(() => {
 })
 onBeforeUnmount(() => {
   if (pollTimer) clearInterval(pollTimer)
+  if (es) { try { es.close() } catch { /* 已关闭 */ } es = null }
 })
 </script>
 
@@ -158,8 +200,8 @@ onBeforeUnmount(() => {
     <!-- 页头（紧凑单行，走 base.css .compact-head；radar:monitor 提示在过期条里） -->
     <header class="compact-head">
       <h1>全品类异动雷达 <span class="live-dot" :class="{ stale: ageMin !== null && ageMin > STALE_DOT_MIN }" aria-hidden="true"></span></h1>
-      <p v-if="market" class="meta" :title="`数据版本 ${versionLabel}`">
-        <template v-if="ageLabel"><span :class="{ 'meta-stale': ageMin > STALE_TIP_MIN }">{{ ageLabel }}更新</span> · </template>kkrb 涨幅榜 + moligod 曲线
+      <p v-if="market" class="meta" :title="`数据版本 ${versionLabel}${liveShort ? ' · 实时通道 ' + liveChannel : ''}`">
+        <template v-if="ageLabel"><span :class="{ 'meta-stale': ageMin > STALE_TIP_MIN }">{{ ageLabel }}更新</span> · </template>kkrb 涨幅榜 + moligod 曲线<span v-if="liveShort"> · {{ liveShort }}</span>
       </p>
     </header>
 
