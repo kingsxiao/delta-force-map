@@ -47,12 +47,13 @@ defineEmits(['toggle'])
 .col + .col { margin-top: var(--sp-3); }
 .col:hover {
   border-color: var(--line-hover);
-  box-shadow: var(--edge-light), inset 0 0 0 1px rgba(255, 255, 255, .02);
+  box-shadow: var(--edge-hover);
 }
-/* 展开态：左缘主色细条（70% 感知充分）+ 提亮描边，折叠列表里一眼可辨哪些已展开 */
+/* 展开态：左缘 2px --accent-dim 指示条（展开/选中统一语义；实色 --accent 留给冠军/最佳）
+   + 提亮描边，折叠列表里一眼可辨哪些已展开 */
 .col.open {
   border-color: var(--line-hover);
-  box-shadow: var(--edge-light), inset 2px 0 0 rgba(45, 212, 191, .7);
+  box-shadow: var(--edge-light), inset 2px 0 0 var(--accent-dim);
 }
 .col-head {
   display: flex;
@@ -70,6 +71,8 @@ defineEmits(['toggle'])
   transition: background var(--t-med);
 }
 .col-head:hover { background: var(--row-hover); }
+/* 按下态：面再抬一档（--lift），触屏无 hover 时按压可见 */
+.col-head:active { background: var(--lift); }
 .col-label { flex: 1; min-width: 0; }
 .col-note {
   font-size: var(--fs-xs);
@@ -80,13 +83,13 @@ defineEmits(['toggle'])
 .chev {
   flex: none;
   color: var(--faint);
-  transition: transform .25s var(--ease), color var(--t-med);
+  transition: transform var(--t-collapse) var(--ease), color var(--t-fast);
 }
 .col.open .chev { transform: rotate(180deg); color: var(--accent); }
 .col-body {
   display: grid;
   grid-template-rows: 0fr;
-  transition: grid-template-rows .25s var(--ease);
+  transition: grid-template-rows var(--t-collapse) var(--ease);
 }
 .col.open .col-body { grid-template-rows: 1fr; }
 .col-inner { overflow: hidden; }

@@ -41,11 +41,11 @@ defineProps({
   padding: 15px 17px 13px;
   position: relative;
   overflow: hidden;
-  transition: border-color var(--t-med), box-shadow var(--t-med);
+  transition: border-color var(--t-med) var(--ease), box-shadow var(--t-med) var(--ease);
 }
 .champ:hover {
   border-color: var(--line-hover);
-  box-shadow: var(--edge-light), inset 0 0 0 1px rgba(255, 255, 255, .02);
+  box-shadow: var(--edge-hover);
 }
 .champ.top {
   border-color: var(--accent-dim);

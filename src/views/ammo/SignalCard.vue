@@ -1,14 +1,16 @@
 <script setup>
-/* SignalCard — 买入信号主打卡：弹名 / 买入价 / 目标卖价（税后到手）/ 能赚多少；
-   买入卡带数量档位（100 / 500 / 1000 发或自定义）与总额试算。
-   卡内走势图降为中性纹理（--spark-line/--spark-fill 局部覆盖），
-   --ok 绿只留给左边框与「预赚 / 发」大数字，形成唯一英雄焦点 */
+/* SignalCard — 买入信号主打卡：战术行情卡样式
+   结构（自上而下）：图标+弹名+分位徽章 → 中性 sparkline → 英雄利润带
+   （唯一绿色焦点：预赚/发 大数）→ 价格三栏 → 7 天区间游标（阈值染色轨道）
+   → 数量试算 → 卖出时机脚注。
+   视觉锚点：HUD 对角括线（::before/::after）+ 卡面纵向渐变 + 顶缘高光；
+   官方弹药图标走 picThumb CDN 缩略（原图最大 1.2MB，不可直连）。 */
 import { ref } from 'vue'
 import Sparkline from './Sparkline.vue'
+import { picThumb } from './marketMeta.js'
 
 const props = defineProps({
   item: { type: Object, required: true },
-  kind: { type: String, default: 'buy' }, // buy | sell
 })
 
 const qty = ref(100)
@@ -17,154 +19,275 @@ const fmt = (n) => (Number.isFinite(n) ? Math.round(n).toLocaleString('zh-CN') :
 const pct = (n) => (Number.isFinite(n) ? `+${(n * 100).toFixed(1)}%` : '—')
 // 品级色沿用 base.css --lv* 语义变量（2 绿 ~ 6 红）
 const gradeVar = (g) => (g >= 2 && g <= 6 ? `var(--lv${g})` : 'var(--faint)')
+const rankPct = (r) => (Number.isFinite(r) ? Math.round(r * 100) : null)
+// 游标定位夹在 2%~98%：rank 极值时菱形不出轨道端头
+const markPos = (r) => Math.min(98, Math.max(2, rankPct(r) ?? 50))
+// 图标加载失败（CDN 抖动等）就地隐藏，不占位不报错
+const hideImg = (e) => { e.target.style.display = 'none' }
 </script>
 
 <template>
-  <article class="sig-card" :class="kind">
+  <article class="sig-card">
     <header class="sc-head">
-      <span class="sc-dot" :style="{ background: gradeVar(item.grade) }" aria-hidden="true"></span>
-      <h4 class="sc-name">{{ item.name }}</h4>
-      <span class="sc-rank" :title="`当前价处近7天 ${Math.round(item.rank * 100)}% 分位`">
-        7天分位 {{ Math.round(item.rank * 100) }}%
+      <span class="sc-ic" :class="{ empty: !item.pic }">
+        <img
+          v-if="item.pic" :src="picThumb(item.pic, 128)"
+          alt="" width="32" height="28" loading="lazy" decoding="async"
+          @error="hideImg"
+        >
+        <i class="sc-grade" :style="{ background: gradeVar(item.grade) }" :title="`品级 ${item.grade}`"></i>
       </span>
+      <h4 class="sc-name">{{ item.name }}</h4>
+      <span
+        class="sc-rank" :class="{ low: item.rank != null && item.rank <= 0.35 }"
+        :title="`现价处近 7 天 ${rankPct(item.rank)}% 分位`"
+      >P{{ rankPct(item.rank) }}</span>
     </header>
 
     <Sparkline :curve="item.curve" :width="200" :height="40" class="sc-spark" />
 
-    <!-- 买入卡：买入价 / 目标卖 / 每发利润 / 收益率 + 数量试算 -->
-    <template v-if="kind === 'buy'">
-      <div class="sc-grid">
-        <div class="sc-cell">
-          <span class="sc-k">买入价 ≤</span>
-          <span class="sc-v strong">{{ fmt(item.current) }}</span>
-        </div>
-        <div class="sc-cell">
-          <span class="sc-k">挂卖价</span>
-          <span class="sc-v">{{ fmt(item.targetSell) }}</span>
-        </div>
-        <div class="sc-cell">
-          <span class="sc-k">税后到手</span>
-          <span class="sc-v">{{ fmt(item.netSell) }}</span>
-        </div>
-        <div class="sc-cell hero">
-          <span class="sc-k">预赚 / 发</span>
-          <span class="sc-v profit">+{{ fmt(item.profitPerRound) }}</span>
-          <span class="sc-pct">{{ pct(item.profitPct) }}</span>
-        </div>
-      </div>
+    <!-- 英雄带：每发税后利润是全卡唯一大号彩色数字 -->
+    <div class="sc-hero">
+      <b class="hero-num">+{{ fmt(item.profitPerRound) }}</b>
+      <span class="hero-unit">预赚 / 发</span>
+      <span class="hero-pct">{{ pct(item.profitPct) }}</span>
+    </div>
 
-      <div class="sc-qty">
-        <span class="sc-k">数量</span>
-        <button
-          v-for="n in [100, 500, 1000]" :key="n"
-          class="qty-chip" :class="{ on: qty === n }" @click="qty = n"
-        >{{ n }}</button>
-        <input v-model.number="qty" class="qty-in" type="number" min="1" aria-label="自定义数量" />
+    <div class="sc-grid">
+      <div class="sc-cell">
+        <span class="sc-k">买入 ≤</span>
+        <span class="sc-v strong">{{ fmt(item.current) }}</span>
       </div>
-      <div class="sc-totals">
-        <span>总投入 <b>{{ fmt(item.current * qty) }}</b></span>
-        <span>税后到手 <b>{{ fmt(item.netSell * qty) }}</b></span>
-        <span class="tot-profit">总利润 +{{ fmt(item.profitPerRound * qty) }}（{{ pct(item.profitPct) }}）</span>
+      <div class="sc-cell">
+        <span class="sc-k">挂卖价</span>
+        <span class="sc-v">{{ fmt(item.targetSell) }}</span>
       </div>
+      <div class="sc-cell">
+        <span class="sc-k">税后到手</span>
+        <span class="sc-v">{{ fmt(item.netSell) }}</span>
+      </div>
+    </div>
 
-      <footer class="sc-foot">
-        什么时候卖：价格回到 <b>{{ fmt(item.targetSell) }}</b>（7 天 75 分位）即挂卖；
-        乐观目标 {{ fmt(item.netHigh) }}（7 天高点税后）。税率 {{ (item.taxRate * 100).toFixed(0) }}%。
-      </footer>
-    </template>
-
-    <!-- 卖出卡：当前价 / 分位 / 建议 -->
-    <template v-else>
-      <div class="sc-grid">
-        <div class="sc-cell">
-          <span class="sc-k">当前价</span>
-          <span class="sc-v strong">{{ fmt(item.current) }}</span>
-        </div>
-        <div class="sc-cell">
-          <span class="sc-k">7天低点</span>
-          <span class="sc-v">{{ fmt(item.weekLow) }}</span>
-        </div>
-        <div class="sc-cell">
-          <span class="sc-k">7天高点</span>
-          <span class="sc-v">{{ fmt(item.weekHigh) }}</span>
-        </div>
-        <div class="sc-cell hero">
-          <span class="sc-k">操作</span>
-          <span class="sc-v sell">立即挂卖</span>
-        </div>
+    <!-- 7 天区间游标：轨道两端按买入(≤25%)/卖出(≥80%)阈值染色，菱形标记 = 现价位置 -->
+    <div
+      class="sc-range" role="img"
+      :aria-label="`现价处近 7 天 ${rankPct(item.rank)}% 分位，区间 ${fmt(item.weekLow)} 至 ${fmt(item.weekHigh)}`"
+    >
+      <span class="r-val">{{ fmt(item.weekLow) }}</span>
+      <div class="r-track">
+        <i
+          class="r-mark"
+          :class="{ low: item.rank <= 0.35, high: item.rank >= 0.8 }"
+          :style="{ left: `${markPos(item.rank)}%` }"
+        ></i>
       </div>
-      <footer class="sc-foot">现价处 7 天 {{ Math.round(item.rank * 100) }}% 高位，回落风险大于继续上行。</footer>
-    </template>
+      <span class="r-val">{{ fmt(item.weekHigh) }}</span>
+    </div>
+
+    <div class="sc-qty">
+      <span class="sc-k">数量</span>
+      <button
+        v-for="n in [100, 500, 1000]" :key="n"
+        class="qty-chip" :class="{ on: qty === n }" @click="qty = n"
+      >{{ n }}</button>
+      <input v-model.number="qty" class="qty-in" type="number" min="1" aria-label="自定义数量" />
+    </div>
+    <div class="sc-totals">
+      <span>总投入 <b>{{ fmt(item.current * qty) }}</b></span>
+      <span>税后到手 <b>{{ fmt(item.netSell * qty) }}</b></span>
+      <span class="tot-profit">总利润 +{{ fmt(item.profitPerRound * qty) }}（{{ pct(item.profitPct) }}）</span>
+    </div>
+
+    <footer class="sc-foot">
+      什么时候卖：价格回到 <b>{{ fmt(item.targetSell) }}</b>（7 天 75 分位）即挂卖；
+      乐观目标 {{ fmt(item.netHigh) }}（7 天高点税后）。税率 {{ (item.taxRate * 100).toFixed(0) }}%。
+    </footer>
   </article>
 </template>
 
 <style scoped>
+/* 信号语义色派生统一 color-mix（var(--ok) = --lv2 语义），逐条保留真值 rgba 兜底行，
+   写法同 ttk PenMatrix 范本 */
 .sig-card {
-  background: var(--card);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 16px 18px;
+  position: relative;
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  transition: border-color var(--t-med), transform var(--t-med);
+  gap: var(--sp-3);
+  padding: var(--sp-4);
+  background: linear-gradient(180deg, var(--card2) 0%, var(--card) 58%);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--edge-light);
+  transition: transform var(--t-med) var(--ease), border-color var(--t-med) var(--ease), box-shadow var(--t-med) var(--ease);
 }
-.sig-card.buy { border-left: 3px solid var(--ok, #34d399); }
-.sig-card.sell { border-left: 3px solid var(--danger, #f87171); }
-.sig-card:hover { border-color: var(--line-hover); transform: translateY(-2px); }
+.sig-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(133, 181, 120, .38);
+  border-color: color-mix(in srgb, var(--ok) 38%, transparent);
+  box-shadow: var(--edge-hover);
+}
 
-.sc-head { display: flex; align-items: center; gap: 8px; }
-.sc-dot { width: 8px; height: 8px; flex: none; transform: rotate(45deg); }
+/* HUD 对角括线：左上 / 右下两枚 L 形，hover 点亮——卡片唯一的战术装饰 */
+.sig-card::before,
+.sig-card::after {
+  content: '';
+  position: absolute;
+  width: 12px; height: 12px;
+  border: 0 solid rgba(133, 181, 120, .45);
+  border: 0 solid color-mix(in srgb, var(--ok) 45%, transparent);
+  transition: border-color var(--t-med) var(--ease);
+  pointer-events: none;
+}
+.sig-card::before { top: 7px; left: 7px; border-top-width: 2px; border-left-width: 2px; }
+.sig-card::after { bottom: 7px; right: 7px; border-bottom-width: 2px; border-right-width: 2px; }
+.sig-card:hover::before,
+.sig-card:hover::after {
+  border-color: rgba(133, 181, 120, .9);
+  border-color: color-mix(in srgb, var(--ok) 90%, transparent);
+}
+
+/* ---------- 头部：切角图标框 + 品级菱形角标 + 弹名 + 分位徽章 ---------- */
+.sc-head { display: flex; align-items: center; gap: var(--sp-3); }
+.sc-ic {
+  position: relative;
+  width: 44px; height: 44px; flex: none;
+  display: grid; place-items: center;
+  background: var(--deep);
+  border: 1px solid var(--line);
+  /* 右上切角：战术弹药匣轮廓，切边处无描边为有意为之 */
+  clip-path: polygon(0 0, calc(100% - 11px) 0, 100% 11px, 100% 100%, 0 100%);
+}
+.sc-ic.empty { border-style: dashed; clip-path: none; }
+.sc-ic img { width: 30px; height: 28px; object-fit: contain; }
+.sc-grade {
+  position: absolute; right: 3px; bottom: 3px;
+  width: 7px; height: 7px; transform: rotate(45deg);
+  box-shadow: 0 0 0 2px var(--deep); /* 镶边让角标压在图标上仍可读 */
+}
 .sc-name {
-  font-size: var(--fs-md);
+  flex: 1; min-width: 0; margin: 0;
+  font-size: var(--fs-lg);
   font-weight: 700;
   color: var(--tx-strong);
-  margin: 0;
-  flex: 1;
-  min-width: 0;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  line-height: var(--lh-tight);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
-.sc-rank { font-family: var(--mono); font-size: var(--fs-2xs); color: var(--faint); white-space: nowrap; }
+.sc-rank {
+  flex: none; align-self: flex-start;
+  font-family: var(--mono); font-size: var(--fs-2xs);
+  color: var(--dim); letter-spacing: .06em;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  padding: 2px 9px;
+}
+.sc-rank.low {
+  color: var(--ok);
+  border-color: rgba(133, 181, 120, .4); background: rgba(133, 181, 120, .1);
+  border-color: color-mix(in srgb, var(--ok) 40%, transparent);
+  background: color-mix(in srgb, var(--ok) 10%, transparent);
+}
 
-/* 卡内走势满宽自适应（viewBox 5:1）；颜色降为中性纹理，把绿色焦点让给预赚数字 */
+/* 卡内走势满宽自适应（viewBox 5:1）；颜色降为中性纹理，绿色焦点只留给 hero 带 */
 .sc-spark {
   --spark-line: var(--dim);
   --spark-fill: var(--dim);
   display: block; width: 100%; height: auto;
 }
 
-.sc-grid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 10px;
+/* ---------- 英雄带：预赚/发 大数 + 收益率 ---------- */
+.sc-hero {
+  display: flex; align-items: baseline; gap: var(--sp-2);
+  padding: 10px 14px;
+  background: linear-gradient(90deg, rgba(133, 181, 120, .12), rgba(133, 181, 120, .03) 78%);
+  background: linear-gradient(90deg, color-mix(in srgb, var(--ok) 12%, transparent), color-mix(in srgb, var(--ok) 3%, transparent) 78%);
+  border-left: 2px solid var(--ok);
+  border-radius: var(--radius-sm);
 }
-.sc-cell { display: flex; flex-direction: column; gap: 2px; }
-.sc-k { font-family: var(--mono); font-size: var(--fs-2xs); color: var(--faint); letter-spacing: .08em; }
-.sc-v { font-family: var(--mono); font-size: var(--fs-md); color: var(--tx); font-variant-numeric: tabular-nums; }
-.sc-v.strong { color: var(--tx-strong); font-weight: 700; }
-.sc-v.profit { color: var(--ok, #34d399); font-weight: 700; font-size: var(--fs-lg); }
-.sc-v.sell { color: var(--danger, #f87171); font-weight: 700; }
-.sc-pct { font-family: var(--mono); font-size: var(--fs-2xs); color: var(--ok, #34d399); }
+.hero-num {
+  font-family: var(--mono); font-weight: 700;
+  font-size: var(--fs-display);
+  line-height: 1;
+  color: var(--ok);
+  letter-spacing: -.01em;
+  font-variant-numeric: tabular-nums;
+}
+.hero-unit { font-family: var(--mono); font-size: var(--fs-2xs); color: var(--dim); white-space: nowrap; }
+.hero-pct { margin-left: auto; font-family: var(--mono); font-weight: 700; font-size: var(--fs-md); color: var(--ok); }
 
+/* ---------- 价格三栏（hairline 分隔） ---------- */
+.sc-grid { display: grid; grid-template-columns: repeat(3, 1fr); }
+.sc-cell {
+  display: flex; flex-direction: column; gap: 3px;
+  padding: 2px var(--sp-3);
+  border-left: 1px solid var(--line2);
+  min-width: 0;
+}
+.sc-cell:first-child { border-left: 0; padding-left: 2px; }
+.sc-k { font-family: var(--mono); font-size: var(--fs-2xs); color: var(--faint); letter-spacing: .08em; white-space: nowrap; }
+.sc-v {
+  font-family: var(--mono); font-size: var(--fs-md); color: var(--tx);
+  font-variant-numeric: tabular-nums;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.sc-v.strong { color: var(--tx-strong); font-weight: 700; }
+
+/* ---------- 7 天区间游标 ---------- */
+.sc-range { display: flex; align-items: center; gap: var(--sp-2); }
+.r-val { font-family: var(--mono); font-size: var(--fs-2xs); color: var(--faint); flex: none; }
+.r-track {
+  position: relative; flex: 1; height: 6px;
+  border-radius: var(--radius-pill);
+  /* 轨道即阈值图例：左端 ≤26% 淡绿（买入区）、右端 ≥21% 淡红（卖出区） */
+  background:
+    linear-gradient(90deg, rgba(133, 181, 120, .32), rgba(133, 181, 120, .02) 26%),
+    linear-gradient(270deg, rgba(217, 106, 89, .34), rgba(217, 106, 89, .02) 21%),
+    var(--line2);
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--ok) 32%, transparent), color-mix(in srgb, var(--ok) 2%, transparent) 26%),
+    linear-gradient(270deg, color-mix(in srgb, var(--danger) 34%, transparent), color-mix(in srgb, var(--danger) 2%, transparent) 21%),
+    var(--line2);
+}
+.r-mark {
+  position: absolute; top: 50%;
+  width: 9px; height: 9px;
+  transform: translate(-50%, -50%) rotate(45deg);
+  background: var(--tx-strong);
+  border-radius: 2px;
+  box-shadow: 0 0 0 2px var(--card);
+}
+.r-mark.low { background: var(--ok); }
+.r-mark.high { background: var(--danger); }
+
+/* ---------- 数量试算 ---------- */
 .sc-qty { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
 .qty-chip {
   background: var(--card); border: 1px solid var(--line); border-radius: var(--radius-pill);
   color: var(--dim); font-family: var(--mono); font-size: var(--fs-2xs);
   padding: 2px 10px; cursor: pointer;
+  transition: color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease), background-color var(--t-fast) var(--ease);
 }
-.qty-chip.on { background: var(--card2); color: var(--accent); border-color: var(--line-hover); }
+/* 按下同 hover（chip 规格，与主表 .chip 对齐） */
+.qty-chip:hover,
+.qty-chip:active { color: var(--tx); border-color: var(--line-hover); }
+.qty-chip.on { background: var(--accent-bg); color: var(--accent); border-color: var(--accent-dim); }
 .qty-in {
   width: 76px; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
   color: var(--tx); font-family: var(--mono); font-size: var(--fs-xs); padding: 3px 8px;
+  transition: border-color var(--t-fast) var(--ease);
 }
-.qty-in:focus { outline: none; border-color: var(--accent-dim); }
+/* 键盘可达走全局 :focus-visible 外框；:focus 只做边框提亮，不抹 outline */
+.qty-in:focus { border-color: var(--accent-dim); }
 .sc-totals {
   display: flex; flex-wrap: wrap; gap: var(--sp-4);
   border-top: 1px dashed var(--line2); padding-top: 10px;
   font-size: var(--fs-xs); color: var(--dim);
 }
 .sc-totals b { font-family: var(--mono); color: var(--tx-strong); }
-.tot-profit { color: var(--ok, #34d399); font-family: var(--mono); }
+.tot-profit { color: var(--ok); font-family: var(--mono); }
 
 .sc-foot {
   font-size: var(--fs-xs);
@@ -175,7 +298,9 @@ const gradeVar = (g) => (g >= 2 && g <= 6 ? `var(--lv${g})` : 'var(--faint)')
 }
 .sc-foot b { color: var(--tx-strong); }
 
-@media (max-width: 640px) {
-  .sc-grid { grid-template-columns: repeat(2, 1fr); }
+/* 本卡微交互过渡的 reduced-motion 关闭（hover 上浮降级为仅描边/高光变化） */
+@media (prefers-reduced-motion: reduce) {
+  .sig-card, .sig-card::before, .sig-card::after, .qty-chip, .qty-in { transition: none; }
+  .sig-card:hover { transform: none; }
 }
 </style>

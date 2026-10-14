@@ -50,10 +50,12 @@ const KVS = (s) => [
   background: var(--card);
   overflow: clip;
   box-shadow: var(--edge-light);
-  transition: border-color var(--t-med), box-shadow var(--t-med);
+  transition: border-color var(--t-med) var(--ease), box-shadow var(--t-med) var(--ease);
 }
-.spawn-card:hover { border-color: var(--line-hover); box-shadow: var(--edge-light), inset 0 0 0 1px rgba(255, 255, 255, .02); }
-.spawn-card.open { border-color: var(--line-hover); }
+.spawn-card:hover { border-color: var(--line-hover); box-shadow: var(--edge-hover); }
+/* 展开态：提亮描边 + 左缘 2px --accent-dim 指示条（与 CollapseCol 统一语义，实色 --accent 留给冠军/最佳） */
+.spawn-card.open { border-color: var(--line-hover); box-shadow: var(--edge-light), inset 2px 0 0 var(--accent-dim); }
+.spawn-card.open:hover { box-shadow: var(--edge-hover), inset 2px 0 0 var(--accent-dim); }
 .spawn-head {
   display: flex;
   align-items: center;
@@ -67,16 +69,18 @@ const KVS = (s) => [
   text-align: left;
   font-size: var(--fs-md);
   font-weight: 600;
-  transition: background var(--t-med);
+  transition: background var(--t-med) var(--ease);
 }
 .spawn-head:hover { background: var(--row-hover); }
+/* 按下态：面再抬一档（--lift），触屏无 hover 时按压可见（同 CollapseCol col-head） */
+.spawn-head:active { background: var(--lift); }
 .spawn-name { flex: 1; min-width: 0; line-height: 1.5; }
-.chev { flex: none; color: var(--faint); transition: transform .25s var(--ease); }
+.chev { flex: none; color: var(--faint); transition: transform var(--t-collapse) var(--ease), color var(--t-fast) var(--ease); }
 .spawn-card.open .chev { transform: rotate(180deg); color: var(--accent); }
 .col-body {
   display: grid;
   grid-template-rows: 0fr;
-  transition: grid-template-rows .25s var(--ease);
+  transition: grid-template-rows var(--t-collapse) var(--ease);
 }
 .spawn-card.open .col-body { grid-template-rows: 1fr; }
 .col-inner { overflow: hidden; min-height: 0; }
@@ -99,6 +103,6 @@ const KVS = (s) => [
   .spawn-grid .kv:first-child { border-top: 0; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .spawn-head, .chev, .col-body { transition: none; }
+  .spawn-card, .spawn-head, .chev, .col-body { transition: none; }
 }
 </style>

@@ -64,7 +64,8 @@ defineProps({
   background: var(--hc);
   border: 1.5px solid rgba(9, 12, 15, 0.9);
   box-shadow: 0 0 0 1.5px rgba(240, 244, 247, 0.85), 0 1px 5px rgba(0, 0, 0, 0.6);
-  transition: box-shadow 0.15s;
+  /* 手写 0.15s 收编 var(--t-fast)+var(--ease)（§动效一律令牌） */
+  transition: box-shadow var(--t-fast) var(--ease);
 }
 .hs.t-spawn { --hc: var(--hs-spawn); }
 .hs.t-spawn i { border-radius: 50%; }
@@ -85,4 +86,8 @@ defineProps({
 .hs-layer.hide-extract .t-extract,
 .hs-layer.hide-boss .t-boss,
 .hs-layer.hide-loot .t-loot { display: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .hs i { transition: none; }
+}
 </style>

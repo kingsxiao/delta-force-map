@@ -56,11 +56,18 @@ onBeforeUnmount(() => {
   color: var(--dim);
   box-shadow: var(--shadow-sm);
   cursor: pointer;
-  transition: color var(--t-med), border-color var(--t-med), background var(--t-med);
+  transition: color var(--t-med), border-color var(--t-med), background var(--t-med),
+    transform var(--t-fast);
 }
 .to-top:hover {
   color: var(--tx);
   border-color: var(--line-hover);
+}
+/* 按下态：hover 反馈保持 + 尺寸微缩（全站按钮按压语汇 scale(.98)） */
+.to-top:active {
+  color: var(--tx);
+  border-color: var(--line-hover);
+  transform: scale(.98);
 }
 .totop-enter-active,
 .totop-leave-active { transition: opacity var(--t-med), transform var(--t-med); }

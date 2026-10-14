@@ -50,6 +50,14 @@ export function liveChannelEligible({ protocol, hostname } = {}) {
   )
 }
 
+/** 官方弹药图标 → CDN 缩略图：playerhub 原图最大 1.2MB（整套 7.6MB），
+ *  经腾讯云 imageMogr2 按宽缩到展示尺寸（实测 96x ≈ 17KB，74 倍压缩）；
+ *  已带查询串的 URL 原样返回，避免重复拼接 */
+export function picThumb(pic, w = 96) {
+  if (!pic) return ''
+  return pic.includes('?') ? pic : `${pic}?imageMogr2/thumbnail/${w}x`
+}
+
 /** 数据年龄可读化：<60min 用分钟、<24h 用小时、更长用天（4320min → 「3 天」，
  *  不输出原始分钟数） */
 export function fmtAge(ageMin) {

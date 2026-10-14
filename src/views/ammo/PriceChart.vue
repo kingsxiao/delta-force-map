@@ -105,13 +105,13 @@ const geo = computed(() => {
 .pc-line { stroke: var(--accent); stroke-width: 1.8; }
 .pc-area { fill: var(--accent); opacity: .08; }
 .pc-dot { fill: var(--tx-strong); }
-.pc-curtxt { font-family: var(--mono); font-size: 11px; fill: var(--tx-strong); }
-.pc-tick { font-family: var(--mono); font-size: 10px; fill: var(--faint); }
+.pc-curtxt { font-family: var(--mono); font-size: var(--fs-2xs); fill: var(--tx-strong); }
+.pc-tick { font-family: var(--mono); font-size: var(--fs-micro); fill: var(--faint); }
 .pc-quant { stroke-dasharray: 5 4; stroke-width: 1; }
-.q75 { stroke: var(--danger, #f87171); }
-.q75t { fill: var(--danger, #f87171); }
-.q25 { stroke: var(--ok, #34d399); }
-.q25t { fill: var(--ok, #34d399); }
-.pc-qtxt { font-family: var(--mono); font-size: 10px; }
+.q75 { stroke: var(--danger); }
+.q75t { fill: var(--danger); }
+.q25 { stroke: var(--ok); }
+.q25t { fill: var(--ok); }
+.pc-qtxt { font-family: var(--mono); font-size: var(--fs-micro); }
 .pc-empty { color: var(--faint); font-size: var(--fs-sm); }
 </style>

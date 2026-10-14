@@ -62,12 +62,19 @@ export function build(lib, canvas, preset, isHero) {
   }).catch(() => { markOff(canvas); return { sh: null, why: 'error' } })
 }
 
-/* 设计规范 v2.2 §7.1：雾色贴近中性阶（colorB 由 #39424d 压至 #232a33，不再形成灰亮带），
-   blending 0.3→0.22、speed 0.6→0.4——雾退为氛围底；粒子 600→300、尺寸 1.4→2.2、
-   twinkle 0.6→0.45（看得见但不频闪）；粒子色对齐全站唯一主色 --accent #2dd4bf。 */
+/* 背景特效 v3：用户反馈旧 Fog+FloatingParticles「太丑」——灰雾呆板、300 个静态小圆点无生气。
+   换库内两件更高级的组件（同一 2.56MB 库，无新增依赖）：
+   - Aurora：极光帘做氛围底。三色压进站点暗青蓝域（帘脚深青 #0f3d4a / 亮核唯一主色
+     --accent #2dd4bf / 射线尖钢蓝 #1c5d8f），intensity 45（默认 80）退成夜空微光不抢文案，
+     speed 5→2.5 慢漂，帘层 4→3 省一档 compileTime 分支。
+   - ParticleFlow：真·不可压流体场驱动的尘埃（替代 FloatingParticles 的匀速漂浮）。shape
+     comet 柔光彗星形；静息色青 #8fd8cf、加速色暖金 #ffd98e——鼠标划过（库监听 window
+     mousemove，canvas pointer-events:none 不影响）犁出尾流，尘埃卷入涡旋并短暂闪暖光。
+     count 6000→4000 桌面兼顾 GPU，swirl 30+momentum .65 让涡旋久转，ambient .2 保证无鼠标
+     时画面也在呼吸（lbAlive 逐帧像素断言同样依赖这点）。 */
 export const HERO_PRESET = { components: [
-  { type: 'Fog', id: 'fx-fog', props: { colorA: '#151a21', colorB: '#232a33', speed: 0.4, turbulence: 1.2, detail: 15, blending: 0.22, mouseInfluence: 0 } },
-  { type: 'FloatingParticles', id: 'fx-dust', props: { particleColor: '#2dd4bf', count: 300, particleSize: 2.2, speed: 0.18, angle: 90, speedVariance: 0.3, angleVariance: 30, randomness: 0.25, twinkle: 0.45, cursorStrength: 0 } },
+  { type: 'Aurora', id: 'fx-aurora', props: { colorA: '#0f3d4a', colorB: '#2dd4bf', colorC: '#1c5d8f', intensity: 45, speed: 2.5, curtainCount: 3, waviness: 60, rayDensity: 22, height: 130, seed: 7 } },
+  { type: 'ParticleFlow', id: 'fx-dust', props: { shape: 'comet', colorA: '#8fd8cf', colorB: '#ffd98e', count: 4000, size: 1.1, trails: 0.2, speed: 0.8, force: 1.2, swirl: 30, momentum: 0.65, ambient: 0.2 } },
 ] }
 
 /* 设计规范 v2.2 §7.2 曾删 Fog 只留 FilmGrain（strength 0.28→0.2）——实测（2026-10-10，

@@ -3,22 +3,23 @@ import { useRoute } from 'vue-router'
 
 const route = useRoute()
 
-// 四个主 tab；active 高亮按 route.path 精确比对（'/' 不应匹配到所有路由）
+// 五个主 tab；active 高亮按 route.path 精确比对（'/' 不应匹配到所有路由）
 const tabs = [
   { to: '/', label: '地图' },
   { to: '/tactics', label: '打法' },
   { to: '/ttk', label: 'TTK排行' },
   { to: '/ammo', label: '子弹行情' },
+  { to: '/radar', label: '异动雷达' },
 ]
 </script>
 
 <template>
   <header class="site-topbar">
     <div class="wrap bar-inner">
-      <router-link to="/" class="brand" aria-label="三角洲行动 · 战术图集 首页">
+      <router-link to="/" class="brand" aria-label="三角洲行动 · delta force hub 首页">
         <span class="brand-glyph" aria-hidden="true"></span>
         <span class="brand-mark">DELTA FORCE</span>
-        <span class="brand-sub">战术图集</span>
+        <span class="brand-sub">delta force hub</span>
       </router-link>
 
       <nav class="tabs" aria-label="站点导航">
@@ -61,7 +62,11 @@ const tabs = [
   align-items: center;
   gap: 10px;
   text-decoration: none;
+  transition: transform var(--t-fast) var(--ease);
 }
+/* 品牌链接 hover：副标提亮一档（--faint → --dim），主标保持强文字色 */
+.brand:hover .brand-sub { color: var(--dim); }
+.brand:active { transform: translateY(1px); }
 /* 品牌菱形标：与全站 ◆ / 菱形点位同一几何语言 */
 .brand-glyph {
   flex: none;
@@ -84,6 +89,7 @@ const tabs = [
   color: var(--faint);
   letter-spacing: .12em;
   transform: translateY(1px);
+  transition: color var(--t-med) var(--ease);
 }
 .tabs {
   display: flex;
@@ -98,7 +104,7 @@ const tabs = [
   color: var(--dim);
   text-decoration: none;
   letter-spacing: .05em;
-  transition: color var(--t-med);
+  transition: color var(--t-med) var(--ease), transform var(--t-fast) var(--ease);
 }
 .tab::after {
   content: "";
@@ -110,12 +116,18 @@ const tabs = [
   background: var(--accent);
   transform: scaleX(0);
   transform-origin: left center;
-  transition: transform var(--t-med) var(--ease), opacity var(--t-med);
+  transition: transform var(--t-med) var(--ease), opacity var(--t-med) var(--ease);
 }
 .tab:hover { color: var(--tx); }
 .tab:hover::after { transform: scaleX(1); opacity: .3; }
 .tab.active { color: var(--accent); }
 .tab.active::after { transform: scaleX(1); opacity: 1; }
+/* 按下态：文字再提亮一档 + 整体下沉 1px + 指示条压低，触屏（无 hover）同样有「按实」反馈 */
+.tab:active { color: var(--tx-strong); transform: translateY(1px); }
+.tab:active::after { opacity: .15; }
+/* 当前路由 tab 按下时保持主色文字与满亮指示条（选中态不被按下态覆盖） */
+.tab.active:active { color: var(--accent); }
+.tab.active:active::after { opacity: 1; }
 /* 特效层容器：绝对定位不影响导航条布局；v2.2 起不再注入内容，机制保留 */
 .hero-slot {
   position: absolute;
@@ -132,6 +144,6 @@ const tabs = [
   .tabs { gap: var(--sp-4); }
 }
 @media (prefers-reduced-motion: reduce) {
-  .tab, .tab::after { transition: none; }
+  .tab, .tab::after, .brand, .brand-sub { transition: none; }
 }
 </style>

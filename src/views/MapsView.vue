@@ -6,8 +6,6 @@
 // active 高亮由滚动位置计算（legacy setActive 的 href 比对改为 scroll spy）。
 import { onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { MAPS } from '../data/mapIndex'
-import { GUNS } from '../data/ttk/guns.js'
-import { CAL } from '../data/ttk/calibers.js'
 import { useReveal } from '../composables/useReveal'
 import MapSection from './maps/MapSection.vue'
 import MapLightbox from './maps/MapLightbox.vue'
@@ -19,9 +17,12 @@ const { observeRoot } = useReveal()
 const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
 const scrollMode = () => (reduced ? 'auto' : 'smooth')
 
-/* §6.1 hero 数据大数带：一律数据插值、禁止手写（hotspots 求和 / GUNS / 口径键数） */
-const hsTotal = MAPS.reduce((n, m) => n + (m.hs ? m.hs.length : 0), 0)
-const ammoCount = Object.keys(CAL).length
+/* §6.1 hero 数据大数带：一律数据插值、禁止手写；只统计本页内容
+   （hotspots / 出生点打法卡 / 资源路线 / 撤离方案），不掺其他页面数据 */
+const hsTotal = MAPS.reduce((n, m) => n + m.hs.length, 0)
+const spawnCards = MAPS.reduce((n, m) => n + m.guide.spawns.length, 0)
+const lootRoutes = MAPS.reduce((n, m) => n + m.guide.lootRoutes.length, 0)
+const exitPlans = MAPS.reduce((n, m) => n + m.guide.extractions.length, 0)
 
 /* §QA 两轮点名（卡片网格明度断层）：六张 fig0 缩略可见带（图内 y≈38-62%，44px 条）
    实测亮度差异大（90/52/39/82/45/78），无遮罩参与——按均值统一到 ~78 基线，
@@ -101,20 +102,21 @@ onBeforeUnmount(() => {
           </p>
           <p class="meta">数据整理自公开资料（2026-10 版本） · 物资价值为社区主观分级，非官方数据</p>
           <p class="head-cta">
-            <router-link class="cta" to="/ttk">全枪械 TTK 排行 →</router-link>
+            <a class="cta" href="#map-index" @click.prevent="scrollToSection('map-index')">开始浏览地图 ↓</a>
           </p>
         </div>
-        <div class="hero-stats" aria-label="站点数据概览">
+        <div class="hero-stats" aria-label="地图数据概览">
           <p class="stat">
             <span class="stat-num">{{ hsTotal }}</span><span class="stat-label">个标注点位</span>
           </p>
           <p class="stat">
-            <span class="stat-num">{{ MAPS.length }}</span><span class="stat-label">张地图</span>
+            <span class="stat-num">{{ spawnCards }}</span><span class="stat-label">张出生点打法</span>
           </p>
           <p class="stat">
-            <span class="stat-num">{{ GUNS.length }}</span><span class="stat-label">把枪</span>
-            <span class="stat-x">×</span>
-            <span class="stat-num">{{ ammoCount }}</span><span class="stat-label">种口径</span>
+            <span class="stat-num">{{ lootRoutes }}</span><span class="stat-label">条资源路线</span>
+          </p>
+          <p class="stat">
+            <span class="stat-num">{{ exitPlans }}</span><span class="stat-label">条撤离方案</span>
           </p>
         </div>
       </div>
@@ -134,7 +136,7 @@ onBeforeUnmount(() => {
     </nav>
 
     <!-- 六图索引（§6.1）：桌面补首屏总览、移动端补 <1024px 无索引的缺环；不新增 .hs / .map-section -->
-    <nav class="wrap map-index reveal" aria-label="地图索引">
+    <nav id="map-index" class="wrap map-index reveal" aria-label="地图索引">
       <a
         v-for="(m, i) in MAPS"
         :key="m.slug"
@@ -184,10 +186,12 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-/* 页头 padding 走 base.css .site-head 公共规则（64/32）；字级/眉题/导语走全局
-   .kicker/.lede/.meta 与 h1 规则。特效画布（#fxHero）按 §6.1/§7.1 挂本页头，
-   铺满 hero 区；.wrap 置于其上。 */
-.site-head { border-bottom: 1px solid var(--line2); position: relative; }
+/* 页头字级/眉题/导语走全局 .kicker/.lede/.meta 与 h1 规则；padding 收紧一档
+   （base 公共 64/32 → 32/24），让六图索引更早进入首屏。特效画布（#fxHero）
+   按 §6.1/§7.1 挂本页头，铺满 hero 区；.wrap 置于其上。 */
+/* overflow clip：特效库挂载后给 #fxHero 写内联 width（实测 1200px），窄视口下
+   绝对定位 canvas 会把整页撑出横向滚动；特效本就应限定在 hero 盒内，兜底裁掉 */
+.site-head { border-bottom: 1px solid var(--line2); position: relative; padding: var(--sp-6) 0 var(--sp-5); overflow: clip; }
 .site-head .wrap {
   position: relative;
   z-index: 1;
@@ -208,7 +212,6 @@ onBeforeUnmount(() => {
   font-variant-numeric: tabular-nums;
 }
 .stat-label { font-family: var(--mono); font-size: var(--fs-2xs); letter-spacing: .12em; color: var(--faint); }
-.stat-x { font-family: var(--mono); font-size: var(--fs-sm); color: var(--faint); margin: 0 var(--sp-1); }
 @media (max-width: 820px) {
   .site-head .wrap { grid-template-columns: 1fr; }
   .stat { justify-content: flex-start; }
@@ -228,12 +231,15 @@ onBeforeUnmount(() => {
   font-size: var(--fs-md);
   letter-spacing: .05em;
   background: var(--accent-bg);
-  transition: background var(--t-med), border-color var(--t-med);
+  transition: background var(--t-med) var(--ease), border-color var(--t-med) var(--ease), transform var(--t-fast) var(--ease);
 }
 .head-cta .cta:hover { background: var(--accent-soft); border-color: var(--accent); }
+/* 按下态（主要按钮规范）：scale(.98) 触觉反馈 */
+.head-cta .cta:active { transform: scale(.98); }
 
-/* 六图索引（§6.1）：44px 缩略条 + 编号 + 图名 + 模式标签，卡片语言同 §5.2 */
-.map-index { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: var(--sp-3); padding-top: var(--sp-5); }
+/* 六图索引（§6.1）：44px 缩略条 + 编号 + 图名 + 模式标签，卡片语言同 §5.2；
+   scroll-margin 给移动端吸顶胶囊条留位（hero CTA 滚动目标） */
+.map-index { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: var(--sp-3); padding-top: var(--sp-5); scroll-margin-top: 56px; }
 .mi-card {
   display: flex;
   flex-direction: column;
@@ -243,9 +249,11 @@ onBeforeUnmount(() => {
   box-shadow: var(--edge-light);
   overflow: clip;
   text-decoration: none;
-  transition: border-color var(--t-med), box-shadow var(--t-med);
+  transition: border-color var(--t-med) var(--ease), box-shadow var(--t-med) var(--ease), transform var(--t-med) var(--ease);
 }
-.mi-card:hover { border-color: var(--line-hover); box-shadow: var(--edge-light), inset 0 0 0 1px rgba(255, 255, 255, .02); }
+/* 可点索引卡（整卡为链接）：hover 边提亮 + --edge-hover 组合描边 + 上浮 -2px；按下同 hover */
+.mi-card:hover,
+.mi-card:active { border-color: var(--line-hover); box-shadow: var(--edge-hover); transform: translateY(-2px); }
 .mi-thumb { display: block; height: 44px; background: var(--deep); border-bottom: 1px solid var(--line2); }
 .mi-thumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
 /* §QA 两轮视觉回归：编号/模式副标题小字再提亮一档（--faint→--dim 未达标）：
@@ -270,9 +278,10 @@ onBeforeUnmount(() => {
   font-size: var(--fs-xs);
   text-decoration: none;
   white-space: nowrap;
-  transition: color var(--t-med), border-color var(--t-med);
+  transition: color var(--t-med) var(--ease), border-color var(--t-med) var(--ease);
 }
-.pill:hover { color: var(--tx); border-color: var(--line-hover); }
+.pill:hover,
+.pill:active { color: var(--tx); border-color: var(--line-hover); }
 .pill.on { color: var(--accent); border-color: var(--accent-dim); background: var(--accent-bg); }
 @media (min-width: 1024px) {
   .topbar { display: none; }
@@ -292,15 +301,16 @@ onBeforeUnmount(() => {
     border-left: 2px solid transparent;
     color: var(--dim);
     text-decoration: none;
-    transition: color var(--t-med), border-color var(--t-med), background var(--t-med);
+    transition: color var(--t-med) var(--ease), border-color var(--t-med) var(--ease), background var(--t-med) var(--ease);
   }
-  .nav-item:hover { color: var(--tx); }
+  .nav-item:hover,
+  .nav-item:active { color: var(--tx); }
   .nav-item.on {
     border-left-color: var(--accent);
     color: var(--tx);
     background: linear-gradient(90deg, var(--accent-bg), transparent 80%);
   }
-  .nav-num { font-family: var(--mono); font-size: var(--fs-micro); color: var(--faint); letter-spacing: .1em; transition: color var(--t-med); }
+  .nav-num { font-family: var(--mono); font-size: var(--fs-micro); color: var(--faint); letter-spacing: .1em; transition: color var(--t-med) var(--ease); }
   .nav-item.on .nav-num { color: var(--accent); }
   .nav-name { display: block; font-size: var(--fs-sm); font-weight: 600; margin-top: 1px; }
   .nav-mode { display: block; font-size: var(--fs-micro); color: var(--faint); margin-top: 1px; }
@@ -308,6 +318,6 @@ onBeforeUnmount(() => {
 main { min-width: 0; padding-bottom: 30px; }
 
 @media (prefers-reduced-motion: reduce) {
-  .nav-item, .pill, .head-cta .cta, .mi-card { transition: none; }
+  .nav-item, .nav-num, .pill, .head-cta .cta, .mi-card { transition: none; }
 }
 </style>

@@ -52,7 +52,7 @@ function pick(it, modelValue, multiple) {
   display: inline-flex;
   flex-wrap: wrap;
   gap: 2px;
-  background: var(--bg);
+  background: var(--bg2); /* 分段控件槽底与 .fig-tabs 统一（MapViewer），不再用更暗的 --bg */
   border: 1px solid var(--line2);
   border-radius: var(--radius);
   padding: 3px;
@@ -66,7 +66,7 @@ function pick(it, modelValue, multiple) {
   padding: 4.5px 11px;
   border-radius: var(--radius-sm);
   cursor: pointer;
-  transition: color var(--t-fast), background var(--t-fast);
+  transition: color var(--t-fast) var(--ease), background var(--t-fast) var(--ease);
   white-space: nowrap;
   display: inline-flex;
   align-items: center;
@@ -74,6 +74,8 @@ function pick(it, modelValue, multiple) {
   font-variant-numeric: tabular-nums;
 }
 .seg-btn:hover { color: var(--tx); background: var(--lift); }
+/* 按下同 hover（规格「单选/分段」）；置于 .on 之前——选中项按下仍保持选中观感 */
+.seg-btn:active { color: var(--tx); background: var(--lift); }
 .seg-btn.on { background: var(--card2); color: var(--accent); }
 .seg-div {
   width: 1px;

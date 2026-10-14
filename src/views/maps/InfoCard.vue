@@ -50,7 +50,9 @@ function toggleExp() {
         @pointerdown.stop
         @click="$emit('close')"
       >
-        ✕
+        <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+          <path d="M3.5 3.5l9 9M12.5 3.5l-9 9" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
+        </svg>
       </button>
     </div>
     <h4>{{ spot.name }}</h4>
@@ -102,8 +104,10 @@ function toggleExp() {
   max-height: 64%;
   overflow-y: auto;
   scrollbar-width: thin;
-  animation: hs-card-in .14s var(--ease);
+  animation: hs-card-in var(--t-fast) var(--ease);
 }
+/* 展开态：浮层投影保留 + 左缘 2px --accent-dim 指示条（与 CollapseCol/SpawnCard 统一语义） */
+.hs-card.exp { box-shadow: var(--shadow-md), inset 2px 0 0 var(--accent-dim); }
 @keyframes hs-card-in {
   from { opacity: 0; transform: translateY(6px) scale(.98); }
   to   { opacity: 1; transform: none; }
@@ -129,12 +133,15 @@ function toggleExp() {
   background: none;
   color: var(--faint);
   cursor: pointer;
-  font-size: var(--fs-xs);
-  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   padding: 0;
-  transition: color var(--t-fast), background var(--t-fast);
+  transition: color var(--t-fast) var(--ease), background var(--t-fast) var(--ease);
 }
-.x:hover { color: var(--tx); background: var(--lift); }
+.x svg { display: block; }
+.x:hover,
+.x:active { color: var(--tx); background: var(--lift); }
 h4 { font-size: var(--fs-sm); line-height: 1.5; margin: 9px 12px 0; padding-right: 16px; font-weight: 600; color: var(--tx-strong); }
 .note { margin: 6px 0 0; padding: 0 12px 11px; font-size: var(--fs-xs); color: var(--dim); line-height: 1.7; }
 .rows { border-top: 1px solid var(--line2); }
@@ -160,20 +167,26 @@ h4 { font-size: var(--fs-sm); line-height: 1.5; margin: 9px 12px 0; padding-righ
   font-size: var(--fs-xs);
   letter-spacing: .06em;
   cursor: pointer;
-  transition: border-color var(--t-fast), background var(--t-fast);
+  transition: border-color var(--t-fast) var(--ease), background var(--t-fast) var(--ease);
 }
-.more-btn:hover { border-color: var(--accent-dim); background: var(--accent-bg); }
-/* 展开与 SpawnCard / CollapseCol 同构：grid-rows 0fr→1fr（§5.7），display 裸切弃用 */
+/* 次要按钮：hover/按下 边 --accent-dim + 底 --accent-bg（边面同改，一眼可辨） */
+.more-btn:hover,
+.more-btn:active { border-color: var(--accent-dim); background: var(--accent-bg); }
+/* 展开与 SpawnCard / CollapseCol 同构：grid-rows 0fr→1fr（§5.7），时长统一 var(--t-collapse) */
 .hs-more {
   display: grid;
   grid-template-rows: 0fr;
-  transition: grid-template-rows .25s var(--ease);
+  transition: grid-template-rows var(--t-collapse) var(--ease);
 }
 .hs-card.exp .hs-more { grid-template-rows: 1fr; }
 .hs-more-clip { overflow: hidden; min-height: 0; }
 .exp .more-btn { color: var(--faint); border-color: var(--line2); }
+/* 展开（「收起」）态 hover：保持次要按钮反馈——字提亮一档 + 边 --line-hover + 面 --lift，
+   覆盖上面的默认 hover（源码序在后，避免 accent-bg 底配 faint 字的混搭） */
+.exp .more-btn:hover,
+.exp .more-btn:active { color: var(--dim); border-color: var(--line-hover); background: var(--lift); }
 @media (prefers-reduced-motion: reduce) {
   .hs-card { animation: none; }
-  .hs-more { transition: none; }
+  .hs-more, .x, .more-btn { transition: none; }
 }
 </style>

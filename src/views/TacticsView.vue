@@ -51,12 +51,9 @@ async function gotoMapSection(target) {
 
 <template>
   <div ref="rootRef" class="tactics-page">
-    <header class="site-head">
-      <div class="wrap">
-        <p class="kicker">DELTA FORCE · TACTICS</p>
-        <h1>打法手册</h1>
-        <p class="lede">六图打法单独成页：先选图，再看该图的出生点思路与撤离细节。</p>
-      </div>
+    <header class="wrap compact-head">
+      <h1>打法手册</h1>
+      <p class="meta">六图打法单独成页：先选图，再看该图的出生点思路与撤离细节。</p>
     </header>
 
     <nav class="topbar sticky-bar" aria-label="地图选择">
@@ -92,10 +89,8 @@ async function gotoMapSection(target) {
 </template>
 
 <style scoped>
-/* 页头 padding 走 base.css .site-head 公共规则（64/32）；
-   页头字级/眉题/导语走 base.css 全局 .kicker/.lede/.meta 与 h1 规则 */
-.tactics-page { padding-bottom: 30px; }
-.site-head { border-bottom: 1px solid var(--line2); }
+/* 页头走 base.css .compact-head（单行式） */
+.tactics-page { padding-bottom: var(--sp-6); }
 
 /* 图选择器（样式沿用 legacy pills）；吸顶面板走 base.css .sticky-bar（§5.10 弃 blur），
    胶囊条限宽对齐 1240px 内容列（padding 28px 与 .wrap 同缘） */
@@ -119,14 +114,15 @@ async function gotoMapSection(target) {
   font-size: var(--fs-xs);
   text-decoration: none;
   white-space: nowrap;
-  transition: color var(--t-med), border-color var(--t-med);
+  transition: color var(--t-med) var(--ease), border-color var(--t-med) var(--ease);
 }
-.pill:hover { color: var(--tx); border-color: var(--line-hover); }
+.pill:hover,
+.pill:active { color: var(--tx); border-color: var(--line-hover); }
 .pill.on { color: var(--accent); border-color: var(--accent-dim); background: var(--accent-bg); }
 
 .layout { padding-top: var(--sp-5); }
 .cur-map { display: flex; align-items: baseline; gap: var(--sp-4); margin-bottom: var(--sp-5); }
-.cur-num { font-family: var(--mono); font-size: var(--fs-sm); color: var(--accent); letter-spacing: .08em; }
+.cur-num { font-family: var(--mono); font-size: var(--fs-sm); color: var(--accent); letter-spacing: .08em; font-variant-numeric: tabular-nums; }
 .cur-name { font-size: clamp(var(--fs-xl), 3vw, var(--fs-2xl)); font-weight: 700; letter-spacing: .02em; color: var(--tx-strong); }
 .mode-tag {
   font-family: var(--mono);
@@ -136,7 +132,7 @@ async function gotoMapSection(target) {
   color: var(--dim);
   border: 1px solid var(--line);
   border-radius: var(--radius-pill);
-  padding: 3px 11px;
+  padding: var(--sp-1) var(--sp-3);
   transform: translateY(1px);
 }
 
@@ -169,9 +165,12 @@ async function gotoMapSection(target) {
   font-size: var(--fs-xs);
   letter-spacing: .04em;
   cursor: pointer;
-  transition: color var(--t-med), border-color var(--t-med);
+  transition: color var(--t-med) var(--ease), border-color var(--t-med) var(--ease);
 }
-.map-link:hover { color: var(--tx); border-color: var(--line-hover); }
+/* hover 不降亮：默认字即 --accent，hover 只提边一档；按下同 hover（次要按钮规范）。
+   focus-visible 走 base.css 全局 2px --accent 外框，此处不覆盖 */
+.map-link:hover,
+.map-link:active { border-color: var(--line-hover); }
 
 @media (prefers-reduced-motion: reduce) {
   .pill, .map-link { transition: none; }

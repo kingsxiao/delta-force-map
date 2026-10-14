@@ -9,6 +9,7 @@ import InfoCard from './InfoCard.vue'
 
 const props = defineProps({
   map: { type: Object, required: true },
+  eager: { type: Boolean, default: false }, // 首图 eager（LCP + smoke 门依赖 ≥1 张 complete），其余 lazy 按需
 })
 const emit = defineEmits(['full'])
 
@@ -84,6 +85,7 @@ onBeforeUnmount(() => viewer.detach())
             ref="imgRef"
             :src="figSrc"
             :alt="figAlt"
+            :loading="eager ? 'eager' : 'lazy'"
             decoding="async"
             draggable="false"
             @load="viewer.onImgLoad"
@@ -176,9 +178,9 @@ onBeforeUnmount(() => viewer.detach())
   border: 1px solid var(--line);
   background: var(--deep);
   box-shadow: var(--edge-light);
-  transition: border-color var(--t-med), box-shadow var(--t-med);
+  transition: border-color var(--t-med) var(--ease), box-shadow var(--t-med) var(--ease);
 }
-.fig-frame:hover { border-color: var(--line-hover); box-shadow: var(--edge-light), inset 0 0 0 1px rgba(255, 255, 255, .02); }
+.fig-frame:hover { border-color: var(--line-hover); box-shadow: var(--edge-hover); }
 .fig-frame:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .fig-vp { position: absolute; inset: 0; overflow: hidden; cursor: grab; touch-action: none; }
 .fig-vp.dragging { cursor: grabbing; }
@@ -206,7 +208,7 @@ onBeforeUnmount(() => viewer.detach())
   width: 30px;
   height: 30px;
   border-radius: var(--radius);
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  border: 1px solid var(--glass-line);
   background: var(--scrim);
   backdrop-filter: blur(var(--panel-blur));
   -webkit-backdrop-filter: blur(var(--panel-blur));
@@ -215,11 +217,13 @@ onBeforeUnmount(() => viewer.detach())
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: color var(--t-fast), border-color var(--t-fast);
+  transition: color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
   padding: 0;
 }
 .fig-ctrl button svg { display: block; }
-.fig-ctrl button:hover { color: var(--accent); border-color: var(--accent-dim); }
+/* 图框内玻璃按钮：hover/按下 图标提亮到 --accent + 描边 --accent-dim（叠卫星图仍可辨） */
+.fig-ctrl button:hover,
+.fig-ctrl button:active { color: var(--accent); border-color: var(--accent-dim); }
 .hs-chips {
   position: absolute;
   left: 10px;
@@ -240,12 +244,12 @@ onBeforeUnmount(() => viewer.detach())
   color: var(--tx);
   padding: 4px 10px;
   border-radius: var(--radius-pill);
-  border: 1px solid rgba(255, 255, 255, 0.13);
+  border: 1px solid var(--glass-line);
   background: var(--scrim);
   backdrop-filter: blur(var(--panel-blur));
   -webkit-backdrop-filter: blur(var(--panel-blur));
   cursor: pointer;
-  transition: opacity var(--t-med);
+  transition: opacity var(--t-med) var(--ease), border-color var(--t-fast) var(--ease);
   white-space: nowrap;
 }
 .hs-chip .dot { width: 8px; height: 8px; flex: none; }
@@ -255,6 +259,10 @@ onBeforeUnmount(() => viewer.detach())
 .hs-chip[data-t='boss'] .dot { border-radius: 50%; box-shadow: 0 0 0 2px color-mix(in srgb, var(--hs-boss) 35%, transparent); }
 .hs-chip.off { opacity: 0.42; }
 .hs-chip.off span { color: var(--faint); }
+/* 图层开关（aria-pressed）：hover/按下（含关态）opacity .8 + 边提亮；
+   置于 .off 之后（同特异性靠源码序），保证关态 hover 也能回亮到 .8 */
+.hs-chip:hover,
+.hs-chip:active { opacity: 0.8; border-color: var(--line-hover); }
 .fig-hint {
   position: absolute;
   left: 10px;
@@ -262,15 +270,16 @@ onBeforeUnmount(() => viewer.detach())
   font-size: var(--fs-2xs);
   font-family: var(--mono);
   letter-spacing: .05em;
-  color: rgba(233, 238, 242, 0.85);
-  background: rgba(7, 9, 11, 0.66);
+  color: var(--tx);
+  background: var(--scrim);
+  border: 1px solid var(--glass-line);
   backdrop-filter: blur(var(--panel-blur));
   -webkit-backdrop-filter: blur(var(--panel-blur));
   padding: 4px 10px;
   border-radius: var(--radius-sm);
   pointer-events: none;
   opacity: 0;
-  transition: opacity var(--t-med);
+  transition: opacity var(--t-med) var(--ease);
 }
 .fig-frame:hover .fig-hint,
 .fig-frame:focus-visible .fig-hint,
@@ -300,10 +309,16 @@ onBeforeUnmount(() => viewer.detach())
   padding: 5px 13px;
   border-radius: var(--radius-sm);
   cursor: pointer;
-  transition: color var(--t-med), background var(--t-med);
+  transition: color var(--t-med) var(--ease), background var(--t-med) var(--ease);
   white-space: nowrap;
 }
-.fig-tab:hover { color: var(--tx); }
+/* 分段控件（单选）：hover/按下 底 --lift 字 --tx；选中 底 --card2 字 --accent（两件同改） */
+.fig-tab:hover,
+.fig-tab:active { color: var(--tx); background: var(--lift); }
 .fig-tab.on { background: var(--card2); color: var(--accent); }
 .fig-cap { font-size: var(--fs-xs); color: var(--faint); line-height: 1.6; min-width: 0; }
+
+@media (prefers-reduced-motion: reduce) {
+  .fig-frame, .fig-ctrl button, .hs-chip, .fig-hint, .fig-tab { transition: none; }
+}
 </style>

@@ -26,7 +26,8 @@ function onFull(idx) {
       </h2>
     </header>
 
-    <MapViewer :map="map" @full="onFull" />
+    <!-- 首图 eager（LCP + 冒烟断言依赖），其余 lazy：首访只下载视口内图片 -->
+    <MapViewer :map="map" :eager="index === 0" @full="onFull" />
 
     <MapDetail :map="map" />
   </section>

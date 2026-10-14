@@ -42,18 +42,16 @@ onMounted(() => {
 
   if (props.mode === 'hero') {
     if (window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches) { fx('reduced'); return }
-    /* §7.1 coarse pointer：手机 GPU 开销大头在逐像素 Fog detail，不在粒子数——
-       粒子降 160、Fog detail 15→10 / speed 0.4→0.3 */
-    if (coarsePointer()) {
-      HERO_PRESET.components[1].props.count = 160
-      HERO_PRESET.components[0].props.detail = 10
-      HERO_PRESET.components[0].props.speed = 0.3
-    }
+    /* 移动端 coarsePointer：纯装饰雾效不建——省 ~711KB(gz) 2.56MB 库下载与持续
+       GPU 逐像素 Fog 开销（此前只调参数不省库）。data-fx='off' 是文档内合法终态。 */
+    if (coarsePointer()) { fx('off'); return }
     if ('IntersectionObserver' in window) {
       io = new IntersectionObserver((ens) => { vis = ens[0].isIntersecting; pump() }, { threshold: 0 })
       io.observe(canvas.parentElement || canvas)
     }
-    loadShadersLib()
+    /* 桌面端推迟拉库：避开 LCP 关键路径（2.56MB 库不与首图争带宽）。rIC 带 1.5s
+       timeout 兜底；Safari 无 rIC 用 setTimeout 300ms，不新增依赖。 */
+    const kick = () => loadShadersLib()
       .then((lib) => {
         if (!lib.isWebGPUSupported()) { fx('unsupported'); return }
         if (!canvas) { fx('fallback'); return }
@@ -65,11 +63,15 @@ onMounted(() => {
         })
       })
       .catch(() => { fx('fallback') })
+    if ('requestIdleCallback' in window) requestIdleCallback(kick, { timeout: 1500 })
+    else setTimeout(kick, 300)
     return
   }
 
-  /* mode === 'lb'：reduced 不建（legacy 初始化在 reduced 分支提前 return，lb 永不挂载） */
+  /* mode === 'lb'：reduced 不建（legacy 初始化在 reduced 分支提前 return，lb 永不挂载）；
+     coarsePointer 同样不建——否则移动端灯箱一开又拉全库，hero 端的 off 节省被穿踦 */
   if (window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches) return
+  if (coarsePointer()) return
   const onLockedChange = () => {
     const open = root.classList.contains('locked')
     if (open && !sh && !building) {

@@ -107,7 +107,7 @@ const bossSplit = (() => {
 .col-pad { padding: var(--sp-3) var(--sp-4); }
 .intro-p { font-size: var(--fs-md); color: var(--dim); line-height: 1.9; padding-top: 4px; }
 .rows { padding: 2px 8px 10px; }
-.row { display: flex; gap: var(--sp-3); padding: 9px 9px; border-radius: var(--radius); transition: background var(--t-fast); }
+.row { display: flex; gap: var(--sp-3); padding: 9px 9px; border-radius: var(--radius); transition: background var(--t-fast) var(--ease); }
 .row:hover { background: var(--row-hover); }
 .row + .row { border-top: 1px solid var(--line2); }
 .row-num { flex: none; font-family: var(--mono); font-size: var(--fs-2xs); color: var(--accent); opacity: 0.85; padding-top: 4px; min-width: 20px; }
@@ -116,12 +116,13 @@ const bossSplit = (() => {
 .row-lead { color: var(--tx-strong); font-weight: 600; }
 .boss-wrap { padding: var(--sp-3) var(--sp-4); }
 .boss-p { font-size: var(--fs-sm); color: var(--dim); line-height: 1.9; padding-top: 4px; }
-/* 危险语义全站唯一色 --danger（§2.3）：左边条 + 8% 底，不再用主色表达危险 */
+/* 危险语义全站唯一色 --danger（§2.3）：左边条 + 8% 派生底（color-mix，rgba 行兜底），不再用主色表达危险 */
 .danger {
   margin-top: 14px;
   padding: 11px 14px;
   border-left: 2px solid var(--danger);
-  background: rgba(217, 106, 89, .08);
+  background: rgba(217, 106, 89, .08); /* 兜底：不支持 color-mix 的旧引擎（真值同 --lv6） */
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
   border-radius: 0 var(--radius) var(--radius) 0;
 }
 .danger-label { display: block; font-family: var(--mono); font-size: var(--fs-micro); letter-spacing: .28em; color: var(--danger); margin-bottom: 6px; }
