@@ -1,0 +1,138 @@
+/* ============================================================
+   server.mjs — 同源部署服务：静态站 + 实时行情（node:http 零依赖）
+   ------------------------------------------------------------
+   一个进程三件事：定时抓上游（复用 ammo/live.mjs 的 fast/slow 双循环与
+   kkrb 兜底）→ 原子写快照（public 与 dist 联动）→ SSE 推送 + 静态托管。
+   站点与 /events 同源是关键：https 部署下无 mixed content、无 CORS，
+   页面端 liveChannelUrl() 直接连 ${origin}/events 即为实时模式。
+   路由：
+     /events  SSE（连接即 hello、落盘广播 market，实现同 live.mjs）
+     /health  {ok, source, version, cycles, ...}
+     其余     dist/ 静态文件（/ → index.html；/assets/ 哈希文件长缓存；
+              *.json 数据与 html 走 no-cache；路径归一化防目录穿越）
+   通知默认关闭（部署形态通常无桌面）；--notify 开启。
+   用法：npm run build && npm run serve [--port 8080] [--host 0.0.0.0] [--notify]
+   环境变量 PORT / HOST 与参数同义。上 https 用 nginx/caddy 反代即可。
+   注意：与 ammo:live / ammo:monitor / 手动 ammo:fetch 同为写盘者，只跑一个。
+   ============================================================ */
+import { readFile } from 'node:fs/promises'
+import { existsSync } from 'node:fs'
+import http from 'node:http'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { createLiveServer } from './ammo/live.mjs'
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+const log = (msg) => console.log(`[${new Date().toLocaleString('zh-CN')}] ${msg}`)
+
+const MIME = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.webp': 'image/webp',
+  '.svg': 'image/svg+xml',
+  '.ico': 'image/x-icon',
+  '.woff2': 'font/woff2',
+}
+
+/**
+ * 创建同源站点服务（不 listen；selftest 用 port 0 自取临时端口）。
+ * @param {{rootDir?:string, noNotify?:boolean}} opts
+ * @returns {{server:http.Server, live:object, start:Function, close:Function}}
+ */
+export function createSiteServer({ rootDir = ROOT, noNotify = true } = {}) {
+  const distDir = path.join(rootDir, 'dist')
+  const live = createLiveServer({ rootDir, noNotify })
+
+  function cacheControlFor(pathname) {
+    if (pathname.startsWith('/assets/')) return 'public, max-age=31536000, immutable'
+    if (pathname.endsWith('.html') || pathname === '/' || pathname.endsWith('.json')) return 'no-cache'
+    return 'public, max-age=3600'
+  }
+
+  async function serveStatic(pathname, res) {
+    let p
+    try {
+      p = path.normalize(path.join(distDir, decodeURIComponent(pathname)))
+    } catch {
+      res.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8' })
+      res.end('bad path')
+      return
+    }
+    // 防穿越：归一化后必须仍在 dist 内（目录本身放行，随后落 index.html）
+    if (p !== distDir && !p.startsWith(distDir + path.sep)) {
+      res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' })
+      res.end('forbidden')
+      return
+    }
+    if (p === distDir || pathname.endsWith('/')) p = path.join(p, 'index.html')
+    try {
+      const buf = await readFile(p)
+      res.writeHead(200, {
+        'Content-Type': MIME[path.extname(p).toLowerCase()] || 'application/octet-stream',
+        'Cache-Control': cacheControlFor(pathname),
+      })
+      res.end(buf)
+    } catch {
+      res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' })
+      res.end('not found')
+    }
+  }
+
+  const server = http.createServer(async (req, res) => {
+    try {
+      const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`)
+      // SSE / health 直接复用 live 服务的处理器（emit 触发其 request 监听）
+      if (url.pathname === '/events' || url.pathname === '/health') {
+        live.server.emit('request', req, res)
+        return
+      }
+      if (req.method !== 'GET' && req.method !== 'HEAD') {
+        res.writeHead(405, { 'Content-Type': 'text/plain; charset=utf-8' })
+        res.end('method not allowed')
+        return
+      }
+      await serveStatic(url.pathname, res)
+    } catch {
+      if (!res.headersSent) res.writeHead(500)
+      res.end()
+    }
+  })
+
+  async function close() {
+    await live.close()
+    await new Promise((resolve) => server.close(resolve))
+  }
+  return { server, live, start: live.start, close }
+}
+
+// ---- CLI 直跑 ----
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  const argv = process.argv.slice(2)
+  const argOf = (name) => {
+    const i = argv.indexOf(`--${name}`)
+    return i >= 0 && argv[i + 1] ? argv[i + 1] : null
+  }
+  const port = Number(argOf('port') || process.env.PORT || 8080)
+  const host = argOf('host') || process.env.HOST || '0.0.0.0'
+  if (!existsSync(path.join(ROOT, 'dist', 'index.html'))) {
+    console.error('缺少 dist/index.html：先运行 npm run build，再启动服务')
+    process.exit(1)
+  }
+  const notify = argv.includes('--notify')
+  const site = createSiteServer({ noNotify: !notify })
+  site.server.listen(port, host, () => {
+    log(`站点已启动：http://${host}:${port}/ · SSE /events · health /health（Ctrl+C 退出）`)
+    log(`静态目录 dist/ · 系统通知${notify ? '开启' : '关闭（--notify 可开启）'} · 上游抓取循环随服务常驻`)
+  })
+  await site.start()
+  const shutdown = (sig) => {
+    log(`收到 ${sig}，关闭服务`)
+    site.close().then(() => process.exit(0))
+  }
+  process.on('SIGINT', () => shutdown('SIGINT'))
+  process.on('SIGTERM', () => shutdown('SIGTERM'))
+}

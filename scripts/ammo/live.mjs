@@ -167,6 +167,8 @@ export function createLiveServer({
         'Cache-Control': 'no-cache',
         Connection: 'keep-alive',
         'Access-Control-Allow-Origin': '*',
+        // nginx 反代部署（阿里云等）防 SSE 被代理缓冲掐成慢轮询
+        'X-Accel-Buffering': 'no',
       })
       // 连接即发 hello：携带当前盘上快照的元信息（页面据此标记实时通道已连接）
       res.write(`event: hello\ndata: ${JSON.stringify({

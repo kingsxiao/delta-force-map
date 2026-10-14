@@ -7,9 +7,11 @@
    刷新链路（按环境自动取最优）：
      · 本地 dev + npm run ammo:live：SSE（127.0.0.1:8787）落盘后 ≤5s 推送，
        页面收到 event:market 自拉 market.json；
-     · 其余环境：静默轮询 + 手动『刷新数据』——本地 http 每 60s；纯静态部署
-       （live 通道不适用，快照永不变化）自动退回 30 分钟，且自动刷新仅在
-       版本前进时才闪提示，不误导「正在更新」。
+     · npm run serve 同源部署（scripts/server.mjs）：SSE /events 同源直连，
+       快照由服务端抓取循环持续刷新（https 同源，无 mixed content / CORS）；
+     · 其余环境（纯静态托管）：/health 探测不到服务端 → 静默轮询 + 手动
+       『刷新数据』自动退回 30 分钟，且自动刷新仅在版本前进时才闪提示，
+       不打每分钟无效流量、不误导「正在更新」。
    纯静态部署（无后端）不白屏：吃构建时快照，并如实标注数据年龄与来源；
    时效阈值按 source 分档（moligod 10/30min，kkrb 沿用 60/360min）。
    后台跑 live / monitor 时，出现买入/卖出信号会弹 macOS 系统通知
@@ -29,8 +31,9 @@ import PriceChart from './ammo/PriceChart.vue'
 import Playbook from './ammo/Playbook.vue'
 import {
   formatVersionLabel, staleness, sourceLabel, methodDataLine,
-  liveChannelEligible, staleTipText, picThumb,
+  liveChannelUrl, isLocalHttpHost, staleTipText, picThumb,
 } from './ammo/marketMeta.js'
+import { predictSellEta, fmtHours, fmtPeak } from './ammo/sellEta.js'
 
 const { observeRoot } = useReveal()
 
@@ -144,14 +147,31 @@ const srcLabel = computed(() => sourceLabel(market.value?.source))
 const dataLine = computed(() => methodDataLine(market.value?.source))
 const staleTipMsg = computed(() => staleTipText(market.value?.source, ageMin.value))
 
-/* ---------- 本地实时通道（SSE，仅本地 http 环境；https 连本地 http 会被 mixed content 拦） ---------- */
-const LIVE_EVENTS_URL = 'http://127.0.0.1:8787/events'
+/* ---------- 实时通道（SSE）：本地开发连独立 live 服务（8787），部署形态连
+   同源 /events（scripts/server.mjs）。先探测 /health 再连：本地探不到保持
+   「未连接」60s 轮询兜底（人可能稍后开 live）；非本地探不到判「环境不适用」
+   退 30min 轮询——纯静态托管的快照永不变化，不打每分钟无效流量 ---------- */
+const LIVE_SSE_URL = liveChannelUrl(location)
 const liveChannel = ref('off') // off(环境不适用) | connecting | on | down
 let es = null
 function connectLive() {
-  if (!liveChannelEligible(location)) return
+  if (!LIVE_SSE_URL) return
   liveChannel.value = 'connecting'
-  es = new EventSource(LIVE_EVENTS_URL)
+  const ctl = new AbortController()
+  const timer = setTimeout(() => ctl.abort(), 4000)
+  fetch(LIVE_SSE_URL.replace(/\/events$/, '/health'), { signal: ctl.signal })
+    .then((r) => {
+      if (!r.ok) throw new Error(`HTTP ${r.status}`)
+      clearTimeout(timer)
+      openLive()
+    })
+    .catch(() => {
+      clearTimeout(timer)
+      liveChannel.value = isLocalHttpHost(location) ? 'down' : 'off'
+    })
+}
+function openLive() {
+  es = new EventSource(LIVE_SSE_URL)
   es.addEventListener('hello', (e) => {
     liveChannel.value = 'on'
     try {
@@ -163,7 +183,7 @@ function connectLive() {
   es.addEventListener('market', () => { load({ silent: true, auto: true }) })
   es.addEventListener('error', () => {
     // live 服务不在 / 已停：关闭连接（EventSource 默认会自动重连，这里明确
-    // 放弃），回落 60s 轮询，UI 如实标注
+    // 放弃），回落轮询，UI 如实标注
     try { es && es.close() } catch { /* 已关闭 */ }
     es = null
     liveChannel.value = 'down'
@@ -340,6 +360,27 @@ function showAllSell() {
 
 const buyList = computed(() => items.value.filter((i) => i.signal === 'BUY').sort((a, b) => b.profitPct - a.profitPct))
 const sellList = computed(() => items.value.filter((i) => i.signal === 'SELL').sort((a, b) => b.rank - a.rank))
+
+/* ---------- 预计卖出时间（展开行脚注；数据不足返回 null 不渲染） ----------
+   买入/关注：历史到达历时（中位/最快）+ 日内高位时段；卖出：已在挂卖区，
+   只给「今天几点出」的日内高位建议。口径见 ./ammo/sellEta.js 与 METHOD。 */
+function etaLine(i) {
+  const e = predictSellEta(i)
+  if (!e) return null
+  const peak = e.peakStart != null ? fmtPeak(e.peakStart, e.peakEnd) : null
+  if (e.atTarget) {
+    return peak
+      ? `现价已处挂卖区，日内高位通常在 ${peak}，建议在该时段分批挂卖。`
+      : '现价已处挂卖区，建议尽快挂卖。'
+  }
+  // 历时展示门槛：至少 2 次完整上涨样本（单样本中位没有置信度）
+  if (e.medianH == null || e.episodes < 2) return null
+  const clock = e.etaLabel ? `（${e.etaLabel} 前后）` : ''
+  const base =
+    `按近 7 天 ${e.episodes} 次同类上涨，从现价涨到 ${fmt(i.targetSell)}（P75）` +
+    `中位约 ${fmtHours(e.medianH)}、最快 ${fmtHours(e.fastestH)}${clock}`
+  return peak ? `${base}；该弹种日内高位通常在 ${peak}。` : `${base}。`
+}
 
 /* ---------- 生命周期：SSE + 静默轮询 + 分钟钟 + 全局监听（统一在此挂/卸） ---------- */
 /* 轮询节奏按环境分档：live 通道不适用（https/file 纯静态部署，market.json 永不
@@ -592,6 +633,9 @@ onUnmounted(() => {
                         口径：买入参考 {{ fmt(i.p25) }}（P25）/ 目标挂卖 {{ fmt(i.targetSell) }}（P75，税后到手 {{ fmt(i.netSell) }}）/
                         税率 {{ (i.taxRate * 100).toFixed(0) }}%。价格回到 P75 即可挂卖；急用钱可按现价直接出。
                       </p>
+                      <p v-if="etaLine(i)" class="exp-note eta-note">
+                        <b>预计卖出</b>：{{ etaLine(i) }}（历史统计，不代表未来）。
+                      </p>
                     </td>
                   </tr>
                 </template>
@@ -610,6 +654,7 @@ onUnmounted(() => {
             <ul class="method">
               <li><b>买入条件</b>：当前价处近 7 天价格曲线 ≤ 25% 分位，且按 P75 挂卖、扣除交易税后收益率 ≥ 8%。</li>
               <li><b>卖出条件</b>：当前价处 ≥ 80% 分位（贴近 7 天高位）。</li>
+              <li><b>预计卖出</b>：统计近 7 天小时曲线——「从当前价位档涨到 P75 挂卖价」的完整上涨段给出中位/最快历时；同小时均价聚合给出日内高位时段。历史统计不代表未来。</li>
               <li><b>能赚多少</b>：每发利润 = 目标挂卖价 × (1−税率) − 当前买入价；税率按上游税后价实测反推（约 15%，逐弹计算）。</li>
               <li><b>数据</b>：{{ dataLine }}</li>
               <li><b>本地工具</b>：<code>npm run ammo:live</code> 分钟级抓取落盘（配 dev 服务，页面 ≤5s 收到）；<code>npm run ammo:monitor</code> 只挂买入/卖出系统通知。</li>
@@ -921,6 +966,13 @@ td.profit { color: var(--ok); font-weight: 600; }
 .exp-close:active { color: var(--tx); border-color: var(--line-hover); }
 .exp-note { color: var(--faint); font-size: var(--fs-xs); margin: 10px 2px 2px; line-height: 1.8; }
 .exp-note b { color: var(--dim); }
+/* 预计卖出脚注：--accent 预测语义左边条（真值 rgba 兜底，accent = rgb(45,212,191)） */
+.eta-note {
+  border-left: 2px solid var(--accent-dim);
+  padding-left: 10px;
+  color: var(--dim);
+}
+.eta-note b { color: var(--accent); }
 
 .method {
   background: var(--card); border: 1px solid var(--line); border-radius: var(--radius-lg);

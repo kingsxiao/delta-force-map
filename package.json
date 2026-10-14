@@ -10,6 +10,8 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
+    "serve": "node scripts/server.mjs",
+    "refresh": "node scripts/refresh-data.mjs",
     "ammo:fetch": "node scripts/ammo/fetch-once.mjs",
     "ammo:monitor": "node scripts/ammo/monitor.mjs",
     "ammo:live": "node scripts/ammo/live.mjs",
