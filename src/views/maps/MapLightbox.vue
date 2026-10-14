@@ -267,7 +267,7 @@ onBeforeUnmount(() => {
 
 <style scoped>
 /* legacy CSS L230-252（lightbox），取值令牌化 */
-.lb { position: fixed; inset: 0; z-index: var(--z-lightbox); opacity: 0; transition: opacity var(--t-slow) ease; }
+.lb { position: fixed; inset: 0; z-index: var(--z-lightbox); opacity: 0; transition: opacity var(--t-slow) var(--ease); }
 .lb.show { opacity: 1; }
 .lb[hidden] { display: none; }
 .lb-backdrop { position: absolute; inset: 0; background: rgba(4, 6, 8, 0.94); }
@@ -289,9 +289,10 @@ onBeforeUnmount(() => {
   height: auto;
   cursor: grab;
   will-change: transform;
-  transition: transform 0.3s var(--ease);
+  /* 手写 0.3s 收编 var(--t-slow)（≤220ms 微交互上限） */
+  transition: transform var(--t-slow) var(--ease);
   border-radius: var(--radius-sm);
-  box-shadow: 0 10px 70px rgba(0, 0, 0, 0.55);
+  box-shadow: var(--shadow-lg);
 }
 .lb-img.noanim { transition: none; }
 .lb-img.grabbing { cursor: grabbing; }
@@ -336,11 +337,12 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: color var(--t-med), background var(--t-med);
+  transition: color var(--t-med) var(--ease), background var(--t-med) var(--ease);
   padding: 0;
 }
 .lb-btn svg { display: block; }
-.lb-btn:hover { color: var(--tx); background: var(--lift); }
+.lb-btn:hover,
+.lb-btn:active { color: var(--tx); background: var(--lift); }
 .lb-btn-fit { width: auto; padding: 0 10px; letter-spacing: .06em; }
 .lb-pct { font-family: var(--mono); font-size: var(--fs-2xs); color: var(--faint); min-width: 46px; text-align: center; }
 .lb-tabs {
@@ -369,13 +371,15 @@ onBeforeUnmount(() => {
   color: var(--dim);
   font-size: var(--fs-xs);
   padding: 6px 15px;
-  border-radius: var(--radius-pill);
+  border-radius: var(--radius-sm); /* 分段单选圆角与 .fig-tab 同档（容器 pill 不变） */
   cursor: pointer;
-  transition: color var(--t-med), background var(--t-med);
+  transition: color var(--t-med) var(--ease), background var(--t-med) var(--ease);
   white-space: nowrap;
 }
-.lb-tab:hover { color: var(--tx); }
-.lb-tab.on { background: var(--accent-bg); color: var(--accent); }
+/* 分段（变体切换）：hover/按下 底 --lift 字 --tx；选中底统一 --card2（与 fig-tab 一致） */
+.lb-tab:hover,
+.lb-tab:active { color: var(--tx); background: var(--lift); }
+.lb-tab.on { background: var(--card2); color: var(--accent); }
 .lb-hint {
   position: absolute;
   bottom: 22px;
@@ -392,5 +396,6 @@ onBeforeUnmount(() => {
 @media (prefers-reduced-motion: reduce) {
   .lb { transition: none; }
   .lb-img { transition: none; }
+  .lb-btn, .lb-tab { transition: none; }
 }
 </style>

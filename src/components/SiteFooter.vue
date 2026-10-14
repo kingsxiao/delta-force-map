@@ -56,6 +56,8 @@ const showExtend = computed(() => route.path !== '/ttk')
   text-decoration: none;
 }
 .foot-link:hover { text-decoration: underline; }
+/* 按下态同 hover（加下划线）：触屏无 hover 时按压即时可见 */
+.foot-link:active { text-decoration: underline; }
 .foot-copy {
   color: var(--faint);
   margin-bottom: 0;

@@ -4,6 +4,6 @@ shots/
 .playwright-mcp/
 node_modules/
 dist/
-data/
+/data/
 .v2c/
 .video_agent/

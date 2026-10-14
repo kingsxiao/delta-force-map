@@ -14,7 +14,8 @@ defineProps({
 </template>
 
 <style scoped>
-/* 等级色板取自 base.css --lv0..--lv6（游戏语义：1白 2绿 3蓝 4紫 5金 6红） */
+/* 等级色板取自 base.css --lv0..--lv6（游戏语义：1白 2绿 3蓝 4紫 5金 6红）；
+   12% 色底为规则 7 派生色写法：rgba 兜底一行在前（与 color-mix 百分比同真值） */
 .pen {
   display: inline-flex;
   align-items: center;
@@ -30,17 +31,47 @@ defineProps({
   letter-spacing: .04em;
   color: var(--tx-strong);
   border: 1px solid var(--pc, var(--lv0));
+  background: rgba(121, 130, 139, .12);
   background: color-mix(in srgb, var(--pc, var(--lv0)) 12%, transparent);
 }
 .pen[data-p="0"] { --pc: var(--lv0); }
-.pen[data-p="1"] { --pc: var(--lv1); }
-.pen[data-p="2"] { --pc: var(--lv2); }
-.pen[data-p="3"] { --pc: var(--lv3); }
-.pen[data-p="4"] { --pc: var(--lv4); }
-.pen[data-p="5"] { --pc: var(--lv5); }
-.pen[data-p="6"] { --pc: var(--lv6); }
+.pen[data-p="1"] {
+  --pc: var(--lv1);
+  background: rgba(191, 199, 207, .12);
+  background: color-mix(in srgb, var(--pc) 12%, transparent);
+}
+.pen[data-p="2"] {
+  --pc: var(--lv2);
+  background: rgba(133, 181, 120, .12);
+  background: color-mix(in srgb, var(--pc) 12%, transparent);
+}
+.pen[data-p="3"] {
+  --pc: var(--lv3);
+  background: rgba(97, 159, 206, .12);
+  background: color-mix(in srgb, var(--pc) 12%, transparent);
+}
+.pen[data-p="4"] {
+  --pc: var(--lv4);
+  background: rgba(157, 130, 207, .12);
+  background: color-mix(in srgb, var(--pc) 12%, transparent);
+}
+.pen[data-p="5"] {
+  --pc: var(--lv5);
+  background: rgba(227, 178, 94, .12);
+  background: color-mix(in srgb, var(--pc) 12%, transparent);
+}
+.pen[data-p="6"] {
+  --pc: var(--lv6);
+  background: rgba(217, 106, 89, .12);
+  background: color-mix(in srgb, var(--pc) 12%, transparent);
+}
 /* 7 级：双色描边（lv6 外描边 + lv5 内圈），与 0-6 平底语言一致 */
-.pen[data-p="7"] { --pc: var(--lv6); box-shadow: inset 0 0 0 1px var(--lv5); }
+.pen[data-p="7"] {
+  --pc: var(--lv6);
+  background: rgba(217, 106, 89, .12);
+  background: color-mix(in srgb, var(--pc) 12%, transparent);
+  box-shadow: inset 0 0 0 1px var(--lv5);
+}
 /* 实底模式：仅 5/6 级（金 / 红），其余级别忽略 solid 保持 ghost */
 .pen.solid[data-p="5"],
 .pen.solid[data-p="6"] {

@@ -35,6 +35,7 @@
   --panel: var(--panel-solid);           /* 兼容旧引用：语义改为实底 */
   --scrim: rgba(9, 12, 15, .74);         /* 地图图框内 chips / 按钮浮层（保留 blur 的场景） */
   --panel-blur: 8px;                     /* 全站唯一 backdrop-blur 值：仅图框内浮层与灯箱工具条 */
+  --glass-line: rgba(255, 255, 255, .14);/* 图框内玻璃浮层描边（fig-ctrl/hs-chip/fig-hint 统一用色） */
 
   /* ---- 主色（冷钢青，唯一强调色；初版琥珀已弃用，仅存于 legacy 留档） ---- */
   --accent: #2dd4bf;                     /* 唯一可作文字色的主色变体（on card 9.12:1） */
@@ -69,6 +70,7 @@
   --row-hover: rgba(255, 255, 255, .05);
   --lift: rgba(255, 255, 255, .06);      /* 通用 hover 面 */
   --edge-light: inset 0 1px 0 rgba(255, 255, 255, .04); /* 卡片顶缘微高光 */
+  --edge-hover: var(--edge-light), inset 0 0 0 1px rgba(255, 255, 255, .02); /* 卡片 hover 组合描边（收编 mi-card/fig-frame/spawn-card/champ/col 手写同值） */
 
   /* ---- 字体 ---- */
   --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
@@ -90,7 +92,7 @@
   --lh-tight: 1.3;
   --lh-body: 1.7;
 
-  /* ---- 间距尺度（4/8/12/16/24/32/48/64 八档，禁 ad-hoc 值） ---- */
+  /* ---- 间距尺度（4/8/12/16/24/32/48/64/80 阶梯，禁 ad-hoc 值） ---- */
   --sp-1: 4px;
   --sp-2: 8px;
   --sp-3: 12px;
@@ -99,6 +101,7 @@
   --sp-6: 32px;
   --sp-7: 48px;
   --sp-8: 64px;
+  --sp-10: 80px;  /* 数据页（ammo/radar）底部留白 */
 
   /* ---- 圆角（全站禁用其他圆角值） ---- */
   --radius-sm: 6px;    /* 徽标 / 分段选中面 */
@@ -116,6 +119,7 @@
   --t-med: .18s;
   --t-slow: .22s;
   --ease: cubic-bezier(.22, .61, .36, 1);
+  --t-collapse: .25s; /* 折叠/展开 grid-rows 0fr→1fr 动画（CollapseCol/SpawnCard/InfoCard/RankRow 统一取值） */
 
   /* ---- 布局 / 层级 ---- */
   --wrap: 1240px;         /* .wrap 内容最大宽 */
@@ -146,8 +150,9 @@ body {
 ::selection { background: rgba(45, 212, 191, .28); }
 a { color: inherit; }
 button { font-family: inherit; }
+input { font-family: inherit; } /* 表单控件默认不吃 body 字阶，兜底继承（显式声明者覆盖：.search --sans / .qty-in --mono） */
 :focus { outline: none; }
-:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--radius-sm); }
 
 /* 细滚动条（深色，避免系统亮色滚动条破坏基调） */
 * { scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
@@ -159,9 +164,23 @@ button { font-family: inherit; }
 /* ---- 通用布局 ---- */
 .wrap { max-width: var(--wrap); margin: 0 auto; padding: 0 28px; }
 
-/* ---- 页头公共（三页统一 64/32；各视图 scoped 重复声明应删除，以本规则为准） ---- */
+/* ---- 页头公共（首页 hero 64/32；各视图 scoped 重复声明应删除，以本规则为准） ---- */
 .page-head,
 .site-head { padding: var(--sp-8) 0 var(--sp-6); }
+
+/* ---- 紧凑页头（子页单行式）：三段式页头（眉题/大标题/导语）在数据页首屏
+   挤占竖向空间，收敛为「中标题 + 右侧元信息」一行；meta 过长时折到标题
+   下方右对齐。首页 hero 不用，仍走上面的 .site-head 三段式 ---- */
+.compact-head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--sp-2) var(--sp-5);
+  padding: var(--sp-4) 0;
+  border-bottom: 1px solid var(--line2);
+}
+.compact-head h1 { font-size: var(--fs-xl); white-space: nowrap; }
+.compact-head .meta { margin: 0 0 0 auto; white-space: nowrap; }
 
 /* ---- 吸顶面板（三页共用；弃 blur 改实底） ---- */
 .sticky-bar {

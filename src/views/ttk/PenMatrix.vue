@@ -96,10 +96,12 @@ const MX_NOTE = '对角线（弹等级 = 甲等级）为 50% 减半线：它就�
 .matrix td.m75 .pc { color: var(--accent); }
 .matrix td.m50 .pc { color: var(--accent); }
 .matrix td.m0 .pc { color: var(--danger); }
-.matrix td.m100 { background: rgba(133, 181, 120, .10); background: color-mix(in srgb, var(--ok) 11%, transparent); }
-.matrix td.m75 { background: rgba(45, 212, 191, .10); background: color-mix(in srgb, var(--accent) 11%, transparent); }
-.matrix td.m50 { background: rgba(45, 212, 191, .06); background: color-mix(in srgb, var(--accent) 6%, transparent); }
-.matrix td.m0 { background: rgba(217, 106, 89, .08); background: color-mix(in srgb, var(--danger) 9%, transparent); }
+/* 半透明派生底色范本（规则 7）：rgba 兜底一行在前（真值与 color-mix 百分比一致），
+   color-mix(in srgb, var(--语义色) N%, transparent) 在后；底一律 8-12% 带 */
+.matrix td.m100 { background: rgba(133, 181, 120, .11); background: color-mix(in srgb, var(--ok) 11%, transparent); }
+.matrix td.m75 { background: rgba(45, 212, 191, .11); background: color-mix(in srgb, var(--accent) 11%, transparent); }
+.matrix td.m50 { background: rgba(45, 212, 191, .08); background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.matrix td.m0 { background: rgba(217, 106, 89, .09); background: color-mix(in srgb, var(--danger) 9%, transparent); }
 .matrix td.diag { box-shadow: inset 0 0 0 1px var(--accent-dim); }
 .matrix :deep(.pen) { margin-right: 7px; }
 .mx-note {

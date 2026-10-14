@@ -253,15 +253,12 @@ onBeforeUnmount(() => {
 
 <template>
   <div ref="rootEl" class="ttk-page">
-    <!-- 页头：返回链接已删（全局顶栏三 tab 常驻，legacy 独立页时代的返回条冗余） -->
-    <section class="page-head">
-      <div class="wrap">
-        <p class="kicker">DELTA FORCE · BALLISTICS LAB</p>
-        <h1>TTK 排行 · 全枪械</h1>
-        <p class="lede">全枪械 × 全弹药 × 各部位与护甲逐发模拟的理论 TTK 与击杀发数排行；筛选多选叠加、即时重算，口径见「计算口径」一节。</p>
-        <p class="meta">数据基线 S5 全枪表（2025-07）并补充至 S11（2026-09） · 减伤采用国服社区实测口径 · 非官方数据，仅供研究参考</p>
-      </div>
-    </section>
+    <!-- 页头（紧凑单行，走 base.css .compact-head）：返回链接已删（全局顶栏常驻）；
+         口径与数据来源细节见文末「计算口径」一节 -->
+    <div class="wrap compact-head">
+      <h1>TTK 排行 · 全枪械</h1>
+      <p class="meta">全枪械 × 全弹药 × 部位与护甲逐发模拟 · 多选筛选即时重算 · 数据基线 S5 补至 S11（2026-09） · 社区实测减伤口径，非官方仅供研究参考</p>
+    </div>
 
     <div id="top" class="wrap">
       <section aria-label="TTK 排行">
@@ -480,10 +477,10 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-/* ---------- 页头（padding 走 base.css .page-head 公共规则 64/32，此处只留底缘线） ---------- */
-.page-head {
-  border-bottom: 1px solid var(--line2);
-}
+/* ---------- 页头走 base.css .compact-head（单行式） ---------- */
+
+/* 数据页底部留白：与 ammo / radar .page 同取 --sp-10（80px） */
+.ttk-page { padding-bottom: var(--sp-10); }
 
 /* ---------- 区块导语 ---------- */
 .sec-lede {
@@ -565,7 +562,9 @@ onBeforeUnmount(() => {
   color: var(--accent);
   cursor: pointer;
 }
-.ammo-toggle:hover { text-decoration: underline; }
+/* 按下同 hover（文本链按钮规格，与 .src-note a / .pb-src a 统一） */
+.ammo-toggle:hover,
+.ammo-toggle:active { text-decoration: underline; }
 
 /* ---------- rank-meta / 列表外壳（上距 16：champs 与计数行同屏收紧） ---------- */
 .rank-meta {
@@ -685,7 +684,8 @@ onBeforeUnmount(() => {
   text-decoration: none;
   border-bottom: 1px solid var(--line);
 }
-.src-p a:hover {
+.src-p a:hover,
+.src-p a:active {
   color: var(--accent);
   border-color: var(--accent-dim);
 }

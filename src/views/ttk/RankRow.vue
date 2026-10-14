@@ -193,11 +193,19 @@ const detail = computed(() => {
   padding: 11px 34px 11px 16px;
   border-bottom: 0;
   cursor: pointer;
-  transition: background var(--t-fast);
+  transition: background var(--t-fast) var(--ease), box-shadow var(--t-fast) var(--ease);
   position: relative;
 }
-.rk-row:hover { background: var(--row-hover); }
+/* hover / 键盘 focus-visible 行高亮（规格「可点表格行」：focus-visible 底 --row-hover） */
+.rk-row:hover,
+.rk-row:focus-visible { background: var(--row-hover); }
+/* 冠军行 top1：--accent-bg 渐变底 + 左缘 2px --accent 实色（语义分层：冠军用实色，展开态用 --accent-dim） */
 .rk-row.top1 { background: linear-gradient(90deg, var(--accent-bg), transparent 70%); }
+.rk-row.top1:hover,
+.rk-row.top1:focus-visible {
+  background: linear-gradient(90deg, rgba(45, 212, 191, .12), transparent 70%);
+  background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 12%, transparent), transparent 70%);
+}
 .rk-row.top1::before {
   content: "";
   position: absolute;
@@ -207,7 +215,13 @@ const detail = computed(() => {
   width: 2px;
   background: var(--accent);
 }
-.rk-row.open { background: var(--zebra); }
+/* 展开选中：底 --accent-bg + 左缘 2px --accent-dim 内描边（一眼可辨且与 top1 实色分层） */
+.rk-row.open { background: var(--accent-bg); box-shadow: inset 2px 0 0 var(--accent-dim); }
+.rk-row.open:hover,
+.rk-row.open:focus-visible {
+  background: rgba(45, 212, 191, .12);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
 .rk-num {
   font-family: var(--mono);
   font-size: var(--fs-xs);
@@ -294,7 +308,7 @@ const detail = computed(() => {
   border-radius: 3px;
   background: var(--accent);
   background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 55%, transparent), var(--accent));
-  transition: width .25s var(--ease);
+  transition: width var(--t-slow) var(--ease);
 }
 .rk-row.slow .rk-bar i { background: var(--line-hover); }
 .rk-ttv {
@@ -320,15 +334,15 @@ const detail = computed(() => {
   height: 12px;
   color: var(--faint);
   opacity: .55;
-  transition: transform var(--t-slow);
+  transition: transform var(--t-slow) var(--ease);
 }
 .rk-row.open .caret { transform: translateY(-50%) rotate(180deg); }
 
-/* 详情（legacy L155-170） */
+/* 详情（legacy L155-170）；折叠展开统一 --t-collapse（0fr→1fr 收编） */
 .rk-detail {
   display: grid;
   grid-template-rows: 0fr;
-  transition: grid-template-rows .25s var(--ease);
+  transition: grid-template-rows var(--t-collapse) var(--ease);
 }
 .rk-detail.open { grid-template-rows: 1fr; }
 .rk-detail-in {

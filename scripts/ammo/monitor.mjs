@@ -93,5 +93,10 @@ async function runCycle() {
 console.log(`子弹行情监控启动：每 ${INTERVAL_MIN} 分钟抓取一次（Ctrl+C 退出）`)
 await runCycle()
 if (!ONCE) {
-  setInterval(() => runCycle(), INTERVAL_MIN * 60 * 1000)
+  // 链式调度（与 live.mjs fastLoop/slowLoop 同构）：await 本轮完成后再 setTimeout
+  // 下一轮，结构上保证 runCycle 不会重叠并发——setInterval fire-and-forget 时慢轮次
+  // （moligod 3 次重试 + kkrb 兜底，最坏 ~40s）可与下一轮交错写 market.json、
+  // 交错读写共享去抖 state。间隔语义：本轮完成后起算（与 live.mjs 一致）。
+  const schedule = () => setTimeout(async () => { await runCycle(); schedule() }, INTERVAL_MIN * 60 * 1000)
+  schedule()
 }
