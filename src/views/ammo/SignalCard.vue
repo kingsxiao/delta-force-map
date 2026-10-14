@@ -5,15 +5,34 @@
    → 数量试算 → 卖出时机脚注。
    视觉锚点：HUD 对角括线（::before/::after）+ 卡面纵向渐变 + 顶缘高光；
    官方弹药图标走 picThumb CDN 缩略（原图最大 1.2MB，不可直连）。 */
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import Sparkline from './Sparkline.vue'
 import { picThumb } from './marketMeta.js'
+import { predictSellEta, fmtHours, fmtPeak } from './sellEta.js'
 
 const props = defineProps({
   item: { type: Object, required: true },
 })
 
 const qty = ref(100)
+
+/* 预计卖出时间（历史到达历时 + 日内节律，纯函数在 ./sellEta.js） */
+const eta = computed(() => predictSellEta(props.item))
+const etaPeak = computed(() => {
+  if (!eta.value || eta.value.peakStart == null) return ''
+  const p = fmtPeak(eta.value.peakStart, eta.value.peakEnd) || ''
+  return eta.value.liftPct != null ? `${p}（比低位高 ${Math.round(eta.value.liftPct * 100)}%）` : p
+})
+const etaTip = computed(() => {
+  if (!eta.value || eta.value.medianH == null) return ''
+  return (
+    `依据：近 7 天 ${eta.value.episodes} 次从当前价位档涨到挂卖价的完整上涨` +
+    `（中位 ${fmtHours(eta.value.medianH)}、最快 ${fmtHours(eta.value.fastestH)}）` +
+    `；日内高位按 7 天同小时均价统计。历史统计不代表未来`
+  )
+})
+/* 预计历时的展示门槛：至少 2 次完整上涨样本（单样本中位没有置信度） */
+const etaReady = computed(() => !!eta.value && eta.value.medianH != null && eta.value.episodes >= 2)
 
 const fmt = (n) => (Number.isFinite(n) ? Math.round(n).toLocaleString('zh-CN') : '—')
 const pct = (n) => (Number.isFinite(n) ? `+${(n * 100).toFixed(1)}%` : '—')
@@ -66,6 +85,15 @@ const hideImg = (e) => { e.target.style.display = 'none' }
         <span class="sc-k">税后到手</span>
         <span class="sc-v">{{ fmt(item.netSell) }}</span>
       </div>
+    </div>
+
+    <!-- 预计卖出时间：历史到达历时 + 日内节律（统计口径见 METHOD，悬浮有依据） -->
+    <div v-if="etaReady" class="sc-eta" :title="etaTip">
+      <svg class="eta-ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.5A6.5 6.5 0 1 0 8 14.5 6.5 6.5 0 0 0 8 1.5Zm.7 2.9v3.44l2.66 1.54-.7 1.2-3.36-1.94V4.4h1.4Z" fill="currentColor"/></svg>
+      <span class="eta-txt">
+        <span class="eta-main">预计卖出 <b>≈ {{ fmtHours(eta.medianH) }}</b> 后<span v-if="eta.etaLabel">（{{ eta.etaLabel }} 前后）</span></span>
+        <span class="eta-sub">最快 {{ fmtHours(eta.fastestH) }}<template v-if="etaPeak"> · 日内高位 {{ etaPeak }}</template></span>
+      </span>
     </div>
 
     <!-- 7 天区间游标：轨道两端按买入(≤25%)/卖出(≥80%)阈值染色，菱形标记 = 现价位置 -->
@@ -234,6 +262,28 @@ const hideImg = (e) => { e.target.style.display = 'none' }
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .sc-v.strong { color: var(--tx-strong); font-weight: 700; }
+
+/* ---------- 预计卖出时间条（--accent 预测语义：区别于绿色利润焦点与红色卖出语义；
+   派生色统一 color-mix + 真值 rgba 兜底，accent 真值 #2dd4bf = rgb(45,212,191)） ---------- */
+.sc-eta {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 14px;
+  border-left: 2px solid var(--accent-dim);
+  border-radius: var(--radius-sm);
+  background: linear-gradient(90deg, rgba(45, 212, 191, .1), rgba(45, 212, 191, .02) 78%);
+  background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 10%, transparent), color-mix(in srgb, var(--accent) 2%, transparent) 78%);
+}
+.eta-ic { flex: none; width: 15px; height: 15px; color: var(--accent); }
+.eta-txt { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.eta-main { font-size: var(--fs-sm); color: var(--tx); }
+.eta-main b {
+  font-family: var(--mono); font-weight: 700; color: var(--accent);
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.eta-sub {
+  font-family: var(--mono); font-size: var(--fs-2xs); color: var(--faint);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
 
 /* ---------- 7 天区间游标 ---------- */
 .sc-range { display: flex; align-items: center; gap: var(--sp-2); }

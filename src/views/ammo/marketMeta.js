@@ -4,8 +4,9 @@
    版本双格式：主源 moligod 为 12 位分钟档（YYYYMMDDHHmm），兜底 kkrb 为
    10 位小时档（YYYYMMDDHH）——页面按长度分流显示，不自造分钟。
    时效阈值按 source 分档：分钟级源的新鲜度承诺 tighter，小时级源沿用
-   原阈值。实时通道只在本地 http 环境启用（https 页面连本地 http SSE 会被
-   mixed content 拦截，必须 gate——gate 规则也在这里，供 selftest 断言）。
+   原阈值。实时通道端点在 liveChannelUrl：本地 http 开发连独立 live 服务
+   （8787），其余 http(s) 连同源 /events（server.mjs 部署）——页面先探测
+   /health 再连，探测不到按环境分流（gate 规则也在这里，供 selftest 断言）。
    ============================================================ */
 
 /** 数据版本号 → 展示串：12 位 "YYYY-MM-DD HH:mm"，10 位 "YYYY-MM-DD HH:00" */
@@ -42,12 +43,26 @@ export function methodDataLine(source) {
     : 'KK三角洲一图流（kkrb.net）交易行口径，约每小时更新一次；趋势为近 7 天每小时均价。'
 }
 
-/** 本地 live 通道（SSE）是否适用于当前环境：仅本地 http 开发服务器 */
-export function liveChannelEligible({ protocol, hostname } = {}) {
+/** 判定是否本地 http 开发环境（vite dev 页面与本地 live 服务分进程的形态） */
+export function isLocalHttpHost({ protocol, hostname } = {}) {
   return (
     protocol === 'http:' &&
     (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]' || hostname === '::1')
   )
+}
+
+/** 实时通道（SSE）端点：本地 http 开发 → 独立 live 服务
+ *  http://127.0.0.1:8787/events（npm run ammo:live，跨端口靠 ACAO:*）；
+ *  其余 http(s) → 同源 /events（scripts/server.mjs 部署形态，同源无
+ *  CORS / mixed-content）；file:// 等无 origin 场景不可用。返回 null 表示
+ *  本环境没有可用的实时通道。 */
+export function liveChannelUrl(loc = {}) {
+  if (isLocalHttpHost(loc)) return 'http://127.0.0.1:8787/events'
+  const { protocol, origin } = loc
+  if ((protocol === 'http:' || protocol === 'https:') && origin && origin !== 'null') {
+    return `${origin}/events`
+  }
+  return null
 }
 
 /** 官方弹药图标 → CDN 缩略图：playerhub 原图最大 1.2MB（整套 7.6MB），

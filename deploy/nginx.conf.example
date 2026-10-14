@@ -1,0 +1,38 @@
+# nginx 反代样例（阿里云 ECS 域名/https 场景）
+#
+# 安装：sudo apt install -y nginx（CentOS：yum install -y nginx）
+# 启用：sudo cp deploy/nginx.conf.example /etc/nginx/sites-available/delta-force-map
+#       sudo ln -s /etc/nginx/sites-available/delta-force-map /etc/nginx/sites-enabled/
+#       sudo nginx -t && sudo systemctl reload nginx
+# https：sudo certbot --nginx -d your.domain.com（Let's Encrypt 免费证书）
+#
+# SSE 两个关键点（服务端已自带 X-Accel-Buffering: no，这里双保险）：
+#   proxy_buffering off     —— 不缓冲上游响应，事件即时下发
+#   proxy_read_timeout 1h   —— 长连接不被默认 60s 超时掐断（服务端 25s 心跳）
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name your.domain.com;        # ← 换成你的域名；纯 IP 用法不需要 nginx
+
+    location / {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # SSE 友好（对 /events 生效，静态文件不受影响）
+        proxy_buffering off;
+        proxy_cache off;
+        proxy_read_timeout 1h;
+        proxy_set_header Connection '';
+    }
+
+    # 静态资源可单独放宽缓存（dist 内 /assets/ 已是哈希文件名，服务端也发了 immutable）
+    location /assets/ {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_set_header Host $host;
+    }
+}

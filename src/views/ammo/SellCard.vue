@@ -1,10 +1,13 @@
 <script setup>
 /* SellCard — 卖出信号迷你卡：图标 + 弹名 + 分位说明 + 现价；
    整卡可点，emit('open') 由父级联动全表展开该弹种走势。
-   左缘 2px 卖出红 + 纵向渐变面，hover 泛红上浮。 */
+   左缘 2px 卖出红 + 纵向渐变面，hover 泛红上浮。
+   副行附日内高位时段（7 天同小时均价统计，纯函数在 ./sellEta.js）。 */
+import { computed } from 'vue'
 import { picThumb } from './marketMeta.js'
+import { predictSellEta, fmtPeak } from './sellEta.js'
 
-defineProps({
+const props = defineProps({
   item: { type: Object, required: true },
 })
 defineEmits(['open'])
@@ -12,12 +15,19 @@ defineEmits(['open'])
 const fmt = (n) => (Number.isFinite(n) ? Math.round(n).toLocaleString('zh-CN') : '—')
 const gradeVar = (g) => (g >= 2 && g <= 6 ? `var(--lv${g})` : 'var(--faint)')
 const hideImg = (e) => { e.target.style.display = 'none' }
+
+/* 现价已在卖出区，回答「今天几点出」：日内高位时段 */
+const peak = computed(() => {
+  const e = predictSellEta(props.item)
+  return e && e.peakStart != null ? fmtPeak(e.peakStart, e.peakEnd) : null
+})
 </script>
 
 <template>
   <button
     class="sell-card"
     :aria-label="`${item.name}，现价 ${fmt(item.current)}，处 7 天 ${Math.round(item.rank * 100)}% 高位，查看走势`"
+    :title="peak ? `${item.name}：日内高位通常在 ${peak}（近 7 天同小时均价统计），建议在该时段分批挂卖` : `${item.name} 卖出信号`"
     @click="$emit('open')"
   >
     <span class="sl-ic">
@@ -30,7 +40,7 @@ const hideImg = (e) => { e.target.style.display = 'none' }
     </span>
     <span class="sl-body">
       <b class="sl-name">{{ item.name }}</b>
-      <span class="sl-sub">7 天 {{ Math.round(item.rank * 100) }}% 高位 · 建议出货</span>
+      <span class="sl-sub">7 天 {{ Math.round(item.rank * 100) }}% 高位<template v-if="peak"> · {{ peak }} 宜出</template><template v-else> · 建议出货</template></span>
     </span>
     <span class="sl-price">
       <i>现价</i>

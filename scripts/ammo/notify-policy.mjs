@@ -13,6 +13,7 @@
    参数集中在此可直接调；本文件被 selftest.mjs 覆盖。
    ============================================================ */
 import { fmtPrice, fmtPct } from './analyze.mjs'
+import { predictSellEta, fmtHours, fmtPeak } from '../../src/views/ammo/sellEta.js'
 
 export const POLICY = {
   COOLDOWN_MS: 6 * 60 * 60 * 1000, // 同信号冷却
@@ -24,14 +25,20 @@ export function emptyState() {
   return { items: {} }
 }
 
-/** 买入通知正文：哪种子弹 / 多少价格买 / 什么时候卖 / 能赚多少 */
+/** 买入通知正文：哪种子弹 / 多少价格买 / 什么时候卖 / 能赚多少
+    （预计到价历时吃条目自带 curve 统计，曲线不足时自动省略该段） */
 export function buyLine(i) {
   const high = `7天高点到手${fmtPrice(i.netHigh)}`
-  return `${i.name} 买入≤${fmtPrice(i.current)} → 挂卖${fmtPrice(i.targetSell)}(到手${fmtPrice(i.netSell)}) 预赚${fmtPrice(i.profitPerRound)}/发(${fmtPct(i.profitPct)})，${high}`
+  const eta = predictSellEta(i)
+  // 历时展示门槛：至少 2 次完整上涨样本，单样本中位不进通知
+  const etaTxt = eta && eta.medianH != null && eta.episodes >= 2 ? ` 预计${fmtHours(eta.medianH)}到价` : ''
+  return `${i.name} 买入≤${fmtPrice(i.current)} → 挂卖${fmtPrice(i.targetSell)}(到手${fmtPrice(i.netSell)})${etaTxt} 预赚${fmtPrice(i.profitPerRound)}/发(${fmtPct(i.profitPct)})，${high}`
 }
 
 export function sellLine(i) {
-  return `${i.name} 现价${fmtPrice(i.current)}，处7天${Math.round(i.rank * 100)}%高位，建议立即挂卖`
+  const eta = predictSellEta(i)
+  const peak = eta && eta.peakStart != null ? `，日内${fmtPeak(eta.peakStart, eta.peakEnd)}最贵` : ''
+  return `${i.name} 现价${fmtPrice(i.current)}，处7天${Math.round(i.rank * 100)}%高位${peak}，建议挂卖`
 }
 
 /**

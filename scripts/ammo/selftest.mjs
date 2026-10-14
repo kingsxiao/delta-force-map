@@ -19,7 +19,11 @@
      ⑩ SSE：连接即收 event:hello、落盘广播 event:market（wire 格式断言，
         127.0.0.1 临时端口）；--no-notify 下 state 仍全量记录（防恢复爆发）
      ⑪ 页面纯逻辑（src/views/ammo/marketMeta.js）：版本双格式 / 阈值分档 /
-        实时通道环境门槛 / 过期文案分钟·小时·天分档（纯静态部署的如实标注分支）
+        实时通道端点（本地 8787 / 同源 /events / file 不可用）/ 过期文案
+        分钟·小时·天分档（纯静态部署的如实标注分支）
+     ⑫ 页面纯逻辑（src/views/ammo/sellEta.js）：预计卖出——历史到达历时 /
+        日内节律 / 时钟标签 / 通知文案（样本门槛）
+     ⑬ server.mjs 同源部署服务：静态托管 + 缓存头 + SSE·health 复用 + 防穿越
    可选 --online：追加真实上游连通性检查（默认跳过，保证离线可跑）。
    全部通过 exit 0；任何失败把原因写 stderr 后 exit 1。
    用法：node scripts/ammo/selftest.mjs [--online]
@@ -27,6 +31,7 @@
 import { mkdtemp, mkdir, readFile, writeFile, readdir, utimes, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import http from 'node:http'
 import { gzipSync } from 'node:zlib'
 
 import {
@@ -34,12 +39,16 @@ import {
   CURVE_TTL_MS, beijingParts,
 } from './moligod-client.mjs'
 import { fetchOnce, writeJsonAtomic, HEARTBEAT_MS } from './fetch-once.mjs'
-import { judgeSignals, emptyState, POLICY } from './notify-policy.mjs'
+import { judgeSignals, emptyState, POLICY, buyLine, sellLine } from './notify-policy.mjs'
 import { analyzeItem, analyzeMarket } from './analyze.mjs'
 import { createLiveServer } from './live.mjs'
+import { createSiteServer } from '../server.mjs'
 import {
-  formatVersionLabel, staleness, sourceLabel, liveChannelEligible, staleTipText,
+  formatVersionLabel, staleness, sourceLabel, liveChannelUrl, staleTipText,
 } from '../../src/views/ammo/marketMeta.js'
+import {
+  hourlyProfile, reachEpisodes, predictSellEta, fmtHours, fmtPeak,
+} from '../../src/views/ammo/sellEta.js'
 
 const ONLINE = process.argv.includes('--online')
 const pad2 = (n) => String(n).padStart(2, '0')
@@ -750,13 +759,14 @@ check('页面纯逻辑：版本双格式 / 阈值按 source 分档 / SSE 环境�
   assert(tM.staleDotMin === 10 && tM.staleTipMin === 30, 'moligod 阈值应为 10/30 分钟')
   assert(tK.staleDotMin === 60 && tK.staleTipMin === 360, 'kkrb 阈值应沿用 60/360 分钟')
 
-  assert(liveChannelEligible({ protocol: 'http:', hostname: 'localhost' }) === true, '本地 http dev 应可用 SSE')
-  assert(liveChannelEligible({ protocol: 'http:', hostname: '127.0.0.1' }) === true, '127.0.0.1 应可用 SSE')
+  assert(liveChannelUrl({ protocol: 'http:', hostname: 'localhost', origin: 'http://localhost:5173' }) === 'http://127.0.0.1:8787/events', '本地 http dev 应连独立 live 服务 8787')
+  assert(liveChannelUrl({ protocol: 'http:', hostname: '127.0.0.1', origin: 'http://127.0.0.1:5173' }) === 'http://127.0.0.1:8787/events', '127.0.0.1 应连独立 live 服务 8787')
   assert(
-    liveChannelEligible({ protocol: 'https:', hostname: 'example.com' }) === false,
-    'https 站点连本地 http SSE 会被 mixed content 拦，应 gate 掉'
+    liveChannelUrl({ protocol: 'https:', hostname: 'example.com', origin: 'https://example.com' }) === 'https://example.com/events',
+    'https 部署应连同源 /events（server.mjs 形态，无 CORS/mixed-content）'
   )
-  assert(liveChannelEligible({ protocol: 'file:', hostname: '' }) === false, 'file:// 打开应 gate 掉')
+  assert(liveChannelUrl({ protocol: 'file:', hostname: '', origin: 'null' }) === null, 'file:// 打开无实时通道')
+  assert(liveChannelUrl({}) === null, '缺环境信息应返回 null')
 
   const tipM = staleTipText('moligod', 42)
   assert(
@@ -770,6 +780,123 @@ check('页面纯逻辑：版本双格式 / 阈值按 source 分档 / SSE 环境�
   const tipK = staleTipText('kkrb', 420)
   assert(tipK.includes('7 小时') && !tipK.includes('静态快照'), `kkrb 过期文案应保持小时口径，实际：${tipK}`)
   assert(sourceLabel('moligod').includes('moligod') && sourceLabel('kkrb').includes('kkrb'), '来源文案应按 source 切换')
+})
+
+/* ============================================================
+   ⑫ 页面纯逻辑：预计卖出时间（历史到达历时 / 日内节律 / 时钟标签 / 通知文案）
+   ============================================================ */
+check('页面纯逻辑：预计卖出（历史到达历时 / 日内节律 / 时钟标签 / 通知文案）', () => {
+  // 手搓 7 天小时曲线：19–21 点 120、02 点挖坑 80、其余 100（10-06 00:00 起，168 点）
+  const mkCurve = (days = 7) => {
+    const pts = []
+    const t0 = new Date(2026, 9, 6, 0, 0)
+    for (let k = 0; k < days * 24; k++) {
+      const dt = new Date(t0.getTime() + k * 3600 * 1000)
+      const key = `${dt.getFullYear()}${pad2(dt.getMonth() + 1)}${pad2(dt.getDate())}${pad2(dt.getHours())}00`
+      const price = dt.getHours() >= 19 && dt.getHours() <= 21 ? 120 : dt.getHours() === 2 ? 80 : 100
+      pts.push([key, price])
+    }
+    return pts
+  }
+  const curve = mkCurve()
+
+  // 日内节律：连续 3 小时最高窗口应 19–22，高位比 02 点坑高 50%
+  const prof = hourlyProfile(curve)
+  assert(prof && prof.startHour === 19 && prof.endHour === 22, `高位窗口应 19–22，实际 ${prof && prof.startHour}-${prof && prof.endHour}`)
+  assert(prof && prof.liftPct > 0.49 && prof.liftPct < 0.51, `涨幅应约 50%（80→120），实际 ${prof && prof.liftPct}`)
+
+  // 历史到达历时：80 出发 → 首达 120；7 天每天一段（02→19 = 17 小时）
+  const eps = reachEpisodes(curve, 80, 120)
+  assert(eps.length === 7 && eps.every((h) => h === 17), `应得 7 段 × 17 小时，实际 [${eps.join(',')}]`)
+  // 手搓短序列：段1 idx0→idx4 = 4 小时；段2 idx5→idx6 = 1 小时（升序返回）
+  const eps2 = reachEpisodes([['a', 80], ['b', 90], ['c', 100], ['d', 110], ['e', 120], ['f', 80], ['g', 120]], 80, 120)
+  assert(eps2.length === 2 && eps2[0] === 1 && eps2[1] === 4, `短序列应得 [1,4]，实际 [${eps2.join(',')}]`)
+
+  // predictSellEta：现价 80 / 目标 120，注入时钟 10-13 15:00（晚于曲线末点 10-12 23:00）
+  const now = new Date(2026, 9, 13, 15, 0).getTime()
+  const e = predictSellEta({ current: 80, targetSell: 120, curve }, now)
+  assert(e && e.atTarget === false, '现价低于目标不应判 atTarget')
+  assert(e.medianH === 17 && e.fastestH === 17 && e.episodes === 7, `中位/最快应 17 小时 × 7 次，实际 ${e.medianH}/${e.fastestH}/${e.episodes}`)
+  assert(e.etaLabel === '明日 08:00', `时钟标签应「明日 08:00」（15:00+17h），实际 ${e.etaLabel}`)
+  assert(e.trend === 'flat', `末 6 点（18–23 时价 100/120/120/120/100/100）应判 flat，实际 ${e.trend}`)
+
+  // atTarget 分支：现价已达挂卖价 → 无历时、只留日内高位
+  const e2 = predictSellEta({ current: 120, targetSell: 120, curve }, now)
+  assert(e2 && e2.atTarget && e2.medianH == null && e2.peakStart === 19, '已达目标价应判 atTarget 且保留日内节律')
+
+  // 数据不足 / 容错分支
+  assert(predictSellEta({ current: 100, targetSell: 120, curve: curve.slice(0, 10) }, now) === null, '曲线 <24 点应判数据不足')
+  assert(predictSellEta(null) === null, '空条目应安全返回 null')
+  const eNoTarget = predictSellEta({ curve }, now)
+  assert(eNoTarget && eNoTarget.medianH == null && eNoTarget.peakStart === 19, '缺目标价应退化为只给日内节律、不给历时')
+
+  // 可读化分档
+  assert(fmtHours(5) === '5 小时' && fmtHours(2.5) === '2.5 小时' && fmtHours(72) === '3 天', `fmtHours 分档异常：${fmtHours(5)}/${fmtHours(2.5)}/${fmtHours(72)}`)
+  assert(fmtPeak(19, 22) === '19–22 点' && fmtPeak(23, 2) === '23–次日 2 点', `fmtPeak 文案异常：${fmtPeak(19, 22)} / ${fmtPeak(23, 2)}`)
+
+  // 通知文案：带曲线的条目追加 ETA / 日内时段；无曲线条目（⑤ 的形状）自动省略
+  const line = buyLine({ name: '测试弹', current: 80, targetSell: 120, netSell: 102, netHigh: 110, profitPerRound: 22, profitPct: 0.275, curve })
+  assert(line.includes('预计17 小时到价'), `买入通知应含预计历时，实际：${line}`)
+  const lineOld = buyLine({ name: '测试弹', current: 80, targetSell: 120, netSell: 102, netHigh: 110, profitPerRound: 22, profitPct: 0.275 })
+  assert(!lineOld.includes('预计'), '无曲线条目不应输出预计历时')
+  const sLine = sellLine({ name: '测试弹', current: 120, rank: 0.9, curve })
+  assert(sLine.includes('日内19–22 点最贵'), `卖出通知应含日内高位，实际：${sLine}`)
+})
+
+/* ============================================================
+   ⑬ server.mjs 同源部署服务：静态托管 / 缓存头 / SSE·health 复用 / 防穿越
+   ============================================================ */
+check('server.mjs 同源部署服务：静态托管 / 缓存头 / SSE·health 复用 / 防穿越', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'ammo-selftest-13-'))
+  const dist = path.join(root, 'dist')
+  await mkdir(path.join(dist, 'ammo'), { recursive: true })
+  await mkdir(path.join(dist, 'assets'), { recursive: true })
+  await writeFile(path.join(dist, 'index.html'), '<!doctype html><title>t</title>')
+  await writeFile(path.join(dist, 'assets', 'app-abc.js'), 'x')
+  await writeFile(path.join(dist, 'ammo', 'market.json'), '{}')
+  await writeFile(path.join(root, 'secret.txt'), 'topsecret')
+  const site = createSiteServer({ rootDir: root, noNotify: true })
+  try {
+    await new Promise((resolve) => site.server.listen(0, '127.0.0.1', resolve))
+    const port = site.server.address().port
+    const base = `http://127.0.0.1:${port}`
+
+    // 静态托管与缓存头：html/json no-cache（SSE 通知后自拉必须拿到新数据），
+    // /assets/ 哈希文件 immutable 长缓存
+    let r = await fetch(`${base}/`)
+    assert(r.status === 200 && (await r.text()).includes('<title>'), '/ 应返回 index.html')
+    assert(r.headers.get('cache-control') === 'no-cache', 'html 应 no-cache')
+    r = await fetch(`${base}/assets/app-abc.js`)
+    assert(r.status === 200 && /immutable/.test(r.headers.get('cache-control') || ''), '/assets/ 哈希文件应长缓存 immutable')
+    r = await fetch(`${base}/ammo/market.json`)
+    assert(
+      r.status === 200 && /json/.test(r.headers.get('content-type') || '') && r.headers.get('cache-control') === 'no-cache',
+      '数据 json 应 application/json + no-cache'
+    )
+
+    // /health 与 /events 复用 live 服务处理器
+    r = await fetch(`${base}/health`)
+    assert(r.status === 200 && (await r.json()).ok === true, '/health 应复用 live 返回 ok')
+    const reader = new SseReader(port)
+    await reader.start()
+    const hello = await reader.waitFor('hello', 1500)
+    const helloData = JSON.parse(hello.data)
+    assert(typeof helloData === 'object' && 'version' in helloData && 'source' in helloData, 'SSE hello 应携带 {version, source}')
+    assert(helloData.version === site.live.status.version, 'hello 版本应与服务状态一致')
+    reader.close()
+
+    // 防目录穿越：node 原生请求保留 %2e%2e（fetch 会提前归一化路径）
+    const traversal = await new Promise((resolve, reject) => {
+      http.get({ host: '127.0.0.1', port, path: '/%2e%2e/secret.txt' }, resolve).on('error', reject)
+    })
+    assert(
+      [403, 404].includes(traversal.statusCode),
+      `穿越请求应被拒绝（403/404），实际 ${traversal.statusCode}`
+    )
+  } finally {
+    await site.close()
+    await rm(root, { recursive: true, force: true })
+  }
 })
 
 /* ============================================================
