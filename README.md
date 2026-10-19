@@ -10,18 +10,13 @@ npm run dev        # 启动开发服务器（默认 http://localhost:5173/）
 npm run build      # 构建产物到 dist/
 npm run preview    # 本地预览构建产物
 npm run serve      # 同源部署服务：静态站 + 实时行情 SSE（见「部署」）
-npm run refresh    # 手动刷一次弹药 + 雷达数据（CI 定时任务同款脚本）
+npm run refresh    # 手动刷一次弹药 + 雷达数据（serve 常驻时可不做，进程内会自动刷）
 ```
 
 ## 部署
 
-两种模式按需选，页面代码零差别（自动探测实时通道）：
+线上为自托管实时服务（页面代码自动探测实时通道）：
 
-- **GitHub Pages（零服务器，全自动 CI/CD）**：`.github/workflows/ci.yml` —— push 到 main 自动
-  「离线自测 → 刷数据 → 构建 → 部署」（一键部署）；另有**每 15 分钟定时数据刷新 + 重部署**，
-  线上信号随行情自动滚动。首次使用需在仓库 **Settings → Pages → Source 选「GitHub Actions」**；
-  也可在 Actions 页面手动 Run workflow。快照不回传仓库（避免定时提交刷屏 git 历史），
-  仓库内快照仅服务 PR 构建与本地开发。
 - **自托管实时服务（SSE 实时）**：`npm run build && npm run serve`（默认 `0.0.0.0:8080`，
   `PORT` / `HOST` 环境变量可改）。一个进程四件事：定时抓上游（弹药 fast/slow 双循环 +
   雷达循环默认 10 分钟，均带 kkrb 兜底）→ 原子写快照 → 静态托管 dist + `/events` SSE

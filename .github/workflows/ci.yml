@@ -1,33 +1,26 @@
-# CI & Deploy — 测试 / 构建 / 部署 GitHub Pages / 定时数据刷新
+# CI — 自测 / 构建
 #
 # 触发：
-#   push(main)      代码变更 → 全链路：自测 → 刷数据 → 构建 → 部署（一键部署）
-#   pull_request    只跑自测 + 构建（用仓库内快照，PR 不打上游、不部署）
-#   schedule        每 15 分钟刷数据 + 重新部署——线上信号随行情自动滚动
+#   push(main)      代码变更 → 自测 → 构建
+#   pull_request    只跑自测 + 构建（用仓库内快照，PR 不打上游）
 #   workflow_dispatch  Actions 页面手动「Run workflow」按钮
 #
-# 首次使用：仓库 Settings → Pages → Source 选「GitHub Actions」。
-# 数据刷新由 scripts/refresh-data.mjs 完成（预热曲线缓存，稳态每轮约
-# 1 次 catalog + 过期曲线补抓，不对上游打满请求）；刷数据失败不阻塞部署，
-# 站点降级为旧快照并由页面如实标注数据年龄。快照不回传仓库（避免 git
-# 历史被定时提交刷屏）；仓库内快照仅服务 PR 构建与本地开发。
-name: CI & Deploy
+# 不部署 GitHub Pages：线上走自托管实时服务（阿里云 ECS 常驻 `npm run serve`，
+# 见 deploy/aliyun.md，服务内自带行情抓取循环），代码更新由服务器上的
+# deploy/update.sh 完成，与本 CI 无关。
+name: CI
 
 on:
   push:
     branches: [main]
   pull_request:
   workflow_dispatch:
-  schedule:
-    - cron: "*/15 * * * *"
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 concurrency:
-  group: ci-deploy
+  group: ci
   cancel-in-progress: false
 
 jobs:
@@ -48,24 +41,4 @@ jobs:
           node scripts/ammo/selftest.mjs
           node scripts/market/selftest.mjs
 
-      - name: 刷新行情数据（PR 不打上游）
-        if: github.event_name != 'pull_request'
-        continue-on-error: true
-        run: node scripts/refresh-data.mjs
-
       - run: npm run build
-
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: dist
-
-  deploy:
-    needs: build
-    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - id: deployment
-        uses: actions/deploy-pages@v4
