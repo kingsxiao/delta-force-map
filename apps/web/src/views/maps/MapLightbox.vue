@@ -123,6 +123,8 @@ function requestClose() {
 }
 
 /* ---- 指针 / 滚轮 / 双击（legacy L931-975） ---- */
+/* 滚轮以光标为中心缩放：绑在 #lb 根节点（legacy 绑 stage；Vue 版 stage 为 pointer-events:none，
+   自 img/backdrop 冒泡到根命中，覆盖面与 legacy 全屏 stage 等价；非 passive 方可 preventDefault） */
 function onWheel(e) {
   if (!openState) return
   e.preventDefault()
@@ -199,6 +201,7 @@ onBeforeUnmount(() => {
       role="dialog"
       aria-modal="true"
       aria-label="放大查看"
+      @wheel="onWheel"
     >
       <div id="lbBackdrop" class="lb-backdrop" @click="requestClose">
         <FxCanvas mode="lb" canvas-id="fxLb" />
@@ -260,7 +263,11 @@ onBeforeUnmount(() => {
         </button>
       </div>
 
-      <p class="lb-hint">滚轮缩放 · 拖拽平移 · 双击 1x/2.5x · ESC 关闭</p>
+      <!-- §触屏：桌面/触屏两套提示文案，≤680px 切换触屏版并常显（见样式区） -->
+      <p class="lb-hint">
+        <span class="hint-fine">滚轮缩放 · 拖拽平移 · 双击 1x/2.5x · ESC 关闭</span>
+        <span class="hint-touch">拖动平移 · 双击 1x/2.5x · 右上工具条缩放/关闭</span>
+      </p>
     </div>
   </Teleport>
 </template>
@@ -288,6 +295,7 @@ onBeforeUnmount(() => {
   width: auto;
   height: auto;
   cursor: grab;
+  touch-action: none; /* 触屏拖拽：禁浏览器手势接管，pointer 流不被 pointercancel 打断 */
   will-change: transform;
   /* 手写 0.3s 收编 var(--t-slow)（≤220ms 微交互上限） */
   transition: transform var(--t-slow) var(--ease);
@@ -389,8 +397,12 @@ onBeforeUnmount(() => {
   color: var(--faint);
   pointer-events: none;
 }
+.lb-hint .hint-touch { display: none; }
 @media (max-width: 680px) {
-  .lb-hint { display: none; }
+  /* 触屏窄屏：提示常显（不再 display:none）、切触屏文案，并上移避开底部变体 tabs 胶囊 */
+  .lb-hint { bottom: 64px; }
+  .lb-hint .hint-fine { display: none; }
+  .lb-hint .hint-touch { display: inline; }
   .lb-title { font-size: var(--fs-xs); }
 }
 @media (prefers-reduced-motion: reduce) {

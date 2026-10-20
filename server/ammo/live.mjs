@@ -7,9 +7,9 @@
    · slow loop：每 30min fetchOnce({mode:'auto'})——补抓过期（≥30min TTL）/
      缺失的曲线；计时在本轮完成后重启，稳态下轮曲线必已过期，等效每 ≈31min
      全量刷 67 条（+1 catalog ≈132 次/小时；两环合计 ≈190 次/小时）
-   · 启动：从现有 public/ammo/market.json 预热曲线缓存（重启不丢曲线），
-     冷启动一轮按缓存状态选模式（auto：预热命中只打 1 次 catalog；覆盖率
-     低/曲线过期则自动补齐，等效 full），再进 fast loop
+   · 启动：从现有 apps/web/public/ammo/market.json 预热曲线缓存（重启不丢
+     曲线），冷启动一轮按缓存状态选模式（auto：预热命中只打 1 次 catalog；
+     覆盖率低/曲线过期则自动补齐，等效 full），再进 fast loop
    · SSE（http://127.0.0.1:8787/events，仅绑回环地址，ACAO:*）：
      连接即发命名事件 event:hello（{version,source,generatedAt}），每次落盘
      广播 event:market（轻量 ping，页面收到后自拉 market.json——复用既有
@@ -19,9 +19,9 @@
      节奏（kkrb 时降 10min，每 3 轮探活一次 moligod 切回）；两源全挂时
      指数退避（1min 起、×2、cap 10min），成功即复位
    · 通知：复用 notify-policy（streak 去抖），与 monitor.mjs 共用 state 文件
-   · dist 联动：fetchOnce 检测 dist/ammo 存在时同步写（--no-dist 关闭），
-     vite preview 下页面同样拿到新数据
-   用法：node scripts/ammo/live.mjs [--port 8787] [--no-notify] [--no-dist]
+   · dist 联动：fetchOnce 检测 apps/web/dist/ammo 存在时同步写（--no-dist
+     关闭），vite preview 下页面同样拿到新数据
+   用法：node server/ammo/live.mjs [--port 8787] [--no-notify] [--no-dist]
    注意：live / monitor / 手动 ammo:fetch 同为写盘者，同时只跑一个。
    ============================================================ */
 import { readFile } from 'node:fs/promises'
@@ -35,6 +35,8 @@ import { judgeSignals, sendNotifications, emptyState } from './notify-policy.mjs
 import { notify } from './notify.mjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
+/** 网页端目录（多端 monorepo；rootDir 留作 data/ 状态与留档的仓库根） */
+const WEB_DIR = path.join(ROOT, 'apps', 'web')
 const DEFAULT_STATE_PATH = path.join(ROOT, 'data', 'ammo', 'monitor-state.json')
 const KKRBCADENCE_MS = 10 * 60 * 1000 // 兜底源为小时档数据，10min 轮询足够
 const PROBE_EVERY = 3 // 每 3 轮 kkrb 服务，探活一次 moligod
@@ -50,12 +52,17 @@ async function loadState(statePath) {
 
 /**
  * 创建 live 服务（不 listen；selftest 用 port 0 自取临时端口）。
+ * @param {{noNotify?:boolean, noDist?:boolean, rootDir?:string, webDir?:string,
+ *          statePath?:string, fastMs?:number, slowMs?:number}} opts
+ *   rootDir 仓库根（state 默认挂 data/ammo）；webDir 网页端目录（public/dist
+ *   写入与预热读取，默认 = rootDir，selftest 注入临时目录即原行为）
  * @returns {{server:http.Server, triggerCycle:Function, status:object, close:Function}}
  */
 export function createLiveServer({
   noNotify = false,
   noDist = false,
   rootDir = ROOT,
+  webDir = rootDir,
   statePath = DEFAULT_STATE_PATH,
   fastMs = 60 * 1000,
   slowMs = 30 * 60 * 1000,
@@ -89,7 +96,7 @@ export function createLiveServer({
   }
 
   async function cycle(mode) {
-    const opts = { mode, fallback: true, syncDist: !noDist, rootDir }
+    const opts = { mode, fallback: true, syncDist: !noDist, rootDir, webDir }
     if (forceProbe) Object.assign(opts, { source: 'moligod', fallback: false }) // 探活：不许回落
     try {
       const r = await fetchOnce(opts)
@@ -191,7 +198,7 @@ export function createLiveServer({
 
   /** 启动序列：读盘初始化状态与 hello 元信息 → 预热曲线 → full 冷启动 → 双循环 */
   async function start() {
-    const marketPath = path.join(rootDir, 'public', 'ammo', 'market.json')
+    const marketPath = path.join(webDir, 'public', 'ammo', 'market.json')
     if (existsSync(marketPath)) {
       try {
         const prev = JSON.parse(await readFile(marketPath, 'utf8'))
@@ -249,6 +256,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   const live = createLiveServer({
     noNotify: argv.includes('--no-notify'),
     noDist: argv.includes('--no-dist'),
+    webDir: WEB_DIR,
   })
   live.server.listen(port, '127.0.0.1', () => {
     log(`live 服务已启动：SSE http://127.0.0.1:${port}/events · health /health（Ctrl+C 退出）`)

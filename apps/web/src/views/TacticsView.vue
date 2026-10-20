@@ -30,11 +30,13 @@ const HOME_TITLE = '三角洲行动 · 战术图集'
 watch(current, (m) => { document.title = m ? '三角洲行动 · ' + m.map + '打法手册' : HOME_TITLE }, { immediate: true })
 onBeforeUnmount(() => { document.title = HOME_TITLE })
 
-/* §6.2 切图滚顶：换图属场景切换非连续滚动，瞬时归位后 reveal 从顶自然级联 */
+/* §6.2 切图滚顶：换图属场景切换非连续滚动，瞬时归位后 reveal 从顶自然级联
+   （behavior 用 'instant'——base.css html{scroll-behavior:smooth} 下 'auto' 会
+   跟随 CSS 值变成 1 秒级平滑倒带） */
 watch(slug, () => {
   nextTick(() => {
     observeRoot(rootRef.value)
-    window.scrollTo({ top: 0, behavior: 'auto' })
+    window.scrollTo({ top: 0, behavior: 'instant' })
   })
 })
 onMounted(() => observeRoot(rootRef.value))
@@ -45,7 +47,7 @@ async function gotoMapSection(target) {
   if (route.path !== '/') await router.push('/')
   await nextTick() /* 等 MapsView 挂载、6 个 section 渲染（静态 v-for，同步就绪） */
   const el = document.getElementById(target)
-  if (el) el.scrollIntoView({ behavior: 'auto', block: 'start' })
+  if (el) el.scrollIntoView({ behavior: 'instant', block: 'start' }) /* 'instant' 同上：不随 CSS smooth 平滑滚 */
 }
 </script>
 
@@ -58,12 +60,18 @@ async function gotoMapSection(target) {
 
     <nav class="topbar sticky-bar" aria-label="地图选择">
       <div class="pills">
+        <!-- aria-current 手动按当前图判定：vue-router 的 exact-active 不看 query，
+             六颗同 path 不同 query 的胶囊会被全部标 aria-current="page"，读屏无法辨别；
+             手绑值经 fallthrough 覆盖 router-link 内部写入，未命中者属性被移除。
+             replace：换图属筛选非导航，不写历史，返回键一步离开本页 -->
         <router-link
           v-for="m in MAPS"
           :key="m.slug"
           class="pill"
           :class="{ on: m.slug === slug }"
           :to="{ path: '/tactics', query: { map: m.slug } }"
+          :aria-current="m.slug === slug ? 'page' : undefined"
+          replace
         >{{ m.map }}</router-link>
       </div>
     </nav>
@@ -75,9 +83,10 @@ async function gotoMapSection(target) {
         <span class="mode-tag">{{ current.mode }}</span>
       </p>
 
-      <!-- §6.2 地图视觉：静态缩略 + 跳地图页交互大图，治首屏大面积空白 -->
+      <!-- §6.2 地图视觉：静态缩略 + 跳地图页交互大图，治首屏大面积空白；
+           图框在首屏内，eager+fetchpriority=high 对齐站内「首图 eager」约定保 LCP -->
       <figure class="map-embed reveal in">
-        <img :src="current.fig[0].src" :alt="current.map + ' 地图缩略图'" :style="{ objectPosition: embedPos }" loading="lazy" decoding="async" draggable="false">
+        <img :src="current.fig[0].src" :alt="current.map + ' 地图缩略图'" :style="{ objectPosition: embedPos }" loading="eager" fetchpriority="high" decoding="async" draggable="false">
         <button type="button" class="map-link" @click="gotoMapSection(current.slug)">查看交互大图 →</button>
       </figure>
 

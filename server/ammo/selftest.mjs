@@ -46,10 +46,10 @@ import { createLiveServer } from './live.mjs'
 import { createSiteServer } from '../server.mjs'
 import {
   formatVersionLabel, staleness, sourceLabel, liveChannelUrl, staleTipText,
-} from '../../src/views/ammo/marketMeta.js'
+} from '../../shared/js/marketMeta.js'
 import {
   hourlyProfile, reachEpisodes, predictSellEta, fmtHours, fmtPeak,
-} from '../../src/views/ammo/sellEta.js'
+} from '../../shared/js/sellEta.js'
 
 const ONLINE = process.argv.includes('--online')
 const pad2 = (n) => String(n).padStart(2, '0')

@@ -2,11 +2,11 @@
    fetch-once.mjs — 单次抓取 + 分析 + 落盘（可独立运行，被 monitor / live 复用）
    ------------------------------------------------------------
    产物：
-     public/ammo/market.json          前端唯一数据源（原始快照 + 分析字段合并，
+     apps/web/public/ammo/market.json  前端唯一数据源（原始快照 + 分析字段合并，
                                        顶层含 source / fingerprint）
-     dist/ammo/market.json            构建产物存在时联动（vite preview 同样吃新数据；
-                                       --no-dist 可关）
-     data/ammo/history/<version>.json 原始快照留档（.gitignore；仅内容指纹变化
+     apps/web/dist/ammo/market.json    构建产物存在时联动（vite preview 同样吃
+                                       新数据；--no-dist 可关）
+     data/ammo/history/<version>.json  原始快照留档（.gitignore；仅内容指纹变化
                                        且距上次留档 ≥10 分钟才写；超 7 天或超
                                        1000 份自动清理，防分钟级 version 撑爆磁盘）
    选源：默认主源 moligod（分钟级，67 种）；moligod 重试 2 次仍失败（网络 /
@@ -16,7 +16,7 @@
        页面 fetch 撞上半截 JSON）；门槛 = 指纹（sha256 价格向量）变化，或距
        上次写盘超 5 分钟心跳（心跳用于区分「价格没动」与「链路断了」——
        心跳会刷新 fetchedAt，页面的数据年龄标签随之归零）。
-   用法：node scripts/ammo/fetch-once.mjs [--source moligod|kkrb] [--no-fallback] [--no-dist]
+   用法：node server/ammo/fetch-once.mjs [--source moligod|kkrb] [--no-fallback] [--no-dist]
    ============================================================ */
 import { createHash, randomUUID } from 'node:crypto'
 import { mkdir, writeFile, readFile, readdir, stat, rename, unlink } from 'node:fs/promises'
@@ -28,6 +28,8 @@ import { getSnapshot } from './moligod-client.mjs'
 import { analyzeMarket } from './analyze.mjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
+/** 网页端目录（多端 monorepo：public/ 与 dist/ 都在 apps/web 下；selftest 注入临时 rootDir 时 webDir 跟随 rootDir） */
+const WEB_DIR = path.join(ROOT, 'apps', 'web')
 
 /** 同指纹最长静默：超过则重写一次盘（心跳，刷新 fetchedAt） */
 export const HEARTBEAT_MS = 5 * 60 * 1000
@@ -67,9 +69,12 @@ export async function writeJsonAtomic(filePath, text) {
 /**
  * 抓取并分析一次，按门槛落盘。
  * @param {{force?:boolean, source?:'moligod'|'kkrb', mode?:'fast'|'auto'|'full',
- *          fallback?:boolean, syncDist?:boolean, rootDir?:string, paceMs?:number}} opts
- *   mode 透传 moligod-client.getSnapshot（kkrb 路径忽略）；rootDir 供 selftest 隔离；
- *   paceMs 为 full 曲线串行抓取间隔（默认 400ms，selftest 传 0）
+ *          fallback?:boolean, syncDist?:boolean, rootDir?:string, webDir?:string,
+ *          paceMs?:number}} opts
+ *   mode 透传 moligod-client.getSnapshot（kkrb 路径忽略）；rootDir 仓库根
+ *   （data/ 留档挂这里），webDir 网页端目录（public/dist 写入，默认 = rootDir，
+ *   selftest 传临时目录即原行为）；paceMs 为 full 曲线串行抓取间隔（默认
+ *   400ms，selftest 传 0）
  * @returns {Promise<{changed:boolean, version:string, source:string, analysis:object}>}
  * @throws 两个源都失败时抛出（调用方决定退避）
  */
@@ -80,6 +85,7 @@ export async function fetchOnce({
   fallback = true,
   syncDist = true,
   rootDir = ROOT,
+  webDir = rootDir,
   paceMs = 400,
 } = {}) {
   // —— 抓取：主源 moligod（重试 2 次）→ 兜底 kkrb ——
@@ -104,7 +110,7 @@ export async function fetchOnce({
   if (!snapshot) snapshot = await fetchAmmoMarket() // kkrb：直选或回落
 
   const analysis = { ...analyzeMarket(snapshot), source: usedSource }
-  const outPath = path.join(rootDir, 'public', 'ammo', 'market.json')
+  const outPath = path.join(webDir, 'public', 'ammo', 'market.json')
 
   // —— 写盘门槛：无上次快照 / 指纹变化 / 距上次写盘超 5 分钟心跳 / force ——
   let prev = null
@@ -124,9 +130,9 @@ export async function fetchOnce({
   const text = JSON.stringify({ ...analysis, fingerprint: fp })
   await writeJsonAtomic(outPath, text)
   if (syncDist) {
-    // dist/ammo 存在（跑过 build）时联动：vite preview serve dist/，不同步会
-    // 复现「线上刷新永远拿到构建时旧快照」的原始问题
-    const distPath = path.join(rootDir, 'dist', 'ammo', 'market.json')
+    // apps/web/dist/ammo 存在（跑过 build）时联动：vite preview serve dist/，
+    // 不同步会复现「线上刷新永远拿到构建时旧快照」的原始问题
+    const distPath = path.join(webDir, 'dist', 'ammo', 'market.json')
     if (existsSync(path.dirname(distPath))) await writeJsonAtomic(distPath, text)
   }
   await maybeArchive(rootDir, snapshot, analysis, fp, contentChanged)
@@ -183,6 +189,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
       source: optStr('source', 'moligod'),
       fallback: !argv.includes('--no-fallback'),
       syncDist: !argv.includes('--no-dist'),
+      webDir: WEB_DIR,
     })
     const s = r.analysis.signals
     console.log(`✅ [${r.source}] version ${r.version} · ${r.analysis.stats.total} 种弹药`)

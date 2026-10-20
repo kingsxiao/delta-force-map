@@ -10,12 +10,12 @@
        >15% 判「双源异常」——信号强制观望不发通知（口径分歧时宁可漏报）
    分析复用 scripts/ammo/analyze.mjs 的分位数回归（analyzeItem 纯函数，
    适配 kkrb 原始形状；非子弹无税后字段，税率走 15% 兜底）。
-   产物 public/market/radar.json（+ dist 联动）；通知去重复用
+   产物 apps/web/public/market/radar.json（+ 其 dist 联动）；通知去重复用
    notify-policy.judgeSignals，state 落 data/market/radar-state.json。
    注意：kkrb 单物品曲线查询（getQueryItemPriceCurveData）未登录配额为
    0，本脚本不用它；物品名一律以榜单返回的游戏内名称为准（moligod 按
    名查曲线，名称不匹配会拿到旧赛季数据或空曲线）。
-   用法：node scripts/market/radar.mjs [--interval 分钟=30] [--once] [--no-notify]
+   用法：node server/market/radar.mjs [--interval 分钟=30] [--once] [--no-notify]
    ============================================================ */
 import { readFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
@@ -29,7 +29,8 @@ import { notify } from '../ammo/notify.mjs'
 import { writeJsonAtomic } from '../ammo/fetch-once.mjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
-const OUT_PATH = path.join(ROOT, 'public', 'market', 'radar.json')
+const WEB_DIR = path.join(ROOT, 'apps', 'web')
+const OUT_PATH = path.join(WEB_DIR, 'public', 'market', 'radar.json')
 const STATE_PATH = path.join(ROOT, 'data', 'market', 'radar-state.json')
 const HI_REFERER = 'https://www.kkrb.net/?viewpage=view%2Fmarket%2Fall_item_price_curve'
 
@@ -192,7 +193,7 @@ async function sendRadarNotifications(buys, sells, notifyFn) {
  * 门槛（写频低，原子直写即可）。
  * @returns {Promise<{version:string, items:Array, stats:object}>}
  */
-export async function runRadarCycle({ rootDir = ROOT, notifyFn = notify, noNotify = false, state } = {}) {
+export async function runRadarCycle({ rootDir = ROOT, webDir = rootDir, notifyFn = notify, noNotify = false, state } = {}) {
   const items = await fetchRadarItems()
   const stats = { total: items.length, anomaly: items.filter((i) => i.anomaly).length }
   for (const s of ['BUY', 'SELL', 'WATCH']) stats[s.toLowerCase()] = items.filter((i) => i.signal === s).length
@@ -205,10 +206,10 @@ export async function runRadarCycle({ rootDir = ROOT, notifyFn = notify, noNotif
     stats,
   }
 
-  const outPath = path.join(rootDir, 'public', 'market', 'radar.json')
+  const outPath = path.join(webDir, 'public', 'market', 'radar.json')
   const text = JSON.stringify(out)
   await writeJsonAtomic(outPath, text)
-  const distPath = path.join(rootDir, 'dist', 'market', 'radar.json')
+  const distPath = path.join(webDir, 'dist', 'market', 'radar.json')
   if (existsSync(path.dirname(distPath))) await writeJsonAtomic(distPath, text)
 
   if (state) {
@@ -236,7 +237,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   async function cycle() {
     let r
     try {
-      r = await runRadarCycle({ state, noNotify: NO_NOTIFY })
+      r = await runRadarCycle({ state, noNotify: NO_NOTIFY, webDir: WEB_DIR })
     } catch (e) {
       console.error(`[${new Date().toLocaleString('zh-CN')}] 雷达抓取失败: ${e.message}`)
       return

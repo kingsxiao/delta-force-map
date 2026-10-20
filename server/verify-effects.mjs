@@ -38,8 +38,8 @@ const HS_FALLBACK = 166, SECTIONS_FALLBACK = 6;
 function listJsonDir(dirUrl) {
   try { return fs.readdirSync(dirUrl).filter(f => f.endsWith('.json')); } catch { return null; }
 }
-const hsDirUrl = new URL('../src/data/hotspots/', import.meta.url);
-const mapsDirUrl = new URL('../src/data/maps/', import.meta.url);
+const hsDirUrl = new URL('../apps/web/src/data/hotspots/', import.meta.url);
+const mapsDirUrl = new URL('../apps/web/src/data/maps/', import.meta.url);
 const hsFiles = listJsonDir(hsDirUrl);
 const mapsFiles = listJsonDir(mapsDirUrl);
 let expectedHs = HS_FALLBACK, expectedSections = SECTIONS_FALLBACK, expectedIsFallback = false;

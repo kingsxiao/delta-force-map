@@ -32,8 +32,9 @@ import Playbook from './ammo/Playbook.vue'
 import {
   formatVersionLabel, staleness, sourceLabel, methodDataLine,
   liveChannelUrl, isLocalHttpHost, staleTipText, picThumb,
-} from './ammo/marketMeta.js'
-import { predictSellEta, fmtHours, fmtPeak } from './ammo/sellEta.js'
+} from '@shared/js/marketMeta.js'
+import { createLiveChannel } from '@shared/js/liveChannel.js'
+import { predictSellEta, fmtHours, fmtPeak } from '@shared/js/sellEta.js'
 
 const { observeRoot } = useReveal()
 
@@ -149,49 +150,39 @@ const staleTipMsg = computed(() => staleTipText(market.value?.source, ageMin.val
 
 /* ---------- 实时通道（SSE）：本地开发连独立 live 服务（8787），部署形态连
    同源 /events（scripts/server.mjs）。先探测 /health 再连：本地探不到保持
-   「未连接」60s 轮询兜底（人可能稍后开 live）；非本地探不到判「环境不适用」
-   退 30min 轮询——纯静态托管的快照永不变化，不打每分钟无效流量 ---------- */
+   「未连接」带退避重探（人可能稍后开 live）；非本地且从未连上判「环境
+   不适用」退 30min 轮询——纯静态托管的快照永不变化，不打每分钟无效流量。
+   连上后断开（服务端部署重启等）不再永久放弃：30s→2min 退避重探 /health，
+   恢复后自动回到实时推送（重连助手与雷达页共用 shared/js/liveChannel.js） ---------- */
 const LIVE_SSE_URL = liveChannelUrl(location)
 const liveChannel = ref('off') // off(环境不适用) | connecting | on | down
-let es = null
+let live = null
 function connectLive() {
   if (!LIVE_SSE_URL) return
-  liveChannel.value = 'connecting'
-  const ctl = new AbortController()
-  const timer = setTimeout(() => ctl.abort(), 4000)
-  fetch(LIVE_SSE_URL.replace(/\/events$/, '/health'), { signal: ctl.signal })
-    .then((r) => {
-      if (!r.ok) throw new Error(`HTTP ${r.status}`)
-      clearTimeout(timer)
-      openLive()
-    })
-    .catch(() => {
-      clearTimeout(timer)
-      liveChannel.value = isLocalHttpHost(location) ? 'down' : 'off'
-    })
-}
-function openLive() {
-  es = new EventSource(LIVE_SSE_URL)
-  es.addEventListener('hello', (e) => {
-    liveChannel.value = 'on'
-    try {
-      const meta = JSON.parse(e.data)
-      // hello 携带的版本比页面当前新（页面先于服务连上）：主动补拉一次
-      if (market.value && meta.version && meta.version !== market.value.version) load({ silent: true, auto: true })
-    } catch { /* hello 数据异常只标记连接态，不影响链路 */ }
+  live = createLiveChannel({
+    url: LIVE_SSE_URL,
+    events: ['market'],
+    isLocal: () => isLocalHttpHost(location),
+    onState: (s) => { liveChannel.value = s },
+    onEvent: (t, data) => {
+      if (t === 'hello') {
+        try {
+          const meta = JSON.parse(data)
+          // hello 携带的版本比页面当前新（页面先于服务连上）：主动补拉一次
+          if (market.value && meta.version && meta.version !== market.value.version) {
+            load({ silent: true, auto: true })
+          }
+        } catch { /* hello 数据异常只标记连接态，不影响链路 */ }
+      } else if (t === 'market') {
+        load({ silent: true, auto: true })
+      }
+    },
   })
-  es.addEventListener('market', () => { load({ silent: true, auto: true }) })
-  es.addEventListener('error', () => {
-    // live 服务不在 / 已停：关闭连接（EventSource 默认会自动重连，这里明确
-    // 放弃），回落轮询，UI 如实标注
-    try { es && es.close() } catch { /* 已关闭 */ }
-    es = null
-    liveChannel.value = 'down'
-  })
+  live.start()
 }
 const liveText = computed(() => {
   if (liveChannel.value === 'on') return '实时通道已连接（落盘 ≤5s 达）'
-  if (liveChannel.value === 'down') return '实时通道未连接，60s 轮询兜底'
+  if (liveChannel.value === 'down') return '实时通道断开，自动重连中；60s 轮询兜底'
   if (liveChannel.value === 'connecting') return '实时通道连接中…'
   return '' // off：纯静态环境不显示，避免误导
 })
@@ -304,7 +295,9 @@ const filtered = computed(() => {
     const q = state.q.trim().toLowerCase()
     list = list.filter((i) => i.name.toLowerCase().includes(q))
   }
-  const num = (x) => (Number.isFinite(x) ? x : -Infinity)
+  /* 缺失值哨兵按最终方向取号（同构雷达页）：降序取向里 -Inf 沉底，asc 经
+     m 翻转后 +Inf 才仍沉底——恒 -Inf 会让升序把「数据不足」行置顶 */
+  const num = (x) => (Number.isFinite(x) ? x : state.dir === 'asc' ? Infinity : -Infinity)
   // sorters 统一「降序取向」，方向由 state.dir 的乘子在最后统一翻转
   const sorters = {
     signal: (a, b) =>
@@ -344,12 +337,23 @@ function onRowKeydown(e, name) {
 const onGlobalKeydown = (e) => { if (e.key === 'Escape') expanded.value = null }
 
 /* ---------- 卖出胶囊 → 全表联动 ---------- */
+const searchRef = ref(null)
+const searchArmed = ref(false) // openFromSell 自动写入搜索词后的示意高亮态，手动输入 / ✕ 即解除
 function openFromSell(i) {
   state.signal = 'all'
   state.grade = 0
   state.q = i.name
   expanded.value = i.name
+  // 搜索词是程序写入的：高亮 + 聚焦搜索框示意「全表正被它筛到 1 行」，✕
+  // 一键还原；preventScroll 不抢 scrollIntoView 的滚动定位
+  searchArmed.value = true
+  nextTick(() => searchRef.value?.focus({ preventScroll: true }))
   scrollToExpander('center')
+}
+function clearSearch() {
+  state.q = ''
+  searchArmed.value = false
+  searchRef.value?.focus({ preventScroll: true })
 }
 function showAllSell() {
   state.signal = 'SELL'
@@ -394,6 +398,15 @@ function schedulePoll() {
     schedulePoll()
   }, delay)
 }
+/* 回前台补拉：后台期间 schedulePoll 的可见检查会跳过拉取，切回最坏要
+   等下个周期（off 档 30min）；数据龄已过变灰阈值就直接补一次，不等 tick */
+function onVisibility() {
+  if (document.visibilityState !== 'visible') return
+  nowTs.value = Date.now() // 分钟钟 60s 才走一格，回台先校正数据年龄
+  if (market.value && ageMin.value != null && ageMin.value > thresholds.staleDotMin) {
+    load({ silent: true, auto: true })
+  }
+}
 onMounted(() => {
   prevTitle = document.title
   document.title = '三角洲行动 · 子弹行情'
@@ -401,6 +414,7 @@ onMounted(() => {
   connectLive() // 本地 live 服务在跑时走 SSE（≤5s）；不在 / 不适用则轮询兜底
   schedulePoll()
   clockTimer = setInterval(() => { nowTs.value = Date.now() }, 60 * 1000)
+  document.addEventListener('visibilitychange', onVisibility)
   window.addEventListener('resize', syncTblFade)
   window.addEventListener('keydown', onGlobalKeydown)
 })
@@ -410,7 +424,8 @@ onUnmounted(() => {
   clearInterval(clockTimer)
   if (tipTimer) clearTimeout(tipTimer)
   if (ctlRO) ctlRO.disconnect()
-  if (es) { try { es.close() } catch { /* 已关闭 */ } es = null }
+  if (live) live.stop()
+  document.removeEventListener('visibilitychange', onVisibility)
   window.removeEventListener('resize', syncTblFade)
   window.removeEventListener('keydown', onGlobalKeydown)
 })
@@ -426,9 +441,11 @@ onUnmounted(() => {
       </p>
     </header>
 
-    <!-- 数据过期提醒（moligod 30min / kkrb 6h，文案如实注明静态快照边界） -->
+    <!-- 数据过期提醒（moligod 30min / kkrb 6h，文案如实注明静态快照边界）。
+         「刷新数据」按钮在全表控制条（首屏外），提示最刺眼时就地给出口 -->
     <p v-if="ageMin !== null && ageMin > thresholds.staleTipMin" class="state-tip stale-tip" role="status">
       {{ staleTipMsg }}
+      <button class="retry" :disabled="refreshing" @click="load({ silent: true })">{{ refreshing ? '刷新中…' : '立即刷新' }}</button>
     </p>
 
     <!-- 加载 / 空态 -->
@@ -533,7 +550,15 @@ onUnmounted(() => {
                   <i v-if="g.dot" class="chip-dot" :style="{ background: g.dot }"></i>{{ g.label }}
                 </button>
               </div>
-              <input v-model.trim="state.q" class="search" type="search" placeholder="搜索弹种，如 5.56 / M995" aria-label="搜索弹种" />
+              <span class="search-wrap">
+                <input
+                  ref="searchRef" v-model.trim="state.q" class="search"
+                  :class="{ armed: searchArmed, hasq: state.q }"
+                  type="search" placeholder="搜索弹种，如 5.56 / M995" aria-label="搜索弹种"
+                  @input="searchArmed = false"
+                >
+                <button v-if="state.q" class="search-clear" aria-label="清除搜索" title="清除搜索" @click="clearSearch">✕</button>
+              </span>
               <div class="chips" role="group" aria-label="排序">
                 <button
                   v-for="s in SORTS" :key="s.v"
@@ -689,6 +714,8 @@ onUnmounted(() => {
 
 .state-tip { color: var(--dim); font-size: var(--fs-md); padding: var(--sp-6) 0; }
 .stale-tip { color: var(--warn); }
+/* 过期提示内嵌的「立即刷新」：主按钮 .retry 的小一号内联变体 */
+.stale-tip .retry { font-size: var(--fs-xs); padding: 3px 14px; margin-left: 10px; vertical-align: 1px; }
 .state-card {
   background: var(--card); border: 1px dashed var(--line2); border-radius: var(--radius);
   padding: var(--sp-6); color: var(--tx); margin: var(--sp-4) 0;
@@ -814,6 +841,24 @@ onUnmounted(() => {
 }
 /* 键盘可达走全局 :focus-visible 外框；:focus 只做边框提亮，不抹 outline */
 .search:focus { border-color: var(--accent-dim); }
+/* 搜索框包装：给「✕ 清除」留绝对定位包含块（不占布局位，不挤 chip） */
+.search-wrap { position: relative; display: inline-flex; }
+/* openFromSell 自动写入搜索词后的示意态：accent 边框 + 微底色，提示全表
+   正被该词筛到 1 行；用户手动输入 / ✕ 清除即解除 */
+.search.armed { border-color: var(--accent-dim); background: var(--accent-bg); }
+/* 有词时给 ✕ 让位；同时压掉 WebKit type=search 自带清除钮（避免双 ✕） */
+.search.hasq { padding-right: 26px; }
+.search::-webkit-search-cancel-button { display: none; }
+.search-clear {
+  position: absolute; right: 5px; top: 50%; transform: translateY(-50%);
+  width: 18px; height: 18px; flex: none;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: none; border: 0; border-radius: 50%;
+  color: var(--faint); font-size: var(--fs-2xs); line-height: 1; cursor: pointer;
+  transition: color var(--t-fast) var(--ease), background-color var(--t-fast) var(--ease);
+}
+.search-clear:hover,
+.search-clear:active { color: var(--tx); background: var(--line); }
 
 /* ---------- 全表：容器粘在吸顶条正下方（.tbl-zone 为包含块并贯穿到 METHOD 之后，
    页滚时表格锁定，直到 METHOD 滚入视口才随包含块自然释放） ---------- */
@@ -834,17 +879,13 @@ onUnmounted(() => {
   border-bottom: 0;
   box-shadow: 0 1px 0 var(--line);
 }
-/* 右缘渐隐：仅容器真溢出且未滑到底时出现（桌面无溢出永不显示） */
-.tbl-scroll::after {
-  content: '';
-  position: absolute; top: 0; right: 0; bottom: 0;
-  width: 36px;
-  background: linear-gradient(to right, transparent, var(--bg));
-  pointer-events: none;
-  opacity: 0;
-  transition: opacity var(--t-med) var(--ease);
+/* 右缘渐隐：仅容器真溢出且未滑到底时出现（桌面无溢出永不显示）。
+   mask 直接挂在滚动容器上（相对视口右缘、不随内容横滑）——绝对定位的
+   ::after 属于滚动内容，横滑 300px 后会漂进表格中部，形同渲染 bug */
+.tbl-scroll.can-scroll:not(.at-end) {
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 36px), transparent);
+  mask-image: linear-gradient(to right, #000 calc(100% - 36px), transparent);
 }
-.tbl-scroll.can-scroll:not(.at-end)::after { opacity: 1; }
 
 /* 移动端：控制条全量换行高达 280px+，吸顶会占视口 1/3——取消吸顶还原为常规块
    （去掉 sticky-bar 的实底/边框/阴影），表容器自身吸顶 top:0；
@@ -986,7 +1027,7 @@ td.profit { color: var(--ok); font-weight: 600; }
 
 /* 本页全部微交互过渡的 reduced-motion 关闭（live-dot 脉冲另有独立规则） */
 @media (prefers-reduced-motion: reduce) {
-  .chip, .search, .sell-more, .exp-close, .star, .row-chev, .tbl-scroll::after,
+  .chip, .search, .search-clear, .sell-more, .exp-close, .star, .row-chev,
   .retry, .empty-clear { transition: none; }
   .retry:active, .empty-clear:active { transform: none; }
 }

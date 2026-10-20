@@ -4,8 +4,8 @@
    左缘 2px 卖出红 + 纵向渐变面，hover 泛红上浮。
    副行附日内高位时段（7 天同小时均价统计，纯函数在 ./sellEta.js）。 */
 import { computed } from 'vue'
-import { picThumb } from './marketMeta.js'
-import { predictSellEta, fmtPeak } from './sellEta.js'
+import { picThumb } from '@shared/js/marketMeta.js'
+import { predictSellEta, fmtPeak } from '@shared/js/sellEta.js'
 
 const props = defineProps({
   item: { type: Object, required: true },

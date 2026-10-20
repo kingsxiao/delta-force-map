@@ -15,7 +15,7 @@
    数据在分位边界抖动防刷屏）；同信号 6 小时冷却；BUY 冷却期内价格再
    跌 5% 重新提示。
    要页面级实时（SSE ≤5s 反映落盘），改跑 npm run ammo:live。
-   用法：node scripts/ammo/monitor.mjs [--interval 分钟=10] [--once] [--no-notify]
+   用法：node server/ammo/monitor.mjs [--interval 分钟=10] [--once] [--no-notify]
          （--no-notify 仅停通知；去抖 state 仍逐轮记录，恢复通知后不爆发）
    注意：live / monitor / 手动 ammo:fetch 同为写盘者，同时只跑一个。
    ============================================================ */
@@ -29,6 +29,7 @@ import { notify } from './notify.mjs'
 import { primeCurveCache } from './moligod-client.mjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
+const WEB_DIR = path.join(ROOT, 'apps', 'web')
 const STATE_PATH = path.join(ROOT, 'data', 'ammo', 'monitor-state.json')
 
 // ---- CLI 参数 ----
@@ -59,7 +60,7 @@ const state = await loadState()
 
 // 启动预热：现有 market.json 的曲线进缓存，冷启动第一轮不必全量打 history
 {
-  const marketPath = path.join(ROOT, 'public', 'ammo', 'market.json')
+  const marketPath = path.join(WEB_DIR, 'public', 'ammo', 'market.json')
   if (existsSync(marketPath)) {
     try {
       primeCurveCache(JSON.parse(await readFile(marketPath, 'utf8')).items)
@@ -73,7 +74,7 @@ async function runCycle() {
   let r
   try {
     // mode 默认 'auto'：曲线缓存有过期/缺失才补抓，稳态每轮只打 1 次 catalog
-    r = await fetchOnce()
+    r = await fetchOnce({ webDir: WEB_DIR })
   } catch (e) {
     console.error(`[${new Date().toLocaleString('zh-CN')}] 抓取失败: ${e.message}`)
     return

@@ -180,7 +180,13 @@ input { font-family: inherit; } /* 表单控件默认不吃 body 字阶，兜底
   border-bottom: 1px solid var(--line2);
 }
 .compact-head h1 { font-size: var(--fs-xl); white-space: nowrap; }
-.compact-head .meta { margin: 0 0 0 auto; white-space: nowrap; }
+/* meta 不设 nowrap：宽屏一行放得下时天然不换行；窄屏超宽允许块内换行
+   （整行放不下仍先整体折到标题下方），避免把页面撑出横向滚动、贴死右缘 */
+.compact-head .meta { margin: 0 0 0 auto; }
+/* 打法/TTK 页把 .wrap 与 .compact-head 挂在同一元素上：两条单类规则同特异性、
+   后定义的 .compact-head 会盖掉 .wrap 的左右 28px，导致页头贴死屏幕左右缘——
+   用组合选择器补回（仅命中双类同元素；radar/ammo 页 compact-head 是 wrap 子元素，不受影响） */
+.wrap.compact-head { padding-left: 28px; padding-right: 28px; }
 
 /* ---- 吸顶面板（三页共用；弃 blur 改实底） ---- */
 .sticky-bar {

@@ -4,13 +4,13 @@
    口径与子弹页一致（scripts/ammo/analyze.mjs 分位数回归）；榜单来自 kkrb
    涨幅榜 Top10，曲线主源 moligod，双源中位偏差 >15% 压制信号（anomaly）。
    刷新：同源 SSE（serve 部署，radar 事件静默重拉；端点判定与子弹页共用
-   src/composables/liveChannel.js）+ 60s 轮询兜底；数据节奏 = 服务端雷达
+   shared/js/liveChannel.js）+ 60s 轮询兜底；数据节奏 = 服务端雷达
    循环（默认 10 分钟，radar:monitor 常驻时同口径）。 */
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import Sparkline from './ammo/Sparkline.vue'
 import PriceChart from './ammo/PriceChart.vue'
-import { formatVersionLabel } from './ammo/marketMeta.js'
-import { liveChannelUrl, isLocalHttpHost } from '../composables/liveChannel.js'
+import { formatVersionLabel, picThumb } from '@shared/js/marketMeta.js'
+import { liveChannelUrl, isLocalHttpHost, createLiveChannel } from '@shared/js/liveChannel.js'
 
 const market = ref(null)
 const loadState = ref('loading') // loading | ready | empty | error
@@ -23,6 +23,7 @@ const pageRef = ref(null)
 const DATA_URL = '/market/radar.json'
 const POLL_MS = 60 * 1000
 let pollTimer = null
+let prevTitle = '' // 路由标题：进入存默认值，卸载还原（模式同 AmmoMarketView）
 
 async function load({ silent = false } = {}) {
   if (silent) refreshing.value = true
@@ -127,7 +128,7 @@ const filtered = computed(() => {
   const num = (x) => (Number.isFinite(x) ? x : state.dir === 'asc' ? Infinity : -Infinity)
   const m = state.dir === 'asc' ? 1 : -1
   const sorters = {
-    hiRank: (a, b) => (a.hiRank ?? 99) - (b.hiRank ?? 99),
+    hiRank: (a, b) => (num(a.hiRank) - num(b.hiRank)) * m, // 无名次行走 num 的方向感知哨兵，固定 99 会让 desc 把它排最前
     profit: (a, b) => (num(a.profitPerRound) - num(b.profitPerRound)) * m,
     rank: (a, b) => (num(a.rank) - num(b.rank)) * m,
     price: (a, b) => (num(a.current) - num(b.current)) * m,
@@ -136,7 +137,7 @@ const filtered = computed(() => {
 })
 
 const stats = computed(() => {
-  const c = { BUY: 0, SELL: 0, WATCH: 0, anomaly: 0 }
+  const c = { BUY: 0, SELL: 0, WATCH: 0, WAIT: 0, anomaly: 0 } // 缺 WAIT 键会让观望 chip 计数空白
   for (const i of items.value) {
     if (c[i.signal] != null) c[i.signal]++
     if (i.anomaly) c.anomaly++
@@ -145,53 +146,52 @@ const stats = computed(() => {
 })
 
 /* ---------- 实时通道（同源 SSE，serve 部署形态）：先探测 /health 再连
-   /events，收到 radar 事件静默重拉。本地 dev 探不到保持「未连接」（60s
-   轮询兜底）；非本地探不到判「不适用」——纯静态托管退回轮询不打无效
-   流量（分流口径与子弹页一致，逻辑在 composables/liveChannel.js） ---------- */
+   /events，收到 radar 事件静默重拉。断开不再永久放弃——带退避重探
+   /health（30s→2min），服务端部署重启后自动回到实时推送。本地 dev 探
+   不到保持「未连接」继续重探（60s 轮询兜底）；非本地且从未连上判
+   「不适用」——纯静态托管退回轮询不打无效流量（重连助手与子弹页共用
+   shared/js/liveChannel.js） ---------- */
 const LIVE_SSE_URL = liveChannelUrl(location)
 const liveChannel = ref('off') // off(环境不适用) | connecting | on | down
-let es = null
+let live = null
 const liveShort = computed(
   () => ({ on: '实时推送', down: '60s 轮询', connecting: '连接中…' }[liveChannel.value] || '')
 )
 function connectLive() {
   if (!LIVE_SSE_URL) return
-  liveChannel.value = 'connecting'
-  const ctl = new AbortController()
-  const timer = setTimeout(() => ctl.abort(), 4000)
-  fetch(LIVE_SSE_URL.replace(/\/events$/, '/health'), { signal: ctl.signal })
-    .then((r) => {
-      if (!r.ok) throw new Error(`HTTP ${r.status}`)
-      clearTimeout(timer)
-      openLive()
-    })
-    .catch(() => {
-      clearTimeout(timer)
-      liveChannel.value = isLocalHttpHost(location) ? 'down' : 'off'
-    })
-}
-function openLive() {
-  es = new EventSource(LIVE_SSE_URL)
-  es.addEventListener('hello', () => { liveChannel.value = 'on' })
-  es.addEventListener('radar', () => { load({ silent: true }) })
-  es.addEventListener('error', () => {
-    try { es && es.close() } catch { /* 已关闭 */ }
-    es = null
-    liveChannel.value = 'down'
+  live = createLiveChannel({
+    url: LIVE_SSE_URL,
+    events: ['radar'],
+    isLocal: () => isLocalHttpHost(location),
+    onState: (s) => { liveChannel.value = s },
+    onEvent: (t) => { if (t === 'radar') load({ silent: true }) },
   })
+  live.start()
+}
+
+function onVisibility() {
+  if (document.hidden) return
+  nowTs.value = Date.now() // 顺带校正数据年龄
+  load({ silent: true }) // 挂后台期间跳过的轮询在恢复可见时立即补一次
 }
 
 onMounted(() => {
+  prevTitle = document.title
+  document.title = '三角洲行动 · 全品类异动雷达'
   load()
   connectLive()
   pollTimer = setInterval(() => {
+    if (document.hidden) return // 后台标签不空耗请求，恢复可见时补拉
     nowTs.value = Date.now()
     load({ silent: true })
   }, POLL_MS)
+  document.addEventListener('visibilitychange', onVisibility)
 })
 onBeforeUnmount(() => {
+  document.removeEventListener('visibilitychange', onVisibility)
+  document.title = prevTitle
   if (pollTimer) clearInterval(pollTimer)
-  if (es) { try { es.close() } catch { /* 已关闭 */ } es = null }
+  if (live) live.stop()
 })
 </script>
 
@@ -264,9 +264,9 @@ onBeforeUnmount(() => {
             </tr>
           </thead>
           <tbody>
-            <template v-for="i in filtered" :key="i.name">
+            <template v-for="(i, idx) in filtered" :key="i.name">
               <tr
-                class="row" :class="{ open: expanded === i.name }"
+                class="row" :class="{ open: expanded === i.name, odd: idx % 2 === 0, even: idx % 2 === 1 }"
                 tabindex="0"
                 @click="expanded = expanded === i.name ? null : i.name"
                 @keydown.enter="expanded = expanded === i.name ? null : i.name"
@@ -276,7 +276,7 @@ onBeforeUnmount(() => {
                   <span class="a-icw" aria-hidden="true">
                     <img
                       v-if="i.pic" class="a-ic"
-                      :src="i.pic" alt=""
+                      :src="picThumb(i.pic, 96)" alt=""
                       width="26" height="18" loading="lazy" decoding="async"
                       @error="hideImg"
                     >
@@ -432,6 +432,12 @@ onBeforeUnmount(() => {
 }
 .tbl-scroll .tbl { min-width: 980px; }
 .row { cursor: pointer; }
+/* 展开会插入 tr 打乱 base.css 的 nth-child 奇偶（下方整片翻色），改按
+   filtered 索引自算斑马纹；scoped 类含 [data-v]（0,3,0）高于 base.css 的
+   .tbl tbody tr:hover（0,2,2），hover 底色必须在此重声明否则静默失效 */
+.row.odd { background: transparent; }
+.row.even { background: var(--zebra); }
+.row:hover,
 .row:focus-visible { background: var(--row-hover); }
 .row.open { background: var(--accent-bg); box-shadow: inset 2px 0 0 var(--accent-dim); }
 .cat-tag {

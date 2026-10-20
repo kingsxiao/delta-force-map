@@ -106,12 +106,15 @@ export function createViewer({ map, vp, frame, plane, img, card, onFull }) {
       if (moved < 8) {
         const hsBtn = downOn && downOn.closest ? downOn.closest('.hs') : null
         if (hsBtn) openCard(+hsBtn.dataset.i)
-        else closeCard()
-        const now = Date.now()
-        const pt = inVpPoint(e)
-        if (now - lastTap < 350 && tapPos && Math.hypot(pt.x - tapPos.x, pt.y - tapPos.y) < 40) {
-          nextLevel(pt.x, pt.y); lastTap = 0; lastTapZoom = now
-        } else { lastTap = now; tapPos = pt }
+        /* tap 命中标注只开卡、不进 tap-pair 记账：消除「连点开卡+画面跳 2x」叠加 */
+        else {
+          closeCard()
+          const now = Date.now()
+          const pt = inVpPoint(e)
+          if (now - lastTap < 350 && tapPos && Math.hypot(pt.x - tapPos.x, pt.y - tapPos.y) < 40) {
+            nextLevel(pt.x, pt.y); lastTap = 0; lastTapZoom = now
+          } else { lastTap = now; tapPos = pt }
+        }
       }
       downOn = null
     }
@@ -123,6 +126,7 @@ export function createViewer({ map, vp, frame, plane, img, card, onFull }) {
   }
   function onDblClick(e) {
     if (e.target.closest('.hs-card') || e.target.closest('.fig-ctrl') || e.target.closest('.hs-chips')) return
+    if (e.target.closest('.hs')) return /* 双击标注＝开卡动作，跳过放大（与 tap 路径同口径） */
     if (Date.now() - lastTapZoom < 500) return /* tap-pair 刚已放大过一次，原生 dblclick 去重 */
     const pt = inVpPoint(e)
     nextLevel(pt.x, pt.y)
@@ -179,11 +183,13 @@ export function createViewer({ map, vp, frame, plane, img, card, onFull }) {
     closeCard()
     reset(false)
   }
-  /** img @load：写 frame 宽高比并重测量（legacy L745-751） */
+  /** img @load：静态 w/h 缺失时才兜底写 frame 宽高比（常规路径由模板 :style 预置，
+      此处直写会与 Vue 样式绑定互踩），重测量逻辑保留（legacy L745-751） */
   function onImgLoad() {
     const el = img.value
     if (el && el.naturalWidth) {
-      frame.value.style.aspectRatio = el.naturalWidth + ' / ' + el.naturalHeight
+      const f = map.fig[state.cur]
+      if (!f.w || !f.h) frame.value.style.aspectRatio = el.naturalWidth + ' / ' + el.naturalHeight
       measure(); clampT(); apply(false)
     }
   }

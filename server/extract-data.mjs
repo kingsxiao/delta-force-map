@@ -9,8 +9,8 @@ import path from 'node:path';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 const LEGACY = path.join(ROOT, 'legacy', 'index.html');
-const OUT_MAPS = path.join(ROOT, 'src', 'data', 'maps');
-const OUT_HS = path.join(ROOT, 'src', 'data', 'hotspots');
+const OUT_MAPS = path.join(ROOT, 'apps', 'web', 'src', 'data', 'maps');
+const OUT_HS = path.join(ROOT, 'apps', 'web', 'src', 'data', 'hotspots');
 
 const PREFIX = '<script id="map-data" type="application/json">';
 const SUFFIX = '</script>';
