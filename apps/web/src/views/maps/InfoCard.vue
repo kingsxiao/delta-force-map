@@ -70,8 +70,11 @@ function toggleExp() {
     </div>
 
     <template v-if="guideSpawn">
-      <button class="more-btn" type="button" @click="toggleExp">
+      <button class="more-btn" type="button" :aria-expanded="exp" @click="toggleExp">
         {{ exp ? '收起' : '展开该出生点打法' }}
+        <svg class="chev" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
+          <path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
+        </svg>
       </button>
       <div class="hs-more">
         <div class="hs-more-clip">
@@ -155,13 +158,15 @@ h4 { font-size: var(--fs-sm); line-height: 1.5; margin: 9px 12px 0; padding-righ
   margin-bottom: 4px;
 }
 .kv p { margin: 0; font-size: var(--fs-xs); color: var(--dim); line-height: 1.65; text-align: left; }
+/* 行内样式：宽度随内容（原块级按钮独占整行宽度），胶囊小钮 + 随状态翻转的 chevron */
 .more-btn {
-  display: block;
-  width: calc(100% - 24px);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   margin: 0 12px 10px;
-  padding: 6px 0;
+  padding: 3px 10px;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--radius-pill);
   background: none;
   color: var(--accent);
   font-size: var(--fs-xs);
@@ -169,6 +174,8 @@ h4 { font-size: var(--fs-sm); line-height: 1.5; margin: 9px 12px 0; padding-righ
   cursor: pointer;
   transition: border-color var(--t-fast) var(--ease), background var(--t-fast) var(--ease);
 }
+.more-btn .chev { display: block; transition: transform var(--t-fast) var(--ease); }
+.exp .more-btn .chev { transform: rotate(180deg); }
 /* 次要按钮：hover/按下 边 --accent-dim + 底 --accent-bg（边面同改，一眼可辨） */
 .more-btn:hover,
 .more-btn:active { border-color: var(--accent-dim); background: var(--accent-bg); }
@@ -187,6 +194,6 @@ h4 { font-size: var(--fs-sm); line-height: 1.5; margin: 9px 12px 0; padding-righ
 .exp .more-btn:active { color: var(--dim); border-color: var(--line-hover); background: var(--lift); }
 @media (prefers-reduced-motion: reduce) {
   .hs-card { animation: none; }
-  .hs-more, .x, .more-btn { transition: none; }
+  .hs-more, .x, .more-btn, .more-btn .chev { transition: none; }
 }
 </style>
