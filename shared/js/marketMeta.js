@@ -44,8 +44,8 @@ export function methodDataLine(source) {
 }
 
 /** 实时通道端点判定（本地 8787 / 同源 /events / file 不可用）——实现在
- *  共享模块 src/composables/liveChannel.js（子弹页 / 雷达页共用），此处再导出 */
-export { isLocalHttpHost, liveChannelUrl } from '../../composables/liveChannel.js'
+ *  共享模块 shared/js/liveChannel.js（子弹页 / 雷达页 / 后端自测共用），此处再导出 */
+export { isLocalHttpHost, liveChannelUrl } from './liveChannel.js'
 
 /** 官方弹药图标 → CDN 缩略图：playerhub 原图最大 1.2MB（整套 7.6MB），
  *  经腾讯云 imageMogr2 按宽缩到展示尺寸（实测 96x ≈ 17KB，74 倍压缩）；

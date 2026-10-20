@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://delta-force-map/shared/schema/sse-events.schema.json",
+  "title": "LiveEvents",
+  "description": "GET /events（text/event-stream）各命名事件的 data 负载。事件为轻量 ping：客户端比较 version，前进才重新 GET 对应快照。注释行 `: ping` 每 25s 一次为心跳。实现 server/ammo/live.mjs + server/server.mjs。",
+  "oneOf": [
+    {
+      "title": "hello",
+      "description": "连接建立即发：当前盘上弹药快照的元信息（冷启动尚无快照时字段可为 null）",
+      "type": "object",
+      "required": ["version", "source", "generatedAt"],
+      "properties": {
+        "version": { "oneOf": [{ "$ref": "market-snapshot.schema.json#/$defs/versionKey" }, { "type": "null" }] },
+        "source": { "type": ["string", "null"], "enum": ["moligod", "kkrb", null] },
+        "generatedAt": { "type": ["string", "null"], "format": "date-time" }
+      }
+    },
+    {
+      "title": "market",
+      "description": "弹药快照落盘后广播",
+      "type": "object",
+      "required": ["version", "source", "generatedAt"],
+      "properties": {
+        "version": { "$ref": "market-snapshot.schema.json#/$defs/versionKey" },
+        "source": { "type": "string", "enum": ["moligod", "kkrb"] },
+        "generatedAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    {
+      "title": "radar",
+      "description": "雷达快照落盘后广播",
+      "type": "object",
+      "required": ["version", "total", "anomaly", "buy", "sell"],
+      "properties": {
+        "version": { "$ref": "market-snapshot.schema.json#/$defs/versionKey" },
+        "total": { "type": "integer", "minimum": 0 },
+        "anomaly": { "type": "integer", "minimum": 0 },
+        "buy": { "type": "integer", "minimum": 0 },
+        "sell": { "type": "integer", "minimum": 0 }
+      }
+    }
+  ]
+}

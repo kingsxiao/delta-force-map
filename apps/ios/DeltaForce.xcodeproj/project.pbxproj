@@ -1,0 +1,542 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		0A10F4887D066603A5F22076 /* market-sample.json in Resources */ = {isa = PBXBuildFile; fileRef = D5DAC04EBEEB3AE620D32BA0 /* market-sample.json */; };
+		1E834ACACD533AE24EE19FEE /* LiveChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3769C338D5496A81D026577 /* LiveChannel.swift */; };
+		385460CD33B9F0A2D3E7A424 /* Stores.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01F3F12CE7FE2EDFEC91F8DF /* Stores.swift */; };
+		3DCB15123891100D89E6CF80 /* PriceChart.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0205915780A0A4AD2AA287E4 /* PriceChart.swift */; };
+		43083D2D9E33A1A762D0BEC5 /* PlaybookView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08CF796AF0E77E0E3B42C4FA /* PlaybookView.swift */; };
+		453F50C543399829C64676D3 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EADF1A720B8868C432DB298E /* SettingsView.swift */; };
+		4A559BD153CF9EA01E3CB8B9 /* FeedModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 54F423207E9BAC8130C26CE7 /* FeedModel.swift */; };
+		578132D2454DDD30A949A5EA /* DeltaForceApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5B5DEA60196ED235A8B2A86 /* DeltaForceApp.swift */; };
+		6C85E094EA2157B3DCE2EAA7 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1D26AA92753A762EC7B199A /* Theme.swift */; };
+		7A5A30712084B67419590129 /* TtkView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC8D10E9731ADC22E83384D3 /* TtkView.swift */; };
+		84F96291645A3D9B763C58DD /* AmmoView.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED71C9DB03C219B1B33C3C27 /* AmmoView.swift */; };
+		99A1EFA143562F914AF12644 /* DeltaForceCore in Frameworks */ = {isa = PBXBuildFile; productRef = 302FFB79FB6CE9AF8A5C6498 /* DeltaForceCore */; };
+		A0FD561C3D4B85E83094E8D0 /* ItemDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5EE5CE2767BC3BA8EA46A50 /* ItemDetailView.swift */; };
+		B3752A59BEB856AA706EB569 /* RadarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 912F43E1532064B3CA2BEAC7 /* RadarView.swift */; };
+		B8BA9864A74C5AEE8349D21C /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 64C5F5E25A909E4CE3A6BB7D /* Assets.xcassets */; };
+		B9E78C48A5AD564B62FC129A /* guns in Resources */ = {isa = PBXBuildFile; fileRef = 079FACD94CB1FA7B3890F071 /* guns */; };
+		C06B02CF85E79528FF381EAB /* Components.swift in Sources */ = {isa = PBXBuildFile; fileRef = C61126AC7A531A3E1FD92208 /* Components.swift */; };
+		C431A505C8567C757989E920 /* radar-sample.json in Resources */ = {isa = PBXBuildFile; fileRef = A1B3199A5B3ABB538D34BA3C /* radar-sample.json */; };
+		C4E8538CB47ED113969020C0 /* ttk.json in Resources */ = {isa = PBXBuildFile; fileRef = 6EE2DFE84128EB5E93A15099 /* ttk.json */; };
+		CCDD7BFDEBE5D0970EDF7A30 /* MapsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 667CAB54476666B094DE7121 /* MapsView.swift */; };
+		CF52128DA1A2C782752BA8DA /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BAB61D2590A1F5D6ACDD0C00 /* RootView.swift */; };
+		DDED2E4E88C06C94EBC3B98D /* NotificationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9F69DCDA745EBFA7BC19C7B /* NotificationManager.swift */; };
+		F8147C75B503E2D35C661FAF /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFF45918F5883AC55E7BF471 /* AppModel.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		01F3F12CE7FE2EDFEC91F8DF /* Stores.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Stores.swift; sourceTree = "<group>"; };
+		0205915780A0A4AD2AA287E4 /* PriceChart.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PriceChart.swift; sourceTree = "<group>"; };
+		079FACD94CB1FA7B3890F071 /* guns */ = {isa = PBXFileReference; lastKnownFileType = folder; name = guns; path = ../web/public/guns; sourceTree = SOURCE_ROOT; };
+		08CF796AF0E77E0E3B42C4FA /* PlaybookView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybookView.swift; sourceTree = "<group>"; };
+		15D00955C26A5370B3ABFA96 /* DeltaForce.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = DeltaForce.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		54F423207E9BAC8130C26CE7 /* FeedModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedModel.swift; sourceTree = "<group>"; };
+		64C5F5E25A909E4CE3A6BB7D /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		667CAB54476666B094DE7121 /* MapsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapsView.swift; sourceTree = "<group>"; };
+		6EE2DFE84128EB5E93A15099 /* ttk.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = ttk.json; sourceTree = "<group>"; };
+		6F621475F07A595782A36D14 /* DeltaForceCore */ = {isa = PBXFileReference; lastKnownFileType = folder; name = DeltaForceCore; path = Packages/DeltaForceCore; sourceTree = SOURCE_ROOT; };
+		912F43E1532064B3CA2BEAC7 /* RadarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RadarView.swift; sourceTree = "<group>"; };
+		A1B3199A5B3ABB538D34BA3C /* radar-sample.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "radar-sample.json"; sourceTree = "<group>"; };
+		A5EE5CE2767BC3BA8EA46A50 /* ItemDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ItemDetailView.swift; sourceTree = "<group>"; };
+		B9F69DCDA745EBFA7BC19C7B /* NotificationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationManager.swift; sourceTree = "<group>"; };
+		BAB61D2590A1F5D6ACDD0C00 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
+		BC8D10E9731ADC22E83384D3 /* TtkView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TtkView.swift; sourceTree = "<group>"; };
+		C61126AC7A531A3E1FD92208 /* Components.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Components.swift; sourceTree = "<group>"; };
+		CFF45918F5883AC55E7BF471 /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
+		D5DAC04EBEEB3AE620D32BA0 /* market-sample.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "market-sample.json"; sourceTree = "<group>"; };
+		E3769C338D5496A81D026577 /* LiveChannel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveChannel.swift; sourceTree = "<group>"; };
+		EADF1A720B8868C432DB298E /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		ED71C9DB03C219B1B33C3C27 /* AmmoView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmmoView.swift; sourceTree = "<group>"; };
+		F1D26AA92753A762EC7B199A /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
+		F5B5DEA60196ED235A8B2A86 /* DeltaForceApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeltaForceApp.swift; sourceTree = "<group>"; };
+		FC29AA5D37A5DAEB4DDFEAB9 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		75DBB6A1B7153ADA93F03316 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				99A1EFA143562F914AF12644 /* DeltaForceCore in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		0E429B3D7EF0D8FAAB5735D4 /* Packages */ = {
+			isa = PBXGroup;
+			children = (
+				6F621475F07A595782A36D14 /* DeltaForceCore */,
+			);
+			path = Packages;
+			sourceTree = "<group>";
+		};
+		20650FBD1B92CF2D5CC0322E /* Maps */ = {
+			isa = PBXGroup;
+			children = (
+				667CAB54476666B094DE7121 /* MapsView.swift */,
+			);
+			path = Maps;
+			sourceTree = "<group>";
+		};
+		31B47ABDD5FA99D59ADCE3D0 /* Radar */ = {
+			isa = PBXGroup;
+			children = (
+				912F43E1532064B3CA2BEAC7 /* RadarView.swift */,
+			);
+			path = Radar;
+			sourceTree = "<group>";
+		};
+		3830270DEDE4CB20349DEE24 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				15D00955C26A5370B3ABFA96 /* DeltaForce.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		3ABDE42DB11B775D4BA8351E /* Settings */ = {
+			isa = PBXGroup;
+			children = (
+				EADF1A720B8868C432DB298E /* SettingsView.swift */,
+			);
+			path = Settings;
+			sourceTree = "<group>";
+		};
+		556F16A768B4D1FBAC626384 = {
+			isa = PBXGroup;
+			children = (
+				079FACD94CB1FA7B3890F071 /* guns */,
+				CE51C99AE73E59D36711B933 /* data */,
+				FABA3A99DB40D38F5838BF41 /* DeltaForce */,
+				AE369649414DD9EE274185FA /* fixtures */,
+				0E429B3D7EF0D8FAAB5735D4 /* Packages */,
+				3830270DEDE4CB20349DEE24 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		5F03E7AE2F6BF502C6DFA9C9 /* Features */ = {
+			isa = PBXGroup;
+			children = (
+				B114843A1824A9B563950EAB /* Ammo */,
+				20650FBD1B92CF2D5CC0322E /* Maps */,
+				31B47ABDD5FA99D59ADCE3D0 /* Radar */,
+				3ABDE42DB11B775D4BA8351E /* Settings */,
+				D3753D1E54DD6370E62930A0 /* Shared */,
+				B6638AB74B08FB49211879E8 /* TTK */,
+			);
+			path = Features;
+			sourceTree = "<group>";
+		};
+		87041686337EED102BE8105A /* App */ = {
+			isa = PBXGroup;
+			children = (
+				F5B5DEA60196ED235A8B2A86 /* DeltaForceApp.swift */,
+				BAB61D2590A1F5D6ACDD0C00 /* RootView.swift */,
+				F1D26AA92753A762EC7B199A /* Theme.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		AE369649414DD9EE274185FA /* fixtures */ = {
+			isa = PBXGroup;
+			children = (
+				D5DAC04EBEEB3AE620D32BA0 /* market-sample.json */,
+				A1B3199A5B3ABB538D34BA3C /* radar-sample.json */,
+			);
+			name = fixtures;
+			path = ../../shared/fixtures;
+			sourceTree = "<group>";
+		};
+		B114843A1824A9B563950EAB /* Ammo */ = {
+			isa = PBXGroup;
+			children = (
+				ED71C9DB03C219B1B33C3C27 /* AmmoView.swift */,
+				A5EE5CE2767BC3BA8EA46A50 /* ItemDetailView.swift */,
+				08CF796AF0E77E0E3B42C4FA /* PlaybookView.swift */,
+			);
+			path = Ammo;
+			sourceTree = "<group>";
+		};
+		B6638AB74B08FB49211879E8 /* TTK */ = {
+			isa = PBXGroup;
+			children = (
+				BC8D10E9731ADC22E83384D3 /* TtkView.swift */,
+			);
+			path = TTK;
+			sourceTree = "<group>";
+		};
+		CE51C99AE73E59D36711B933 /* data */ = {
+			isa = PBXGroup;
+			children = (
+				6EE2DFE84128EB5E93A15099 /* ttk.json */,
+			);
+			name = data;
+			path = ../../shared/data;
+			sourceTree = "<group>";
+		};
+		D3753D1E54DD6370E62930A0 /* Shared */ = {
+			isa = PBXGroup;
+			children = (
+				C61126AC7A531A3E1FD92208 /* Components.swift */,
+				0205915780A0A4AD2AA287E4 /* PriceChart.swift */,
+			);
+			path = Shared;
+			sourceTree = "<group>";
+		};
+		E02CF47F8F7B5E49F076A421 /* State */ = {
+			isa = PBXGroup;
+			children = (
+				CFF45918F5883AC55E7BF471 /* AppModel.swift */,
+				54F423207E9BAC8130C26CE7 /* FeedModel.swift */,
+				E3769C338D5496A81D026577 /* LiveChannel.swift */,
+				B9F69DCDA745EBFA7BC19C7B /* NotificationManager.swift */,
+				01F3F12CE7FE2EDFEC91F8DF /* Stores.swift */,
+			);
+			path = State;
+			sourceTree = "<group>";
+		};
+		E4685714F617E82EBF156653 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				64C5F5E25A909E4CE3A6BB7D /* Assets.xcassets */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		FABA3A99DB40D38F5838BF41 /* DeltaForce */ = {
+			isa = PBXGroup;
+			children = (
+				FC29AA5D37A5DAEB4DDFEAB9 /* Info.plist */,
+				87041686337EED102BE8105A /* App */,
+				5F03E7AE2F6BF502C6DFA9C9 /* Features */,
+				E4685714F617E82EBF156653 /* Resources */,
+				E02CF47F8F7B5E49F076A421 /* State */,
+			);
+			path = DeltaForce;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		8984F3C780416C00FEC555F8 /* DeltaForce */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 00EA1BFBBCD29E2E66F64D59 /* Build configuration list for PBXNativeTarget "DeltaForce" */;
+			buildPhases = (
+				04D8347C7AC2B303F5B85A7B /* Sources */,
+				7D225827925E81621606EF49 /* Resources */,
+				75DBB6A1B7153ADA93F03316 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = DeltaForce;
+			packageProductDependencies = (
+				302FFB79FB6CE9AF8A5C6498 /* DeltaForceCore */,
+			);
+			productName = DeltaForce;
+			productReference = 15D00955C26A5370B3ABFA96 /* DeltaForce.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		4CB381C866059D7C7A00C473 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1600;
+				TargetAttributes = {
+					8984F3C780416C00FEC555F8 = {
+						DevelopmentTeam = "";
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = 15A743C6104C640B84B1C791 /* Build configuration list for PBXProject "DeltaForce" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 556F16A768B4D1FBAC626384;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				16831FDA7E60D3ED4C9E4CDB /* XCLocalSwiftPackageReference "Packages/DeltaForceCore" */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 3830270DEDE4CB20349DEE24 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				8984F3C780416C00FEC555F8 /* DeltaForce */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		7D225827925E81621606EF49 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B8BA9864A74C5AEE8349D21C /* Assets.xcassets in Resources */,
+				B9E78C48A5AD564B62FC129A /* guns in Resources */,
+				0A10F4887D066603A5F22076 /* market-sample.json in Resources */,
+				C431A505C8567C757989E920 /* radar-sample.json in Resources */,
+				C4E8538CB47ED113969020C0 /* ttk.json in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		04D8347C7AC2B303F5B85A7B /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				84F96291645A3D9B763C58DD /* AmmoView.swift in Sources */,
+				F8147C75B503E2D35C661FAF /* AppModel.swift in Sources */,
+				C06B02CF85E79528FF381EAB /* Components.swift in Sources */,
+				578132D2454DDD30A949A5EA /* DeltaForceApp.swift in Sources */,
+				4A559BD153CF9EA01E3CB8B9 /* FeedModel.swift in Sources */,
+				A0FD561C3D4B85E83094E8D0 /* ItemDetailView.swift in Sources */,
+				1E834ACACD533AE24EE19FEE /* LiveChannel.swift in Sources */,
+				CCDD7BFDEBE5D0970EDF7A30 /* MapsView.swift in Sources */,
+				DDED2E4E88C06C94EBC3B98D /* NotificationManager.swift in Sources */,
+				43083D2D9E33A1A762D0BEC5 /* PlaybookView.swift in Sources */,
+				3DCB15123891100D89E6CF80 /* PriceChart.swift in Sources */,
+				B3752A59BEB856AA706EB569 /* RadarView.swift in Sources */,
+				CF52128DA1A2C782752BA8DA /* RootView.swift in Sources */,
+				453F50C543399829C64676D3 /* SettingsView.swift in Sources */,
+				385460CD33B9F0A2D3E7A424 /* Stores.swift in Sources */,
+				6C85E094EA2157B3DCE2EAA7 /* Theme.swift in Sources */,
+				7A5A30712084B67419590129 /* TtkView.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		0824B20AAFC226CE4420265C /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				ENABLE_PREVIEWS = YES;
+				INFOPLIST_FILE = DeltaForce/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.kingsxiao.deltaforce;
+				SDKROOT = iphoneos;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		0DEE7624B559FC5DA3286784 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				ENABLE_PREVIEWS = YES;
+				INFOPLIST_FILE = DeltaForce/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.kingsxiao.deltaforce;
+				SDKROOT = iphoneos;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		241FA93C73D7C0AD47B0CCAE /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_OPTIMIZATION = space;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEPLOYMENT_POSTPROCESSING = YES;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = s;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LLVM_LTO = YES_THIN;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				STRIP_INSTALLED_PRODUCT = YES;
+				STRIP_STYLE = all;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-Osize";
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
+		ADD08B10F5CECDE98AD95CD0 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		00EA1BFBBCD29E2E66F64D59 /* Build configuration list for PBXNativeTarget "DeltaForce" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				0DEE7624B559FC5DA3286784 /* Debug */,
+				0824B20AAFC226CE4420265C /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		15A743C6104C640B84B1C791 /* Build configuration list for PBXProject "DeltaForce" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				ADD08B10F5CECDE98AD95CD0 /* Debug */,
+				241FA93C73D7C0AD47B0CCAE /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		16831FDA7E60D3ED4C9E4CDB /* XCLocalSwiftPackageReference "Packages/DeltaForceCore" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/DeltaForceCore;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		302FFB79FB6CE9AF8A5C6498 /* DeltaForceCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = DeltaForceCore;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = 4CB381C866059D7C7A00C473 /* Project object */;
+}
