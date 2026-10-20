@@ -7,18 +7,20 @@
     "node": ">=20.19"
   },
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "preview": "vite preview",
-    "serve": "node scripts/server.mjs",
-    "refresh": "node scripts/refresh-data.mjs",
-    "ammo:fetch": "node scripts/ammo/fetch-once.mjs",
-    "ammo:monitor": "node scripts/ammo/monitor.mjs",
-    "ammo:live": "node scripts/ammo/live.mjs",
-    "ammo:selftest": "node scripts/ammo/selftest.mjs",
-    "radar:fetch": "node scripts/market/radar.mjs --once",
-    "radar:monitor": "node scripts/market/radar.mjs",
-    "radar:selftest": "node scripts/market/selftest.mjs"
+    "dev": "cd apps/web && vite",
+    "build": "cd apps/web && vite build",
+    "preview": "cd apps/web && vite preview",
+    "serve": "node server/server.mjs",
+    "refresh": "node server/refresh-data.mjs",
+    "ammo:fetch": "node server/ammo/fetch-once.mjs",
+    "ammo:monitor": "node server/ammo/monitor.mjs",
+    "ammo:live": "node server/ammo/live.mjs",
+    "ammo:selftest": "node server/ammo/selftest.mjs",
+    "radar:fetch": "node server/market/radar.mjs --once",
+    "radar:monitor": "node server/market/radar.mjs",
+    "radar:selftest": "node server/market/selftest.mjs",
+    "export:ios": "node server/export-ios-data.mjs",
+    "ios:archive": "bash deploy/ios-archive.sh"
   },
   "dependencies": {
     "vue": "^3.5.0",

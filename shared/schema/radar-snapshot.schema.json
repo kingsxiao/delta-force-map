@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://delta-force-map/shared/schema/radar-snapshot.schema.json",
+  "title": "MarketRadarSnapshot",
+  "description": "GET /market/radar.json — 全品类异动雷达快照（kkrb 涨幅榜 Top10 + moligod 曲线 + 双源交叉验证）。口径见 shared/API.md §1；实现 server/market/radar.mjs。",
+  "type": "object",
+  "required": ["version", "fetchedAt", "generatedAt", "source", "items", "stats"],
+  "properties": {
+    "version": { "$ref": "market-snapshot.schema.json#/$defs/versionKey" },
+    "fetchedAt": { "type": "string", "format": "date-time" },
+    "generatedAt": { "type": "string", "format": "date-time" },
+    "source": { "const": "kkrb-radar+moligod" },
+    "items": { "type": "array", "items": { "$ref": "#/$defs/radarItem" } },
+    "stats": {
+      "type": "object",
+      "required": ["total", "anomaly", "buy", "sell", "watch"],
+      "properties": {
+        "total": { "type": "integer", "minimum": 0 },
+        "anomaly": { "type": "integer", "minimum": 0 },
+        "buy": { "type": "integer", "minimum": 0 },
+        "sell": { "type": "integer", "minimum": 0 },
+        "watch": { "type": "integer", "minimum": 0 }
+      }
+    }
+  },
+  "$defs": {
+    "radarItem": {
+      "allOf": [
+        { "$ref": "market-snapshot.schema.json#/$defs/marketItem" },
+        {
+          "type": "object",
+          "required": ["hiRank", "category", "crossDev", "crossOverlap", "anomaly", "rawSignal", "curveSource"],
+          "properties": {
+            "hiRank": { "description": "kkrb 涨幅榜名次（1 起）", "type": "integer", "minimum": 1 },
+            "category": { "type": "string" },
+            "crossDev": {
+              "description": "双源曲线重叠小时的中位偏差 |kkrb−moligod|/moligod；重叠 <24h 为 null（无结论）",
+              "type": ["number", "null"],
+              "minimum": 0
+            },
+            "crossOverlap": { "type": "integer", "minimum": 0 },
+            "anomaly": { "description": "crossDev > 0.15 → 信号强制观望、不通知", "type": "boolean" },
+            "rawSignal": { "$ref": "market-snapshot.schema.json#/$defs/signal" },
+            "curveSource": { "type": "string", "enum": ["moligod", "kkrb-radar"] }
+          },
+          "if": { "properties": { "anomaly": { "const": true } } },
+          "then": { "properties": { "signal": { "const": "WAIT" } } }
+        }
+      ]
+    }
+  }
+}
