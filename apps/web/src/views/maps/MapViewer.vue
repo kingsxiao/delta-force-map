@@ -31,9 +31,17 @@ const viewer = createViewer({
   onFull: (idx) => emit('full', idx),
 })
 
-const figSrc = computed(() => props.map.fig[viewer.state.cur].src)
-const figAlt = computed(() => props.map.map + ' · ' + props.map.fig[viewer.state.cur].label)
-const hsVisible = computed(() => !!props.map.fig[viewer.state.cur].hs && props.map.hs && props.map.hs.length > 0)
+const curFig = computed(() => props.map.fig[viewer.state.cur])
+const figSrc = computed(() => curFig.value.src)
+const figAlt = computed(() => props.map.map + ' · ' + curFig.value.label)
+const hsVisible = computed(() => !!curFig.value.hs && props.map.hs && props.map.hs.length > 0)
+
+/* 固有宽高（FIG_META 实测静态值）→ frame 预置 aspect-ratio：加载前高度即定，
+   拦截图片时不再 2px 塌陷、滚动途中不再下沉跳变；缺 w/h 的图返回 undefined，由 onImgLoad 兜底 */
+const figRatio = computed(() => {
+  const { w, h } = curFig.value
+  return w && h ? w + ' / ' + h : undefined
+})
 const activeSpot = computed(() => (viewer.state.active >= 0 ? props.map.hs[viewer.state.active] : null))
 
 /** chips：legacy L648-661——只出现计数>0 的类型，顺序与 TYPES 键序一致 */
@@ -76,21 +84,26 @@ onBeforeUnmount(() => viewer.detach())
       ref="frameRef"
       class="fig-frame"
       tabindex="0"
+      :style="figRatio ? { aspectRatio: figRatio } : undefined"
       :aria-label="map.map + ' 交互地图：方向键或 +/-/0 缩放平移，点击标注查看详情'"
       @keydown="viewer.onKey"
     >
       <div ref="vpRef" class="fig-vp">
         <div ref="planeRef" class="fig-plane">
+          <!-- width/height 为固有尺寸元信息（显示尺寸仍由 CSS width:100%/height:auto 接管），
+               浏览器据此在加载前预算 img 盒高，与 frame 的静态 aspect-ratio 双保险 -->
           <img
             ref="imgRef"
             :src="figSrc"
             :alt="figAlt"
+            :width="curFig.w"
+            :height="curFig.h"
             :loading="eager ? 'eager' : 'lazy'"
             decoding="async"
             draggable="false"
             @load="viewer.onImgLoad"
           >
-          <HotspotLayer v-if="hsVisible" :hs="map.hs" :active="viewer.state.active" :hidden="hidden" />
+          <HotspotLayer v-if="hsVisible" :hs="map.hs" :active="viewer.state.active" :hidden="hidden" @open="viewer.openCard" />
         </div>
 
         <InfoCard
@@ -103,22 +116,6 @@ onBeforeUnmount(() => viewer.detach())
           @close="viewer.closeCard()"
           @expand="onCardExpand"
         />
-
-        <div v-show="hsVisible" class="hs-chips">
-          <button
-            v-for="c in chipList"
-            :key="c.type"
-            type="button"
-            class="hs-chip"
-            :class="{ off: hidden[c.type] }"
-            :data-t="c.type"
-            :aria-pressed="String(!hidden[c.type])"
-            @click="toggleType(c.type)"
-          >
-            <i class="dot" :style="{ background: c.color }"></i>
-            <span>{{ c.label }} {{ c.count }}</span>
-          </button>
-        </div>
 
         <div class="fig-ctrl">
           <!-- §5.3：控制字符换 inline SVG（16×16 / stroke 1.6 / currentColor）；
@@ -147,6 +144,24 @@ onBeforeUnmount(() => viewer.detach())
         </div>
 
         <span class="fig-hint">拖拽平移 · 滚轮 / 双指缩放 · 双击放大 · 点标注看详情</span>
+      </div>
+
+      <!-- 图层 chips 直挂 .fig-frame（vp 的 touch-action:none 沿祖先链封禁原生滚动，
+           留在 vp 内触屏横滚滚不动）；绝对定位锚点随之为 frame，视觉位置不变 -->
+      <div v-show="hsVisible" class="hs-chips">
+        <button
+          v-for="c in chipList"
+          :key="c.type"
+          type="button"
+          class="hs-chip"
+          :class="{ off: hidden[c.type] }"
+          :data-t="c.type"
+          :aria-pressed="String(!hidden[c.type])"
+          @click="toggleType(c.type)"
+        >
+          <i class="dot" :style="{ background: c.color }"></i>
+          <span>{{ c.label }} {{ c.count }}</span>
+        </button>
       </div>
     </div>
 
@@ -259,6 +274,12 @@ onBeforeUnmount(() => viewer.detach())
 .hs-chip[data-t='boss'] .dot { border-radius: 50%; box-shadow: 0 0 0 2px color-mix(in srgb, var(--hs-boss) 35%, transparent); }
 .hs-chip.off { opacity: 0.42; }
 .hs-chip.off span { color: var(--faint); }
+/* 触屏窄屏：chips 改单行横滚（wrap 两行 390px 实测吃掉约 19% 图框面积）；
+   pan-x 放行原生横向滑动（frame 层无 touch-action 封禁），滚动条隐藏与 .pills 同款 */
+@media (max-width: 680px) {
+  .hs-chips { flex-wrap: nowrap; overflow-x: auto; touch-action: pan-x; scrollbar-width: none; }
+  .hs-chips::-webkit-scrollbar { display: none; }
+}
 /* 图层开关（aria-pressed）：hover/按下（含关态）opacity .8 + 边提亮；
    置于 .off 之后（同特异性靠源码序），保证关态 hover 也能回亮到 .8 */
 .hs-chip:hover,

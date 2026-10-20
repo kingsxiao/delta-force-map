@@ -24,12 +24,12 @@ const rowClass = computed(() => ({
   top1: props.rank === 1,
   top2: props.rank === 2,
   top3: props.rank === 3,
-  /* best=0（栓狙无甲爆头 btk=1 → ttk=0）时全列表不判慢行（legacy L828 同守卫） */
+  /* 慢行 = ttk > 2.2× 基准；基准由 TtkView bestTtk 取全表最小正 TTK 后恒正，best>0 仅留兜底（legacy L828 同守卫） */
   slow: props.best > 0 && props.c.ttk > props.best * 2.2,
   open: props.open,
 }))
 
-/* best 或 ttk 为 0 时条画满（legacy L860 同守卫，防 0/0 NaN 宽度） */
+/* ttk=0（头部×无甲 btk=1）的行本就是最快、条画满；best≤0 分支防 0/0，bestTtk 恒正后仅兜底（legacy L860 同守卫） */
 const barWidth = computed(() =>
   (props.best <= 0 || props.c.ttk <= 0)
     ? '100%'

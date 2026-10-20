@@ -1,14 +1,25 @@
 <script setup>
-// HotspotLayer.vue — 标注层（工程师A）：按 x/y 百分比渲染 .hs 按钮（点击判定由
+// HotspotLayer.vue — 标注层（工程师A）：按 x/y 百分比渲染 .hs 按钮（指针点击判定由
 // useViewer 的 vp 指针 tap 逻辑通过 closest('.hs')+dataset.i 完成，与 legacy 一致）；
+// 键盘/读屏路径在此补齐——聚焦按钮 Enter/空格的合成 click（e.detail===0）emit 开卡，
+// 指针 click（detail>0）一律忽略以免与 vp tap 路径双触发；
 // 类型图层开关经 hidden 对象映射为 .hide-* 类（legacy L645-666）。
 import { HS_TYPES } from '../../composables/useViewer'
+
+const emit = defineEmits(['open'])
 
 defineProps({
   hs: { type: Array, required: true },
   active: { type: Number, default: -1 },
   hidden: { type: Object, required: true }, // { spawn, extract, boss, loot } -> bool
 })
+
+/* 只接键盘/读屏合成点击：按钮被 Enter/空格激活时浏览器派发的 click 无指针计数（detail 0）；
+   真指针 click detail≥1 直接返回，且不 preventDefault——保住按钮原生激活与后续默认行为 */
+function onHsClick(i, e) {
+  if (e.detail !== 0) return
+  emit('open', i)
+}
 </script>
 
 <template>
@@ -30,6 +41,7 @@ defineProps({
       :style="{ left: sp.x * 100 + '%', top: sp.y * 100 + '%' }"
       :data-i="i"
       :aria-label="(HS_TYPES[sp.type] || sp.type) + '：' + sp.name"
+      @click="onHsClick(i, $event)"
     >
       <i></i>
     </button>

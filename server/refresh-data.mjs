@@ -18,10 +18,11 @@ import { fetchOnce } from './ammo/fetch-once.mjs'
 import { runRadarCycle } from './market/radar.mjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+const WEB_DIR = path.join(ROOT, 'apps', 'web')
 const log = (msg) => console.log(`[${new Date().toLocaleString('zh-CN')}] ${msg}`)
 
 async function refreshAmmo() {
-  const marketPath = path.join(ROOT, 'public', 'ammo', 'market.json')
+  const marketPath = path.join(WEB_DIR, 'public', 'ammo', 'market.json')
   if (existsSync(marketPath)) {
     try {
       const prev = JSON.parse(await readFile(marketPath, 'utf8'))
@@ -32,12 +33,12 @@ async function refreshAmmo() {
       /* 损坏快照忽略，冷启动全量补齐 */
     }
   }
-  const r = await fetchOnce({ mode: 'auto' })
+  const r = await fetchOnce({ mode: 'auto', webDir: WEB_DIR })
   log(`[ammo] ${r.source} version ${r.version}${r.changed ? '' : '（内容未变，心跳）'}`)
 }
 
 async function refreshRadar() {
-  const out = await runRadarCycle({ noNotify: true })
+  const out = await runRadarCycle({ noNotify: true, webDir: WEB_DIR })
   log(`[radar] version ${out.version} · ${out.stats.total} 项 · 异常 ${out.stats.anomaly}`)
 }
 

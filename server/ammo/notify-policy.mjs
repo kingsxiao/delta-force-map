@@ -13,7 +13,7 @@
    参数集中在此可直接调；本文件被 selftest.mjs 覆盖。
    ============================================================ */
 import { fmtPrice, fmtPct } from './analyze.mjs'
-import { predictSellEta, fmtHours, fmtPeak } from '../../src/views/ammo/sellEta.js'
+import { predictSellEta, fmtHours, fmtPeak } from '../../shared/js/sellEta.js'
 
 export const POLICY = {
   COOLDOWN_MS: 6 * 60 * 60 * 1000, // 同信号冷却

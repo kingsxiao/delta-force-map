@@ -7,9 +7,13 @@
    多选即叠加场景：列表按「枪 × 弹 × 部位 × 护甲」展开，
    「每枪最佳弹药」模式每枪每场景取最快一发行。
    排行行点开懒加载逐发模拟、弹药库全表（默认收起）、穿透×护甲判定矩阵。
+   枪名搜索（zh/en 不区分大小写子串）只保留命中枪的行；六组筛选 + 搜索词序列化进
+   hash query（?p&a&cls&pen&mode&sort&q，可分享链接），进入时还原（query 属路由状态，
+   不属被禁的裸锚点 hash，契约同 TacticsView ?map=）。
    入场统一走 useReveal；rank-list / champs 容器挂 reveal-group 行级级联（§7.3）。
    ============================================================ */
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { useReveal } from '../composables/useReveal'
 import ControlSeg from './ttk/ControlSeg.vue'
 import ChampCards from './ttk/ChampCards.vue'
@@ -71,8 +75,8 @@ const SORT_SEGS = [
   { v: 'btk', label: '发数' },
 ]
 
-/* ---------- 状态：部位/护甲/类别/穿透等级均为多选（数组），弹药模式与排序单选 ---------- */
-const state = reactive({ parts: ['chest'], armors: [5], cls: [], ammoMode: 'best', pens: [], sort: 'ttk' })
+/* ---------- 状态：部位/护甲/类别/穿透等级均为多选（数组），弹药模式/排序单选，q 枪名搜索词 ---------- */
+const state = reactive({ parts: ['chest'], armors: [5], cls: [], ammoMode: 'best', pens: [], sort: 'ttk', q: '' })
 
 /* 多选更新回调：部位/护甲至少保留一项；
    类别/穿透等级用"全部"芯片（空数组 = 全部）：新增具体项则保留，新增的是"全部"则清空。
@@ -88,13 +92,71 @@ function setArmors(v) { if (v.length) state.armors = v }
 function setCls(v) { state.cls = pickWithAll(state.cls, v) }
 function setPens(v) { state.pens = pickWithAll(state.pens, v) }
 
-/* 任意筛选/排序变化即重建列表：展开行全部收起（legacy renderAll 重建 DOM 的同口径行为） */
+/* ---------- hash query 序列化：六组筛选 + 搜索词 → ?p&a&cls&pen&mode&sort&q（可分享链接） ----------
+   与默认值相同的组不写入（默认视图保持干净的 /#/ttk，分享链接只带差异项）；
+   codec 为纯函数（buildQuery/applyQuery 不碰 Vue，便于对拍）；非法值一律丢弃回默认，
+   parts/armors 至少保留一项（与 setParts/setArmors 守卫同口径） */
+const Q_DEFAULTS = { p: 'chest', a: '5', cls: '', pen: '', mode: 'best', sort: 'ttk', q: '' }
+function buildQuery(s) {
+  const vals = {
+    p: s.parts.join(','),
+    a: s.armors.join(','),
+    cls: s.cls.join(','),
+    pen: s.pens.join(','),
+    mode: s.ammoMode,
+    sort: s.sort,
+    q: s.q.trim(),
+  }
+  const out = {}
+  for (const k of Object.keys(vals)) if (vals[k] !== Q_DEFAULTS[k]) out[k] = vals[k]
+  return out
+}
+/* query 取串防御：缺参 / 空串 / 数组形态（同名参数重复）一律视为未提供——
+   直接 String().split(',') 会得到 ['']，对数字参数 .map(Number) 恰好变成合法的 0 */
+const qList = (v) => (typeof v === 'string' && v ? v.split(',') : [])
+function applyQuery(s, query) {
+  const parts = qList(query.p).filter((x) => PART_SEGS.some((sg) => sg.v === x))
+  if (parts.length) s.parts = parts
+  const armors = qList(query.a).map(Number).filter((x) => ARMOR_SEGS.some((sg) => sg.v === x))
+  if (armors.length) s.armors = armors
+  s.cls = qList(query.cls).filter((x) => CLS_META.some((m) => m.k === x))
+  s.pens = qList(query.pen).map(Number).filter((x) => Number.isInteger(x) && x >= 0 && x <= 7)
+  if (query.mode === 'best' || query.mode === 'full') s.ammoMode = query.mode
+  if (query.sort === 'ttk' || query.sort === 'btk') s.sort = query.sort
+  if (typeof query.q === 'string' && query.q.trim()) s.q = query.q.trim().slice(0, 40)
+}
+
+/* 进入时按当前 query 还原一次（setup 阶段、watch 注册之前，不触发同步） */
+const route = useRoute()
+const router = useRouter()
+applyQuery(state, route.query)
+
+/* 渲染上限（perf）：「全部枪弹组合」× 全部位 × 全护甲最坏 7791 行一次性 v-for 重建，移动端必卡；
+   首批 RANK_PAGE 行，其余靠「显示更多」分批递增 */
+const RANK_PAGE = 200
+const rankLimit = ref(RANK_PAGE)
+
+/* 任意筛选/排序变化即重建列表：展开行全部收起（legacy renderAll 重建 DOM 的同口径行为），
+   渲染上限一并重置——切筛选/排序后从首批行重新看起；query 随状态回写
+   （router.replace 不留历史栈，打字/切筛选不产生可回退记录） */
 const openKeys = reactive(new Set())
-watch(state, () => openKeys.clear())
+watch(state, () => {
+  openKeys.clear()
+  rankLimit.value = RANK_PAGE
+  router.replace({ path: route.path, query: buildQuery(state) })
+})
 
 /* ---------- 计算：多选场景笛卡尔展开（枪 × 弹 × 部位 × 护甲） ---------- */
-const filteredGuns = computed(() =>
-  state.cls.length ? GUNS.filter((g) => state.cls.includes(g.cls)) : GUNS)
+/* 枪名匹配：zh / en 不区分大小写子串（如「腾龙」「m4」「m7」，命中只保留对应枪的行） */
+function gunMatch(g, qRaw) {
+  if (!qRaw) return true
+  const q = qRaw.toLowerCase()
+  return g.zh.toLowerCase().includes(q) || g.en.toLowerCase().includes(q)
+}
+const filteredGuns = computed(() => {
+  const q = state.q.trim()
+  return GUNS.filter((g) => (!state.cls.length || state.cls.includes(g.cls)) && gunMatch(g, q))
+})
 
 const allCombos = computed(() => {
   const out = []
@@ -137,9 +199,19 @@ const rankRows = computed(() => {
   return rows
 })
 
-const bestTtk = computed(() => (rankRows.value.length ? rankRows.value[0].ttk : 1))
+/* 条宽基准取全表最小「正」TTK，而非首行：头部×无甲 btk=1 → ttk=0，首行取 0 会触发
+   RankRow 满条守卫（全列表 100% 满条）；切「发数」排序后首行也未必最快、基准错位。
+   全表无正 TTK（如仅剩 ttk=0 的组合）退 1，0 值行仍由 RankRow 守卫画满 */
+const bestTtk = computed(() => {
+  let m = 0
+  for (const r of rankRows.value) if (r.ttk > 0 && (!m || r.ttk < m)) m = r.ttk
+  return m || 1
+})
 
 const rowKey = (c) => c.gun.en + '|' + c.am.n + '|' + c.part + '|' + c.armor
+
+/* 实际渲染的行 = 排行前 rankLimit 行（截断只裁尾、不改序，:rank 从 1 连续编号不受影响） */
+const shownRows = computed(() => rankRows.value.slice(0, rankLimit.value))
 const toggleRow = (c) => {
   const k = rowKey(c)
   if (openKeys.has(k)) openKeys.delete(k)
@@ -150,6 +222,7 @@ const rankCountText = computed(() => {
   const bits = [rankRows.value.length + ' 行']
   if (state.pens.length)
     bits.push('弹药：仅 ' + [...state.pens].sort((a, b) => a - b).join('/') + ' 级穿透弹')
+  if (state.q.trim()) bits.push('搜索：' + state.q.trim())
   const ps = state.parts
   const as = [...state.armors].sort((a, b) => a - b)
   const pTxt = ps.length === 3 ? '全部位' : ps.map((p) => PART_CHAR[p]).join('+')
@@ -263,8 +336,9 @@ onBeforeUnmount(() => {
     <div id="top" class="wrap">
       <section aria-label="TTK 排行">
         <!-- 控制面板：六组筛选收敛为三行（视觉验收：原六行占满 900px 首屏、排行表不可见；
-             两项的「排序」单独成行右侧留白大）：行1 部位+护甲 · 行2 类别+穿透 · 行3 弹药+排序。
-             弹药与穿透仍不同行（§6.3 两组同款控件并排分不清）；排序并入弹药行——同为两项单选、成对易读 -->
+             两项的「排序」单独成行右侧留白大）：行1 部位+护甲 · 行2 类别+穿透 · 行3 弹药+排序+枪械搜索。
+             弹药与穿透仍不同行（§6.3 两组同款控件并排分不清）；排序并入弹药行——同为两项单选、成对易读；
+             枪械搜索并入行 3（同属收窄结果集的单值操作，规格同 AmmoMarket / MarketRadar 的 .search） -->
         <div class="ctrl reveal">
           <div class="ctrl-rows">
             <div class="ctrl-row">
@@ -296,6 +370,10 @@ onBeforeUnmount(() => {
                 <span class="ctrl-label">排序</span>
                 <ControlSeg v-model="state.sort" :items="SORT_SEGS" />
               </div>
+              <div class="ctrl-cell">
+                <span class="ctrl-label">枪械</span>
+                <input v-model.trim="state.q" class="search" type="search" placeholder="搜枪名，如 腾龙 / m7" aria-label="搜索枪名" />
+              </div>
               <!-- 行尾右对齐说明（视觉验收：该行选项最少、右侧留白明显大于其余行，用文案补齐行尾） -->
               <span class="ctrl-note">多选叠加 · 即时重算</span>
             </div>
@@ -323,7 +401,7 @@ onBeforeUnmount(() => {
           </div>
           <template v-if="rankRows.length">
             <RankRow
-              v-for="(c, i) in rankRows"
+              v-for="(c, i) in shownRows"
               :key="rowKey(c)"
               :c="c"
               :rank="i + 1"
@@ -333,8 +411,20 @@ onBeforeUnmount(() => {
               :combos="allCombos"
               @toggle="toggleRow(c)"
             />
+            <!-- 渲染上限兜底：截断时露出文本链「显示更多」，每点一次多渲一批（§5.3 无底无边框规格） -->
+            <button
+              v-if="shownRows.length < rankRows.length"
+              type="button"
+              class="rk-more"
+              @click="rankLimit += RANK_PAGE"
+            >
+              显示更多 · 还剩 {{ rankRows.length - shownRows.length }} 行
+            </button>
           </template>
-          <div v-else class="rk-empty">当前筛选下没有可用枪弹：该类别没有所选穿透等级（{{ state.pens.length ? state.pens.join('/') : '0-7' }}）的弹药，换一个等级或类别再试。</div>
+          <div v-else class="rk-empty">
+            <template v-if="filteredGuns.length">当前筛选下没有可用枪弹：该类别没有所选穿透等级（{{ state.pens.length ? state.pens.join('/') : '0-7' }}）的弹药，换一个等级或类别再试。</template>
+            <template v-else>没有匹配「{{ state.q.trim() }}」的枪械：搜索按中文名 / 英文名不区分大小写匹配（如 腾龙 / m4 / m7），清空搜索框恢复全表。</template>
+          </div>
         </div>
         <p class="rank-footnote">点击任意一行，展开该枪全部弹药的逐发对比（受当前穿透筛选限定）。TTK 为首发命中后击倒所需的纯射击时间，不含首发出膛、腰射散布、换弹与网速，是站位对枪的理论上限；实战受距离衰减、命中率与压枪影响，通常显著更慢。</p>
       </section>
@@ -546,6 +636,16 @@ onBeforeUnmount(() => {
   line-height: 1.6;
 }
 
+/* ---------- 枪械搜索框（规格同 AmmoMarket / MarketRadar 的 .search：胶囊输入、只改边框） ---------- */
+.search {
+  background: var(--card); border: 1px solid var(--line); border-radius: var(--radius-pill);
+  color: var(--tx); font-size: var(--fs-xs); padding: 5px 14px; width: 170px;
+  font-family: var(--sans); /* 表单控件不吃 body 字阶，显式声明（同 .qty-in 显式 --mono 的口径） */
+  transition: border-color var(--t-fast) var(--ease);
+}
+/* 键盘可达走全局 :focus-visible 外框；:focus 只做边框提亮，不抹 outline */
+.search:focus { border-color: var(--accent-dim); }
+
 /* ---------- 弹药库「展开全部 / 收起全部」（文本链按钮，§5.3：无底无边框） ---------- */
 .ammo-tools {
   display: flex;
@@ -619,6 +719,21 @@ onBeforeUnmount(() => {
   color: var(--faint);
   line-height: 1.7;
 }
+/* 「显示更多」（文本链按钮规格同 .ammo-toggle，§5.3：无底无边框）；列表内整行居中收尾 */
+.rk-more {
+  display: block;
+  width: 100%;
+  border: 0;
+  background: none;
+  padding: 12px 16px;
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  letter-spacing: .08em;
+  color: var(--accent);
+  cursor: pointer;
+}
+.rk-more:hover,
+.rk-more:active { text-decoration: underline; }
 .rank-footnote {
   margin-top: var(--sp-3);
   font-size: var(--fs-xs);
@@ -703,6 +818,8 @@ onBeforeUnmount(() => {
   }
   /* 每组（label+控件）整组占一横行，与旧六行结构的手机端堆叠形态一致 */
   .ctrl-cell { width: 100%; }
+  /* 搜索框随整组占满一行（label 已换行在上方） */
+  .search { width: 100%; }
   /* 手机端控件已纵向堆叠、无行尾留白问题，说明文案退场（信息由 .ctrl-hint 承担） */
   .ctrl-note { display: none; }
   .ctrl-label {

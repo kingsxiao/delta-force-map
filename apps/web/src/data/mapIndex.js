@@ -18,31 +18,32 @@ import hangtianjidiHs from './hotspots/hangtianjidi.json'
 import chaoxijianyuHs from './hotspots/chaoxijianyu.json'
 import hedianzhanHs from './hotspots/hedianzhan.json'
 
-/** fig 元信息（label/cap/hs 来自 legacy map-data 的 fig 字段；src 指向 public/figs 抽取产物） */
+/** fig 元信息（label/cap/hs 来自 legacy map-data 的 fig 字段；src 指向 public/figs 抽取产物；
+ *  w/h 为 <slug>-{0,1}.jpg 实测固有像素（sips 量得），供 .fig-frame 预置 aspect-ratio 免 CLS） */
 const FIG_META = {
   linghaodaba: [
-    { label: '标注图', cap: '官方工具全量点位标注：出生点 14 处 · 打法卡详写 5 类主要出生点 / 撤离点 8 处 / 赛伊德 / 约 360 个物资点', hs: true },
-    { label: '原始底图', cap: '官方瓦片拼接原始底图（已裁剪至地图主体范围）', hs: true },
+    { label: '标注图', cap: '官方工具全量点位标注：出生点 14 处 · 打法卡详写 5 类主要出生点 / 撤离点 8 处 / 赛伊德 / 约 360 个物资点', hs: true, w: 1238, h: 1093 },
+    { label: '原始底图', cap: '官方瓦片拼接原始底图（已裁剪至地图主体范围）', hs: true, w: 1238, h: 1093 },
   ],
   changgongxigu: [
-    { label: '全点位标注', cap: '社区交互地图底图 + 335 个点位合成标注：出生点 22 处 · 打法卡详写 5 类主要出生点 / 撤离点 7 处 / 钥匙房 21 处 / 保险箱 / 服务器 / 鸟窝', hs: true },
-    { label: '纯净底图', cap: 'deltaforce-maps 瓦片拼接纯净底图（同一图幅）', hs: true },
+    { label: '全点位标注', cap: '社区交互地图底图 + 335 个点位合成标注：出生点 22 处 · 打法卡详写 5 类主要出生点 / 撤离点 7 处 / 钥匙房 21 处 / 保险箱 / 服务器 / 鸟窝', hs: true, w: 2048, h: 2048 },
+    { label: '纯净底图', cap: 'deltaforce-maps 瓦片拼接纯净底图（同一图幅）', hs: true, w: 1792, h: 1792 },
   ],
   bakeshi: [
-    { label: '全图底图', cap: '官方暗色底图瓦片拼接（已裁剪至地图主体，可点标注基于官方点位数据）', hs: true },
-    { label: '撤离点标注', cap: '官方地图工具撤离点截图拼合（静态拼图，无交互标注）', hs: false },
+    { label: '全图底图', cap: '官方暗色底图瓦片拼接（已裁剪至地图主体，可点标注基于官方点位数据）', hs: true, w: 858, h: 1073 },
+    { label: '撤离点标注', cap: '官方地图工具撤离点截图拼合（静态拼图，无交互标注）', hs: false, w: 1792, h: 865 },
   ],
   hangtianjidi: [
-    { label: '标注图', cap: '官方瓦片底图 + 程序化标注：13 个区域 / 出生点 / 撤离点 / 保险柜', hs: true },
-    { label: '纯净底图', cap: '官方瓦片拼接提亮版（已裁剪至地图主体范围）', hs: true },
+    { label: '标注图', cap: '官方瓦片底图 + 程序化标注：13 个区域 / 出生点 / 撤离点 / 保险柜', hs: true, w: 1400, h: 1542 },
+    { label: '纯净底图', cap: '官方瓦片拼接提亮版（已裁剪至地图主体范围）', hs: true, w: 943, h: 1040 },
   ],
   chaoxijianyu: [
-    { label: '标注图', cap: '官方点位数据渲染标注：出生点 14 处 · 打法卡详写 5 类主要出生点 / 撤离点 5 处 / 16 个区域 / 443 个容器', hs: true },
-    { label: '一层平面图', cap: '官方 1F 楼层瓦片拼接提亮版（静态拼图，无交互标注）', hs: false },
+    { label: '标注图', cap: '官方点位数据渲染标注：出生点 14 处 · 打法卡详写 5 类主要出生点 / 撤离点 5 处 / 16 个区域 / 443 个容器', hs: true, w: 1332, h: 1128 },
+    { label: '一层平面图', cap: '官方 1F 楼层瓦片拼接提亮版（静态拼图，无交互标注）', hs: false, w: 2048, h: 1978 },
   ],
   hedianzhan: [
-    { label: '标注图', cap: '官方点位数据自绘标注：出生点 / 撤离点 / 区域', hs: true },
-    { label: '纯净底图', cap: '官方瓦片拼接提亮版（已裁剪至地图主体范围）', hs: true },
+    { label: '标注图', cap: '官方点位数据自绘标注：出生点 / 撤离点 / 区域', hs: true, w: 1415, h: 1070 },
+    { label: '纯净底图', cap: '官方瓦片拼接提亮版（已裁剪至地图主体范围）', hs: true, w: 1238, h: 937 },
   ],
 }
 

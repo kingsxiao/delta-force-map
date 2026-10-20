@@ -59,6 +59,7 @@ const tabs = [
 }
 .brand {
   display: flex;
+  flex: none; /* 不参与收缩：窄屏收缩压力全交给 .tabs（否则 DELTA FORCE 会被压折行） */
   align-items: center;
   gap: 10px;
   text-decoration: none;
@@ -98,12 +99,16 @@ const tabs = [
 /* 下划线式 tab：文字 + 底部指示条，与页内胶囊 chips 拉开层级 */
 .tab {
   position: relative;
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  flex: none; /* 横向滚动模式下不吃收缩，保持整词宽 */
+  min-height: 44px; /* 触控行高下限（HIG 44pt）；56px 顶栏内垂直居中，桌面观感不变 */
   padding: 6px 2px;
   font-size: var(--fs-sm);
   color: var(--dim);
   text-decoration: none;
   letter-spacing: .05em;
+  white-space: nowrap; /* 放不下时由 .tabs 横向滚动承接，绝不允许逐字折行 */
   transition: color var(--t-med) var(--ease), transform var(--t-fast) var(--ease);
 }
 .tab::after {
@@ -137,11 +142,19 @@ const tabs = [
 .hero-slot > :deep(*) {
   pointer-events: auto;
 }
-/* 窄屏（--bp-mini 480px）：brand 收缩 + tab 间距收紧，消除 375px 视口溢出 */
+/* 窄屏（--bp-mini 480px）：brand 收缩 + tabs 改横向滚动条（复用全站 pills 的 overflow-x 范式），
+   五个整词 tab 逐字折行竖排的问题随之消除；min-width:0 让 .tabs 可在 brand 旁收缩出滚动空间 */
 @media (max-width: 480px) {
   .brand-sub { display: none; }
   .brand-mark { letter-spacing: .12em; }
-  .tabs { gap: var(--sp-4); }
+  .tabs {
+    gap: var(--sp-4);
+    min-width: 0;
+    overflow-x: auto;
+    scrollbar-width: none;
+    padding-bottom: 1px; /* 给 ::after 指示条的 -1px 底部溢出留位，防滚动容器裁剪 */
+  }
+  .tabs::-webkit-scrollbar { display: none; }
 }
 @media (prefers-reduced-motion: reduce) {
   .tab, .tab::after, .brand, .brand-sub { transition: none; }

@@ -7,14 +7,21 @@
    官方弹药图标走 picThumb CDN 缩略（原图最大 1.2MB，不可直连）。 */
 import { computed, ref } from 'vue'
 import Sparkline from './Sparkline.vue'
-import { picThumb } from './marketMeta.js'
-import { predictSellEta, fmtHours, fmtPeak } from './sellEta.js'
+import { picThumb } from '@shared/js/marketMeta.js'
+import { predictSellEta, fmtHours, fmtPeak } from '@shared/js/sellEta.js'
 
 const props = defineProps({
   item: { type: Object, required: true },
 })
 
 const qty = ref(100)
+/* 数量下限 1：输入 0 / 清空时试算区不出现「+0（+8.2%）」或空值——展示
+   按夹取值算，失焦再把输入框本身落回规范值（输入过程中不打断改写） */
+const safeQty = computed(() => {
+  const n = Math.round(Number(qty.value))
+  return Number.isFinite(n) && n >= 1 ? n : 1
+})
+function clampQty() { qty.value = safeQty.value }
 
 /* 预计卖出时间（历史到达历时 + 日内节律，纯函数在 ./sellEta.js） */
 const eta = computed(() => predictSellEta(props.item))
@@ -116,14 +123,14 @@ const hideImg = (e) => { e.target.style.display = 'none' }
       <span class="sc-k">数量</span>
       <button
         v-for="n in [100, 500, 1000]" :key="n"
-        class="qty-chip" :class="{ on: qty === n }" @click="qty = n"
+        class="qty-chip" :class="{ on: safeQty === n }" @click="qty = n"
       >{{ n }}</button>
-      <input v-model.number="qty" class="qty-in" type="number" min="1" aria-label="自定义数量" />
+      <input v-model.number="qty" class="qty-in" type="number" min="1" aria-label="自定义数量" @blur="clampQty" />
     </div>
     <div class="sc-totals">
-      <span>总投入 <b>{{ fmt(item.current * qty) }}</b></span>
-      <span>税后到手 <b>{{ fmt(item.netSell * qty) }}</b></span>
-      <span class="tot-profit">总利润 +{{ fmt(item.profitPerRound * qty) }}（{{ pct(item.profitPct) }}）</span>
+      <span>总投入 <b>{{ fmt(item.current * safeQty) }}</b></span>
+      <span>税后到手 <b>{{ fmt(item.netSell * safeQty) }}</b></span>
+      <span class="tot-profit">总利润 +{{ fmt(item.profitPerRound * safeQty) }}（{{ pct(item.profitPct) }}）</span>
     </div>
 
     <footer class="sc-foot">
