@@ -38,7 +38,7 @@ jobs:
 
       - name: 离线自测（子弹行情 + 异动雷达）
         run: |
-          node scripts/ammo/selftest.mjs
-          node scripts/market/selftest.mjs
+          node server/ammo/selftest.mjs
+          node server/market/selftest.mjs
 
       - run: npm run build
