@@ -15,6 +15,12 @@ npm ci
 echo "==> 构建"
 npm run build
 
+echo "==> 同步 systemd 单元（ExecStart 路径随 monorepo 重构变更过，这里自动对齐）"
+if ! sudo cmp -s deploy/delta-force-map.service /etc/systemd/system/delta-force-map.service 2>/dev/null; then
+  sudo cp deploy/delta-force-map.service /etc/systemd/system/delta-force-map.service
+  sudo systemctl daemon-reload
+fi
+
 echo "==> 重启服务"
 sudo systemctl restart delta-force-map
 
