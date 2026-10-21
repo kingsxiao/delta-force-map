@@ -38,28 +38,22 @@ final class AppModel {
         applySettings()
     }
 
-    /// 设置变更（地址 / 演示模式）后重建数据链路
+    /// 启动时建立数据链路（后端地址固定写死，无设置变更场景）
     func applySettings() {
-        let client = settings.settings.demoMode ? nil : settings.client
-        market.configure(client: client, demo: client == nil)
-        radar.configure(client: client, demo: client == nil)
-        if let client {
-            channel.start(client: client)
-        } else {
-            channel.stop()
-        }
+        let client = settings.client
+        market.configure(client: client)
+        radar.configure(client: client)
+        channel.start(client: client)
     }
 
     func handleScenePhase(_ phase: ScenePhase) {
         switch phase {
         case .active:
             guard started else { return }
-            if !settings.settings.demoMode, let client = settings.client {
-                if !channel.state.isLive { channel.start(client: client) }
-                Task {
-                    await market.refresh()
-                    await radar.refresh()
-                }
+            if !channel.state.isLive { channel.start(client: settings.client) }
+            Task {
+                await market.refresh()
+                await radar.refresh()
             }
         case .background:
             channel.stop()

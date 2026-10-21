@@ -1,4 +1,4 @@
-// Components.swift — 行情 / 雷达共用的小部件：信号胶囊、等级角标、分位条、迷你走势、状态头
+// Components.swift — 共享小部件：信号胶囊、等级角标、分位条、迷你走势、状态头、下拉筛选
 // 字阶一律走 Theme.font/monoFont（随 Dynamic Type）；含中文的胶囊用默认 design + .monospacedDigit()。
 import Charts
 import DeltaForceCore
@@ -14,6 +14,9 @@ struct SignalChip: View {
         Text(anomaly ? "⚠ 双源异常" : signal.label)
             .font(Theme.font(.micro, weight: .bold))
             .monospacedDigit()
+            // 徽标一律单行：宽度吃紧时保持理想宽，挤压由同行名称截断承担（否则会被压成单字竖排）
+            .lineLimit(1)
+            .fixedSize(horizontal: true, vertical: false)
             .foregroundStyle(color)
             .padding(.horizontal, 8)
             .padding(.vertical, 2)
@@ -30,6 +33,9 @@ struct GradeBadge: View {
             Text("\(grade)级")
                 .font(Theme.font(.micro, weight: .bold))
                 .monospacedDigit()
+                // 徽标一律单行：宽度吃紧时保持理想宽，挤压由同行名称截断承担（否则会被压成单字竖排）
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
                 .foregroundStyle(Theme.levelText(grade))
                 .padding(.horizontal, 8)
                 .padding(.vertical, 2)
@@ -45,6 +51,9 @@ struct PenBadge: View {
         Text("穿\(pen)")
             .font(Theme.font(.micro, weight: .bold))
             .monospacedDigit()
+            // 徽标一律单行：宽度吃紧时保持理想宽，挤压由同行名称截断承担（否则会被压成单字竖排）
+            .lineLimit(1)
+            .fixedSize(horizontal: true, vertical: false)
             .foregroundStyle(Theme.penText(pen))
             .padding(.horizontal, 8)
             .padding(.vertical, 2)
@@ -64,10 +73,83 @@ struct CategoryChip: View {
                     : Theme.font(.micro, weight: .semibold)
             )
             .monospacedDigit()
+            // 徽标一律单行：宽度吃紧时保持理想宽，挤压由同行名称截断承担（否则会被压成单字竖排）
+            .lineLimit(1)
+            .fixedSize(horizontal: true, vertical: false)
             .foregroundStyle(Theme.dim)
             .padding(.horizontal, 8)
             .padding(.vertical, 2)
             .background(Theme.card2, in: Capsule())
+    }
+}
+
+/// 下拉筛选的一个选项（值 + 展示文案 + 可选菜单行图标）
+struct FilterOption<ID: Hashable>: Identifiable {
+    let id: ID
+    let label: String
+    var icon: String? = nil
+}
+
+/// 下拉筛选（chip 触发 + 原生 Menu 浮层）：
+/// 浮层的定位 / 选中 checkmark / 背景模糊全部交给系统 Menu（与 Apple 自家 App 的筛选菜单同源），
+/// 定制集中在触发器 chip 上——caption 微字 + 当前值半粗 + 下箭头，card2 底 / line 描边，
+/// 偏离默认值时 caption 与描边点亮 accent（对齐 Things / Linear 的 active filter chip 心智）。
+struct FilterMenu<ID: Hashable>: View {
+    let caption: String
+    let options: [FilterOption<ID>]
+    @Binding var selection: ID
+    /// 与该值相同时视为「默认」，chip 不点亮；nil = 永不点亮
+    var defaultId: ID? = nil
+
+    private var active: Bool {
+        guard let defaultId else { return false }
+        return selection != defaultId
+    }
+
+    var body: some View {
+        Menu {
+            Picker(caption, selection: $selection) {
+                ForEach(options) { opt in
+                    if let icon = opt.icon {
+                        Label(opt.label, systemImage: icon).tag(opt.id)
+                    } else {
+                        Text(opt.label).tag(opt.id)
+                    }
+                }
+            }
+        } label: {
+            FilterChipLabel(
+                caption: caption,
+                value: options.first(where: { $0.id == selection })?.label ?? "—",
+                active: active
+            )
+        }
+    }
+}
+
+/// FilterMenu 的触发器 chip（同族观感：胶囊 / card2 底 / 1px 描边，字阶随 Dynamic Type）
+private struct FilterChipLabel: View {
+    let caption: String
+    let value: String
+    let active: Bool
+
+    var body: some View {
+        HStack(spacing: 7) {
+            Text(caption)
+                .font(Theme.font(.micro, weight: .medium))
+                .foregroundStyle(active ? Theme.accent : Theme.faint)
+            Text(value)
+                .font(Theme.font(.sm, weight: .semibold))
+                .foregroundStyle(Theme.txStrong)
+                .lineLimit(1)
+            Image(systemName: "chevron.down")
+                .font(Theme.monoFont(.micro, weight: .semibold))
+                .foregroundStyle(active ? Theme.accent : Theme.faint)
+        }
+        .padding(.horizontal, 13)
+        .padding(.vertical, 8)
+        .background(Capsule().fill(Theme.card2))
+        .overlay(Capsule().strokeBorder(active ? Theme.accent.opacity(0.45) : Theme.line, lineWidth: 1))
     }
 }
 
@@ -168,7 +250,7 @@ struct FeedHeader: View {
                         .fill(dotColor(now: ctx.date))
                         .frame(width: 8, height: 8)
                         .accessibilityHidden(true) // 状态语义由 statusText 文本承担
-                    // 含中文（「演示模式 · 内置样本」）：默认 design + 等宽数字
+                    // 含中文状态文案：默认 design + 等宽数字
                     Text(statusText)
                         .font(Theme.font(.xs, weight: .semibold))
                         .monospacedDigit()
@@ -178,7 +260,8 @@ struct FeedHeader: View {
                     Mono(MarketMeta.formatVersionLabel(feed.snapshot?.version), size: 12, weight: .medium, color: Theme.dim)
                 }
                 if let snap = feed.snapshot {
-                    Text("\(MarketMeta.sourceLabel(snap.source)) · 数据 \(MarketMeta.fmtAge(minutes: feed.ageMinutes(now: ctx.date))) 前")
+                    // 「X小时前」中文不断开：fmtAge 尾部无空格，"前"前不加字面空格
+                    Text("\(MarketMeta.sourceLabel(snap.source)) · 数据 \(MarketMeta.fmtAge(minutes: feed.ageMinutes(now: ctx.date)))前")
                         .font(Theme.font(.xs))
                         .foregroundStyle(Theme.faint)
                 }
@@ -190,7 +273,7 @@ struct FeedHeader: View {
                         .font(Theme.font(.xs))
                         .foregroundStyle(Theme.danger)
                 }
-                if !feed.isDemo, feed.isStale(now: ctx.date), let snap = feed.snapshot {
+                if feed.isStale(now: ctx.date), let snap = feed.snapshot {
                     Text(MarketMeta.staleTipText(source: snap.source, ageMin: feed.ageMinutes(now: ctx.date)))
                         .font(Theme.font(.xs))
                         .foregroundStyle(Theme.warn)
@@ -199,13 +282,9 @@ struct FeedHeader: View {
         }
     }
 
-    private var statusText: String {
-        if feed.isDemo { return "演示模式 · 内置样本" }
-        return channel.state.label
-    }
+    private var statusText: String { channel.state.label }
 
     private func dotColor(now: Date) -> Color {
-        if feed.isDemo { return Theme.info }
         if channel.state.isLive, !feed.isDotStale(now: now) { return Theme.ok }
         if feed.lastError != nil { return Theme.danger }
         return Theme.faint

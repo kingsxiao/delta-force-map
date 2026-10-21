@@ -117,12 +117,12 @@ struct ItemDetailView: View {
                 if eta.atTarget {
                     Text("现价已达挂卖价，可直接挂单。").font(Theme.font(.sm)).foregroundStyle(Theme.tx)
                 } else if let med = eta.medianH {
-                    HStack {
-                        StatCell(label: "历史中位历时", value: SellEtaEngine.fmtHours(med))
-                        StatCell(label: "最快", value: SellEtaEngine.fmtHours(eta.fastestH.map(Double.init)))
-                        StatCell(label: "样本", value: "\(eta.episodes) 次")
+                    statQuad(
+                        StatCell(label: "历史中位历时", value: SellEtaEngine.fmtHours(med)),
+                        StatCell(label: "最快", value: SellEtaEngine.fmtHours(eta.fastestH.map(Double.init))),
+                        StatCell(label: "样本", value: "\(eta.episodes) 次"),
                         StatCell(label: "预计到价", value: eta.etaLabel ?? "—", color: Theme.accent)
-                    }
+                    )
                     if eta.episodes < 2 {
                         Text("仅 1 次完整上涨样本，历时参考价值低。").font(Theme.font(.xs)).foregroundStyle(Theme.warn)
                     }
@@ -150,12 +150,12 @@ struct ItemDetailView: View {
         VStack(alignment: .leading, spacing: 8) {
             // 含中文标题：默认 design + 等宽数字（mono 只留给纯 ASCII）
             Text("双源交叉验证").font(Theme.font(.xs, weight: .bold)).monospacedDigit().foregroundStyle(Theme.accent)
-            HStack {
-                StatCell(label: "中位偏差", value: item.crossDev.map { Fmt.pct($0).replacingOccurrences(of: "+", with: "") } ?? "样本不足", color: item.isAnomaly ? Theme.warn : Theme.txStrong)
-                StatCell(label: "重叠小时", value: "\(item.crossOverlap ?? 0)")
-                StatCell(label: "原始信号", value: item.rawSignal?.label ?? "—")
+            statQuad(
+                StatCell(label: "中位偏差", value: item.crossDev.map { Fmt.pct($0).replacingOccurrences(of: "+", with: "") } ?? "样本不足", color: item.isAnomaly ? Theme.warn : Theme.txStrong),
+                StatCell(label: "重叠小时", value: "\(item.crossOverlap ?? 0)"),
+                StatCell(label: "原始信号", value: item.rawSignal?.label ?? "—"),
                 StatCell(label: "曲线源", value: item.curveSource ?? "—")
-            }
+            )
             Text(item.isAnomaly
                  ? "kkrb 与 moligod 曲线在重叠小时上的中位偏差 > 15%：口径分歧时宁可漏报，信号强制观望、不通知。"
                  : "两源曲线偏差在 15% 以内，信号可信；重叠不足 24 小时不做结论。")

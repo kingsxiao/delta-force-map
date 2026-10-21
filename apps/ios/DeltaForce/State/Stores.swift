@@ -4,10 +4,6 @@ import Foundation
 import Observation
 
 struct ServerSettings: Codable, Equatable, Sendable {
-    /// 自托管服务地址，如 http://1.2.3.4:8080 / https://df.example.com
-    var baseURL: String = ""
-    /// 演示模式：吃捆绑的 shared/fixtures 样本，离线可看（首次安装默认开）
-    var demoMode: Bool = true
     /// 信号本地通知（买入 / 卖出，去抖口径同后端 notify-policy）
     var notificationsEnabled: Bool = false
 
@@ -33,13 +29,8 @@ final class SettingsStore {
 
     private let defaults: UserDefaults
 
-    /// 地址合法即给客户端（与演示模式无关：地图 WebView 只看有没有服务器）
-    var client: APIClient? {
-        guard let url = try? APIClient.parseBaseURL(settings.baseURL) else { return nil }
-        return APIClient(baseURL: url)
-    }
-
-    var isConfigured: Bool { client != nil }
+    /// 后端地址固定写死（APIClient.productionBaseURL），App 只连这一台服务器
+    let client = APIClient(baseURL: APIClient.productionBaseURL)
 
     private func persist() {
         if let data = try? JSONEncoder().encode(settings) {

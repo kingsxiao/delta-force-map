@@ -1,65 +1,25 @@
-// SettingsView.swift — 服务器地址 / 演示模式 / 信号通知 / 关于
+// SettingsView.swift — 数据状态 / 信号通知 / 关于（后端地址固定写死，无需配置界面）
 import DeltaForceCore
 import SwiftUI
 
 struct SettingsView: View {
     @Environment(AppModel.self) private var app
-    @State private var draft = ""
-    @State private var probe: ProbeState = .idle
     @State private var refreshing = false // 两路快照刷新进行中（防连点）
     // 触觉反馈 tick：全部为本页局部状态、操作后自增（禁绑 Store 派生值）
-    @State private var saveTick = 0
     @State private var refreshTick = 0
     @State private var notifyTick = 0
-    @State private var demoTick = 0
-
-    private enum ProbeState: Equatable {
-        case idle, testing, ok(String), fail(String)
-    }
 
     var body: some View {
         @Bindable var settings = app.settings
         NavigationStack {
             Form {
-                Section {
-                    TextField("http://服务器IP:8080 或 https://域名", text: $draft)
-                        .keyboardType(.URL)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .font(Theme.monoFont(.lg)) // URL 为纯 ASCII：等宽 body 字阶，随 Dynamic Type 缩放
-                        .submitLabel(.go)
-                        .onSubmit { saveAndConnect() }
-                    // 特大字号下横排放不下时自动纵向堆叠
-                    ViewThatFits(in: .horizontal) {
-                        HStack {
-                            testButton
-                            Spacer()
-                            saveButton
-                        }
-                        VStack(alignment: .leading, spacing: 8) {
-                            testButton
-                            saveButton
-                        }
-                    }
-                    probeRow
-                } header: {
-                    Text("自托管服务（与网页端同一后端）")
-                } footer: {
-                    // 启动命令为纯 ASCII：等宽 footnote 呈现，不再露出 markdown 反引号
-                    Text("服务端：仓库根 ")
-                        + Text("npm run build && npm run serve").font(Theme.monoFont(.xs))
-                        + Text("（默认 0.0.0.0:8080），或按 deploy/aliyun.md 部署到云服务器。App 读 /ammo/market.json、/market/radar.json 快照，连 /events 实时通道；明文 http 已在 Info.plist 放行。")
-                }
-                .listRowBackground(Theme.card)
-
                 Section("数据") {
-                    Toggle("演示模式（内置样本，离线可看）", isOn: $settings.settings.demoMode)
-                        .onChange(of: settings.settings.demoMode) { _, _ in
-                            app.applySettings()
-                            demoTick += 1
-                        }
+                    // 只读展示固定后端（地址写死在 APIClient.productionBaseURL，不提供配置入口）
+                    LabeledContent("服务器") {
+                        Text(APIClient.productionBaseURL.absoluteString).monospacedDigit()
+                    }
                     LabeledContent("实时通道") {
-                        Text(app.settings.settings.demoMode ? "—" : app.channel.state.label).monospacedDigit()
+                        Text(app.channel.state.label).monospacedDigit()
                     }
                     LabeledContent("行情版本") {
                         Text(MarketMeta.formatVersionLabel(app.market.snapshot?.version)).monospacedDigit()
@@ -133,70 +93,10 @@ struct SettingsView: View {
             .background(Theme.bg)
             .navigationTitle("设置")
             .onAppear {
-                if draft.isEmpty { draft = app.settings.settings.baseURL }
                 Task { await app.notifications.refreshAuthorization() }
             }
-            .sensoryFeedback(.success, trigger: saveTick) // 保存并连接成功
             .sensoryFeedback(.success, trigger: refreshTick) // 两路快照刷新完成
             .sensoryFeedback(.success, trigger: notifyTick) // 通知开关
-            .sensoryFeedback(.success, trigger: demoTick) // 演示模式开关
-            .sensoryFeedback(trigger: probe) { _, newState in // 探测出结果：在线成功 / 失败警示
-                switch newState {
-                case .ok: return .success
-                case .fail: return .warning
-                default: return nil
-                }
-            }
-        }
-    }
-
-    private var testButton: some View {
-        Button {
-            Task { await testConnection() }
-        } label: {
-            Label("测试连接", systemImage: "antenna.radiowaves.left.and.right")
-        }
-        .disabled(draft.trimmingCharacters(in: .whitespaces).isEmpty || probe == .testing)
-    }
-
-    private var saveButton: some View {
-        Button("保存并连接") { saveAndConnect() }
-            .buttonStyle(.borderedProminent)
-            .disabled(draft.trimmingCharacters(in: .whitespaces).isEmpty)
-    }
-
-    @ViewBuilder
-    private var probeRow: some View {
-        switch probe {
-        case .idle: EmptyView()
-        case .testing:
-            HStack(spacing: 8) {
-                ProgressView().controlSize(.small)
-                Text("探测 /health …").font(Theme.font(.xs)).foregroundStyle(Theme.dim)
-            }
-        case .ok(let s): Label(s, systemImage: "checkmark.circle.fill").font(Theme.font(.xs)).foregroundStyle(Theme.ok)
-        case .fail(let s): Label(s, systemImage: "xmark.octagon.fill").font(Theme.font(.xs)).foregroundStyle(Theme.danger)
-        }
-    }
-
-    /// 保存地址、退出演示模式并立即探测 /health（复用 probeRow 展示在线/失败，连接成败当场可见）
-    private func saveAndConnect() {
-        guard !draft.trimmingCharacters(in: .whitespaces).isEmpty else { return }
-        app.settings.settings.baseURL = draft
-        app.settings.settings.demoMode = false
-        app.applySettings()
-        saveTick += 1
-        Task { await testConnection() }
-    }
-
-    private func testConnection() async {
-        probe = .testing
-        do {
-            let client = APIClient(baseURL: try APIClient.parseBaseURL(draft))
-            let h = try await client.health()
-            probe = .ok("在线 · 源 \(h.source ?? "—") · 版本 \(MarketMeta.formatVersionLabel(h.version)) · 已抓 \(h.cycles ?? 0) 轮")
-        } catch {
-            probe = .fail(error.localizedDescription)
         }
     }
 
