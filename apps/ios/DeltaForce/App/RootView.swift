@@ -2,7 +2,7 @@
 // （tint 由 App 入口统一——DeltaForceApp.swift 根上已有 .tint(Theme.accent)，这里不重复设置）
 import SwiftUI
 
-/// Tab 枚举：纯视图状态（不触 State/ 数据层），供跨页深链（如地图空态「去设置」）切 Tab
+/// Tab 枚举：纯视图状态（不触 State/ 数据层），供跨页深链切 Tab（如 UI 巡检 -startTab 启动参数）
 enum AppTab: Hashable {
     case ammo, radar, ttk, maps, settings
 }
@@ -21,7 +21,20 @@ extension EnvironmentValues {
 }
 
 struct RootView: View {
-    @State private var selection = AppTab.ammo
+    // UI 截图巡检钩子：`simctl launch` 传 -startTab <tab> 直达指定 Tab（生产无此参数，默认行情，行为不变）
+    @State private var selection = RootView.launchStartTab()
+
+    private static func launchStartTab() -> AppTab {
+        let args = ProcessInfo.processInfo.arguments
+        guard let i = args.firstIndex(of: "-startTab"), i + 1 < args.count else { return .ammo }
+        switch args[i + 1] {
+        case "radar": return .radar
+        case "ttk": return .ttk
+        case "maps": return .maps
+        case "settings": return .settings
+        default: return .ammo
+        }
+    }
 
     var body: some View {
         TabView(selection: $selection) {

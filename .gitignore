@@ -8,6 +8,8 @@ dist/
 .v2c/
 .video_agent/
 # iOS（apps/ios）：Xcode 个人状态不入库，工程文件由 project.yml 生成后提交
+# App 图标是 Contents.json 按文件名引用的构建资产，豁免全局 *.png 忽略
+!apps/ios/DeltaForce/Resources/Assets.xcassets/**/*.png
 xcuserdata/
 *.xcuserstate
 apps/ios/DerivedData/

@@ -37,9 +37,13 @@ enum Theme {
         return level(n)
     }
 
-    /// 文字用穿透等级色：穿 0（无穿透）同样降为 faint，理由同 levelText
+    /// 文字用穿透等级色：穿 0（无穿透）同样降为 faint，理由同 levelText。
+    /// 穿 6 文字单独提亮：levels[6] #D96A59 叠 12% 底（混色约 #2E262A）实测 4.30:1，
+    /// 低于 AA 小字 4.5:1；#E07A68 同底约 5.0:1。仅文字色，底色 / 图形仍用 pen() 原色。
     static func penText(_ p: Int) -> Color {
-        p <= 0 ? faint : pen(p)
+        if p <= 0 { return faint }
+        if p == 6 { return Color(hex: 0xE07A68) }
+        return pen(p)
     }
 
     static func signal(_ s: Signal) -> Color {

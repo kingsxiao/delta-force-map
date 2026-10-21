@@ -24,6 +24,15 @@ struct TtkView: View {
         }
     }
 
+    private var armorOptions: [FilterOption<Int>] {
+        [FilterOption(id: 0, label: "无甲")] + (1...6).map { FilterOption(id: $0, label: "\($0) 级甲") }
+    }
+
+    private var ammoOptions: [FilterOption<String>] {
+        [FilterOption(id: "best", label: "每枪最佳"), FilterOption(id: "all", label: "全部组合")]
+            + (0...7).map { FilterOption(id: "pen\($0)", label: "穿透 \($0) 级") }
+    }
+
     var body: some View {
         NavigationStack {
             Group {
@@ -66,33 +75,23 @@ struct TtkView: View {
         return ScrollViewReader { proxy in
             List {
                 Section {
-                    VStack(spacing: 10) {
-                        Picker("兵种", selection: $classId) {
-                            ForEach(data.classes) { Text($0.label).tag($0.id) }
-                        }
-                        .pickerStyle(.menu)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                    VStack(alignment: .leading, spacing: 10) {
+                        // 下拉筛选统一换 FilterMenu 胶囊 chip：caption + 当前值一体呈现，
+                        // 偏离默认值时描边点亮 accent；浮层为原生 Menu，选中项系统 checkmark + 根 tint
+                        FilterMenu(
+                            caption: "兵种",
+                            options: data.classes.map { FilterOption(id: $0.id, label: $0.label) },
+                            selection: $classId,
+                            defaultId: "ar"
+                        )
                         Picker("部位", selection: $partId) {
                             ForEach(data.parts) { Text($0.label).tag($0.id) }
                         }
                         .pickerStyle(.segmented)
                         HStack(spacing: 8) {
-                            // 字段名用 caption2 白名单字阶（中文不走 mono design）；不再用 HStack 级固定字号盖住系统 Picker
-                            Text("护甲").font(Theme.font(.micro)).foregroundStyle(Theme.faint)
-                            Picker("护甲", selection: $armor) {
-                                Text("无甲").tag(0)
-                                ForEach(1...6, id: \.self) { Text("\($0) 级甲").tag($0) }
-                            }
-                            Spacer()
-                            Text("弹药").font(Theme.font(.micro)).foregroundStyle(Theme.faint)
-                            Picker("弹药", selection: $filterTag) {
-                                Text("每枪最佳").tag("best")
-                                Text("全部组合").tag("all")
-                                ForEach(0...7, id: \.self) { Text("穿透 \($0) 级").tag("pen\($0)") }
-                            }
-                        }
-                        if let hint = part?.hint {
-                            Text(hint).font(Theme.font(.xs)).foregroundStyle(Theme.faint).frame(maxWidth: .infinity, alignment: .leading)
+                            FilterMenu(caption: "护甲", options: armorOptions, selection: $armor, defaultId: 4)
+                            FilterMenu(caption: "弹药", options: ammoOptions, selection: $filterTag, defaultId: "best")
+                            Spacer(minLength: 0)
                         }
                     }
                     .id(Self.topAnchor)

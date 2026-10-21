@@ -94,9 +94,6 @@ struct PlaybookView: View {
                             }
                         }
                         .card()
-                        .overlay(alignment: .leading) {
-                            if c.warn { RoundedRectangle(cornerRadius: 12).fill(Theme.warn).frame(width: 3).padding(.vertical, 10) }
-                        }
                     }
 
                     VStack(alignment: .leading, spacing: 8) {

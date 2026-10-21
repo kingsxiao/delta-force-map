@@ -121,33 +121,56 @@ struct RadarRow: View {
             ItemThumb(pic: item.pic, size: 36)
             VStack(alignment: .leading, spacing: 4) {
                 Text(item.name).font(Theme.font(.md, weight: .semibold)).foregroundStyle(Theme.txStrong).lineLimit(1)
-                HStack(spacing: 6) {
-                    if let c = item.category { CategoryChip(text: c) }
-                    GradeBadge(grade: item.grade)
+                // 徽标行宽度不足时按「分类 → 等级」次序省略（信号徽标必须保留），绝不折行竖排
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 6) {
+                        if let c = item.category { CategoryChip(text: c) }
+                        GradeBadge(grade: item.grade)
+                        SignalChip(signal: item.signal, anomaly: item.isAnomaly)
+                    }
+                    HStack(spacing: 6) {
+                        GradeBadge(grade: item.grade)
+                        SignalChip(signal: item.signal, anomaly: item.isAnomaly)
+                    }
                     SignalChip(signal: item.signal, anomaly: item.isAnomaly)
                 }
             }
+            .layoutPriority(1) // 名称列优先取宽（radar-2）：溢出压力由右列缩放 / 徽标降档承担，不挤折名称
             Spacer(minLength: 4)
-            VStack(alignment: .trailing, spacing: 3) {
-                Mono(Fmt.price(item.current), size: 14)
-                HStack(spacing: 4) {
-                    Text("分位").font(Theme.font(.micro)).foregroundStyle(Theme.faint)
-                    Mono(Fmt.rankPercent(item.rank), size: 12, weight: .medium, color: Theme.dim, relativeTo: .footnote)
-                    if let dev = item.crossDev {
-                        // 含中文（「偏差」）：默认 design + 等宽数字
-                        Text("偏差 \(Fmt.pct(dev).replacingOccurrences(of: "+", with: ""))")
-                            .font(Theme.font(.xs, weight: .medium)).monospacedDigit()
-                            .foregroundStyle(item.isAnomaly ? Theme.warn : Theme.faint)
-                    }
+            // 右列 + 走势线整体 ViewThatFits：行宽吃紧时先省略走势线（纯装饰、a11y 已隐藏），
+            // 保住名称列与价格数字都单行完整
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 10) {
+                    trailing
+                    Sparkline(curve: item.curve, color: item.isAnomaly ? Theme.warn : Theme.signal(item.signal))
+                        .frame(width: 50, height: 24)
                 }
+                trailing
             }
-            Sparkline(curve: item.curve, color: item.isAnomaly ? Theme.warn : Theme.signal(item.signal))
-                .frame(width: 50, height: 24)
         }
         .padding(.vertical, 2)
         // 整行合并为单一朗读元素：名次 / 名称 / 分类 / 信号 / 现价 / 分位 / 双源偏差 一句话转述
         .accessibilityElement(children: .combine)
         .accessibilityLabel(a11yLabel)
+    }
+
+    /// 右列（现价 / 分位 / 偏差）：单行 + 随宽缩一档兜底（同 StatCell），不折行
+    private var trailing: some View {
+        VStack(alignment: .trailing, spacing: 3) {
+            Mono(Fmt.price(item.current), size: 14)
+            HStack(spacing: 4) {
+                Text("分位").font(Theme.font(.micro)).foregroundStyle(Theme.faint)
+                Mono(Fmt.rankPercent(item.rank), size: 12, weight: .medium, color: Theme.dim, relativeTo: .footnote)
+                if let dev = item.crossDev {
+                    // 含中文（「偏差」）：默认 design + 等宽数字
+                    Text("偏差 \(Fmt.pct(dev).replacingOccurrences(of: "+", with: ""))")
+                        .font(Theme.font(.xs, weight: .medium)).monospacedDigit()
+                        .foregroundStyle(item.isAnomaly ? Theme.warn : Theme.faint)
+                }
+            }
+        }
+        .lineLimit(1)
+        .minimumScaleFactor(0.75)
     }
 
     /// 成句转述，替代逐控件拼读

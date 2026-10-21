@@ -29,7 +29,6 @@ private func stripHash(_ u: URL) -> String {
 
 struct MapsView: View {
     @Environment(AppModel.self) private var app
-    @Environment(\.tabSelection) private var tabSelection
     @State private var route = "/"
     @State private var reloadToken = 0
     @State private var loadState = WebLoadState.loading
@@ -38,35 +37,13 @@ struct MapsView: View {
 
     var body: some View {
         NavigationStack {
-            Group {
-                if let client = app.settings.client {
-                    webLayer(client)
-                } else {
-                    // 首次演示模式：直接给出「去设置」动线（经 RootView 暴露的 AppTab Binding 切页）
-                    ContentUnavailableView {
-                        Label("未配置服务器", systemImage: "server.rack")
-                    } description: {
-                        Text("在「设置」填入自托管服务地址后，这里加载网页版的高清地图与打法（同一后端）。")
-                    } actions: {
-                        Button {
-                            tabSelection.wrappedValue = .settings
-                        } label: {
-                            Label("去设置", systemImage: "gearshape")
-                        }
-                        .buttonStyle(.borderedProminent)
-                    }
-                }
+            VStack(spacing: 0) {
+                segmentedHeader
+                webLayer(app.settings.client)
             }
             .background(Theme.bg)
+            .navigationTitle(route == "/" ? "地图" : "打法")
             .toolbar {
-                ToolbarItem(placement: .principal) {
-                    // 分段控件即页面身份（不另设动态 navigationTitle，避免与 principal 冲突）
-                    Picker("页面", selection: $route) {
-                        Text("地图").tag("/")
-                        Text("打法").tag("/tactics")
-                    }
-                    .pickerStyle(.segmented)
-                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
                         progress = 0
@@ -76,16 +53,27 @@ struct MapsView: View {
                         Image(systemName: "arrow.clockwise")
                     }
                     .accessibilityLabel("刷新页面")
-                    .disabled(app.settings.client == nil)
                 }
-            }
-            .onChange(of: app.settings.settings.baseURL) { _, _ in
-                // 服务器地址变更 → 整页重载，重新走三态
-                progress = 0
-                loadState = .loading
             }
             .sensoryFeedback(.selection, trigger: route) // 地图 / 打法分段切换
             .sensoryFeedback(.success, trigger: refreshDoneTick) // 刷新完成轻触反馈
+        }
+    }
+
+    /// 地图 / 打法分段：移出 principal（其余四页均为大标题锚点，principal 分段占掉标题位会破坏跨页一致性），
+    /// 改为导航栏下方固定头部：水平 16 / 垂直 8 + Theme.line 分隔线
+    private var segmentedHeader: some View {
+        VStack(spacing: 0) {
+            Picker("页面", selection: $route) {
+                Text("地图").tag("/")
+                Text("打法").tag("/tactics")
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+            Rectangle()
+                .fill(Theme.line)
+                .frame(height: 1)
         }
     }
 
@@ -117,11 +105,7 @@ struct MapsView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(Theme.bg)
             case .failed(let message):
-                ContentUnavailableView {
-                    Label("加载失败", systemImage: "wifi.exclamationmark")
-                } description: {
-                    Text(message)
-                } actions: {
+                PaneView(icon: "wifi.exclamationmark", title: "加载失败", message: message) {
                     Button("重试") {
                         progress = 0
                         loadState = .loading
@@ -129,10 +113,44 @@ struct MapsView: View {
                     }
                     .buttonStyle(.borderedProminent)
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(Theme.bg)
             }
         }
+    }
+}
+
+/// 自绘空态 / 失败面板：ContentUnavailableView 内部字阶会盖掉传入字阶（R1 像素实测标题≈描述近同字号，
+/// 外挂 .font 修饰无效），这里拿回 Theme 字阶层级——标题 .xl semibold（≈20pt）vs 描述 .sm（≈13pt），比值≈1.5
+private struct PaneView<Action: View>: View {
+    let icon: String
+    let title: String
+    let message: String
+    let action: Action
+
+    init(icon: String, title: String, message: String, @ViewBuilder action: () -> Action) {
+        self.icon = icon
+        self.title = title
+        self.message = message
+        self.action = action()
+    }
+
+    var body: some View {
+        VStack(spacing: 14) {
+            Image(systemName: icon)
+                .font(.system(size: 36, weight: .light))
+                .foregroundStyle(Theme.faint)
+            Text(title)
+                .font(Theme.font(.xl, weight: .semibold))
+                .foregroundStyle(Theme.txStrong)
+            Text(message)
+                .font(Theme.font(.sm))
+                .foregroundStyle(Theme.dim)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 320)
+            action
+        }
+        .padding(24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Theme.bg)
     }
 }
 

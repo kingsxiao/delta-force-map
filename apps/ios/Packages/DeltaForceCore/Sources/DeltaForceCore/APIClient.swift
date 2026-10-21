@@ -18,6 +18,9 @@ public enum APIError: Error, LocalizedError, Sendable, Equatable {
 }
 
 public struct APIClient: Sendable {
+    /// 固定后端（自托管服务部署在阿里云，App 内写死，不再提供配置界面）
+    public static let productionBaseURL = URL(string: "http://47.108.91.143:8080")!
+
     public let baseURL: URL
     private let session: URLSession
 

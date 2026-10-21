@@ -103,7 +103,7 @@ struct AmmoView: View {
             }
             .themedList()
             .listStyle(.insetGrouped)
-            .searchable(text: $query, prompt: "搜索弹药")
+            .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "搜索弹药")
             .navigationTitle("子弹行情")
             .navigationDestination(for: MarketItem.self) { ItemDetailView(item: $0) }
             .refreshable {
@@ -119,11 +119,21 @@ struct AmmoView: View {
             .toolbar {
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     Menu {
+                        // 选项带 SF 图标：浮层行内图标 + 系统 checkmark（根 tint = Theme.accent），
+                        // 与 App Store / 备忘录的下拉筛选同款观感
                         Picker("筛选", selection: $filter) {
-                            ForEach(Filter.allCases) { Text($0.rawValue).tag($0) }
+                            Label("全部", systemImage: "square.grid.2x2").tag(Filter.all)
+                            Label("买入", systemImage: "arrow.down.circle.fill").tag(Filter.buy)
+                            Label("卖出", systemImage: "arrow.up.circle.fill").tag(Filter.sell)
+                            Label("关注", systemImage: "eye").tag(Filter.watch)
+                            Label("自选", systemImage: "star.fill").tag(Filter.favorites)
                         }
                         Picker("排序", selection: $sort) {
-                            ForEach(Sort.allCases) { Text($0.rawValue).tag($0) }
+                            Label("收益率", systemImage: "chart.line.uptrend.xyaxis").tag(Sort.profit)
+                            Label("分位（低→高）", systemImage: "chart.bar.fill").tag(Sort.rank)
+                            Label("现价", systemImage: "banknote").tag(Sort.price)
+                            Label("等级", systemImage: "shield.lefthalf.filled").tag(Sort.grade)
+                            Label("名称", systemImage: "textformat.abc").tag(Sort.name)
                         }
                     } label: {
                         // 偏离默认（全部 / 收益率）时图标点亮，label 附当前值
@@ -184,6 +194,7 @@ struct AmmoRow: View {
                     if starred { Image(systemName: "star.fill").font(Theme.font(.micro)).foregroundStyle(Theme.warn) }
                     Text(item.name).font(Theme.font(.md, weight: .semibold)).foregroundStyle(Theme.txStrong).lineLimit(1)
                 }
+                .layoutPriority(1) // 名称行优先保住单行高度，宽度不足时由本行截断承担
                 HStack(spacing: 6) {
                     GradeBadge(grade: item.grade)
                     SignalChip(signal: item.signal, anomaly: item.isAnomaly)
@@ -191,9 +202,13 @@ struct AmmoRow: View {
                         // 含中文（「分位」）：默认 design + 等宽数字
                         Text("分位 \(Fmt.rankPercent(rank))")
                             .font(Theme.font(.xs)).monospacedDigit()
+                            .lineLimit(1) // 徽章行统一单行：此文本先于徽标截断
                             .foregroundStyle(Theme.faint)
                     } else {
-                        Text(item.reason ?? "数据不足").font(Theme.font(.xs)).foregroundStyle(Theme.faint)
+                        Text(item.reason ?? "数据不足")
+                            .font(Theme.font(.xs))
+                            .lineLimit(1) // 同上：徽章行统一单行
+                            .foregroundStyle(Theme.faint)
                     }
                 }
             }
@@ -204,6 +219,8 @@ struct AmmoRow: View {
                     Mono("\(p >= 0 ? "+" : "")\(Fmt.price(p)) \(Fmt.pct(item.profitPct))", size: 12, weight: .medium, color: p > 0 ? Theme.ok : Theme.faint, relativeTo: .footnote)
                 }
             }
+            .lineLimit(1)
+            .minimumScaleFactor(0.75) // 徽标保理想宽后溢压移到价格列：随行内可用宽缩一档，不折行（同 StatCell 兜底）
             Sparkline(curve: item.curve, color: Theme.signal(item.signal))
                 .frame(width: 56, height: 26)
         }
@@ -266,9 +283,6 @@ struct SignalCard: View {
         }
         .frame(width: cardWidth, alignment: .leading)
         .card()
-        .overlay(alignment: .leading) {
-            RoundedRectangle(cornerRadius: 12).fill(Theme.ok).frame(width: 3).padding(.vertical, 10)
-        }
     }
 }
 
