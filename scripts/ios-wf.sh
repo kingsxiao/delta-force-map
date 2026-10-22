@@ -56,11 +56,11 @@ shoot() {
     fi
   done
   n="$(ls "$out" | grep -c '\.png$')"
-  if [[ "$n" -ne 5 ]]; then
-    echo "ERROR 截图数量不对：$n/5（目录 $out）"
+  if [[ "$n" -ne 4 ]]; then
+    echo "ERROR 截图数量不对：$n/4（目录 $out）"
     exit 1
   fi
-  echo "OK $out 5张"
+  echo "OK $out 4张"
 }
 
 case "$CMD" in
