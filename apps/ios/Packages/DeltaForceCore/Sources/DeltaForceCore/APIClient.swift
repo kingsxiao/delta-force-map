@@ -18,8 +18,8 @@ public enum APIError: Error, LocalizedError, Sendable, Equatable {
 }
 
 public struct APIClient: Sendable {
-    /// 固定后端（自托管服务部署在阿里云，App 内写死，不再提供配置界面）
-    public static let productionBaseURL = URL(string: "http://47.108.91.143:8080")!
+    /// 固定后端（HTTPS 域名，nginx 443 反代本机 8080；iOS 26 ATS 禁明文，必须走 https）
+    public static let productionBaseURL = URL(string: "https://xiaofating.cc")!
 
     public let baseURL: URL
     private let session: URLSession
