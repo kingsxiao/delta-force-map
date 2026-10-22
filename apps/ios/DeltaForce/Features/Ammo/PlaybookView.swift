@@ -56,24 +56,21 @@ struct PlaybookView: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
+                VStack(alignment: .leading, spacing: Theme.Space.md) {
                     Text("倒卖 = 低价囤消耗品 + 高位分批抛售。信号解决「哪种弹、什么价」，下面是社区攻略里验证过的「什么时间、怎么操作」——按 时段 → 买 → 卖 → 窗口 串成一条完整动线。")
                         .font(Theme.font(.sm)).foregroundStyle(Theme.dim)
 
                     // 自适应列：iPhone 2 列，iPad / 横屏按可用宽度自动多列
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 160), spacing: 10)], spacing: 10) {
                         ForEach(windows) { w in
-                            VStack(alignment: .leading, spacing: 4) {
+                            VStack(alignment: .leading, spacing: Theme.Space.xs) {
                                 HStack {
-                                    Mono(w.time, size: 13, relativeTo: .footnote)
+                                    // 纯 ASCII 时间窗（02:00–05:00）：mono sub 档
+                                    Mono(w.time, step: .sub)
                                     Spacer()
-                                    // 中文标签（扫货 / 囤货…）：默认 design + 等宽数字
-                                    Text(w.tag)
-                                        .font(Theme.font(.micro, weight: .bold))
-                                        .monospacedDigit()
-                                        .foregroundStyle(w.buy ? Theme.ok : Theme.danger)
-                                        .padding(.horizontal, 7).padding(.vertical, 1)
-                                        .overlay(Capsule().stroke((w.buy ? Theme.ok : Theme.danger).opacity(0.4)))
+                                    // 时间窗标签换共享 StatusChip（§3 C2 复用点）：替代本页 h7/v1 + 胶囊描边的
+                                    // 第四种徽标配方（§1.4 四族合一），buy=ok / sell=danger 语义不变
+                                    StatusChip(text: w.tag, tint: w.buy ? Theme.ok : Theme.danger)
                                 }
                                 Text(w.note).font(Theme.font(.xs)).foregroundStyle(Theme.faint)
                             }

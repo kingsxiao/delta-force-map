@@ -38,18 +38,22 @@ struct RootView: View {
     var body: some View {
         TabView(selection: $selection) {
             AmmoView()
-                .tabItem { Label("行情", systemImage: "chart.line.uptrend.xyaxis") }
+                // 自绘战术图标（Assets.xcassets 内 8 枚 symbolset）：未选中=线性，选中=线+核填充（DESIGN.md §6.2）
+                .tabItem { Label("行情", image: selection == .ammo ? "tab-ammo-fill" : "tab-ammo-line") }
                 .tag(AppTab.ammo)
             RadarView()
-                .tabItem { Label("雷达", systemImage: "dot.radiowaves.left.and.right") }
+                .tabItem { Label("雷达", image: selection == .radar ? "tab-radar-fill" : "tab-radar-line") }
                 .tag(AppTab.radar)
             TtkView()
-                .tabItem { Label("TTK", systemImage: "scope") }
+                .tabItem { Label("TTK", image: selection == .ttk ? "tab-ttk-fill" : "tab-ttk-line") }
                 .tag(AppTab.ttk)
             SettingsView()
-                .tabItem { Label("设置", systemImage: "gearshape") }
+                .tabItem { Label("设置", image: selection == .settings ? "tab-settings-fill" : "tab-settings-line") }
                 .tag(AppTab.settings)
         }
+        // Tab 根氛围（DESIGN.md §5 / §8-6）：转场保持系统默认（不自绘 Tab 切换动画）；
+        // 背景只做 Theme.bg 全屏铺底（background 默认忽略安全区，含 Tab 栏下缘），
+        // 四页统一纯净深底——web 端噪点 / 光晕背景明确不搬，列表页保持 Theme.bg
         .background(Theme.bg)
         .environment(\.tabSelection, $selection)
     }
