@@ -64,7 +64,7 @@ export function fmtAge(ageMin) {
   return `${Math.round(ageMin / 1440)} 天`
 }
 
-/** 过期提示文案：分钟级源如实注明「静态快照，不开 live 不自动更新」 */
+/** 过期提示文案：分钟级源如实注明「当前为历史快照」边界 */
 export function staleTipText(source, ageMin) {
   const age = fmtAge(ageMin)
   if (source === 'moligod') {

@@ -771,15 +771,15 @@ check('页面纯逻辑：版本双格式 / 阈值按 source 分档 / SSE 环境�
 
   const tipM = staleTipText('moligod', 42)
   assert(
-    tipM.includes('42 分钟') && tipM.includes('静态快照'),
-    `moligod 过期文案应如实注明分钟数与静态快照边界，实际：${tipM}`
+    tipM.includes('42 分钟') && tipM.includes('历史快照'),
+    `moligod 过期文案应如实注明分钟数与历史快照边界，实际：${tipM}`
   )
   // 分钟/小时/天分档：静态部署多天未更新时不得输出原始分钟数
   assert(staleTipText('moligod', 4320).includes('3 天'), `4320 分钟应显示「3 天」，实际：${staleTipText('moligod', 4320)}`)
   assert(!staleTipText('moligod', 4320).includes('4320'), '不得输出原始分钟数')
   assert(staleTipText('moligod', 300).includes('5 小时'), `300 分钟应显示「5 小时」，实际：${staleTipText('moligod', 300)}`)
   const tipK = staleTipText('kkrb', 420)
-  assert(tipK.includes('7 小时') && !tipK.includes('静态快照'), `kkrb 过期文案应保持小时口径，实际：${tipK}`)
+  assert(tipK.includes('7 小时') && !tipK.includes('历史快照'), `kkrb 过期文案应保持小时口径，实际：${tipK}`)
   assert(sourceLabel('moligod').includes('moligod') && sourceLabel('kkrb').includes('kkrb'), '来源文案应按 source 切换')
 })
 
