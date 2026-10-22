@@ -47,7 +47,7 @@ async function load({ silent = false } = {}) {
       refreshTip.value = '刷新失败，仍显示之前的数据'
     } else {
       loadError.value = e instanceof SyntaxError
-        ? '雷达数据格式异常（public/market/radar.json 可能未部署或被回退到页面）'
+        ? '雷达数据格式异常，请稍后重试'
         : e.message
       loadState.value = 'error'
     }
@@ -155,7 +155,14 @@ const LIVE_SSE_URL = liveChannelUrl(location)
 const liveChannel = ref('off') // off(环境不适用) | connecting | on | down
 let live = null
 const liveShort = computed(
-  () => ({ on: '实时推送', down: '60s 轮询', connecting: '连接中…' }[liveChannel.value] || '')
+  () => ({ on: '实时推送', down: '60s 自动刷新', connecting: '连接中…' }[liveChannel.value] || '')
+)
+const liveTip = computed(
+  () => ({
+    on: '实时推送已连接，异动自动送达',
+    down: '实时推送已断开，自动重连中；期间每 60 秒自动刷新',
+    connecting: '实时推送连接中…',
+  }[liveChannel.value] || '')
 )
 function connectLive() {
   if (!LIVE_SSE_URL) return
@@ -197,21 +204,21 @@ onBeforeUnmount(() => {
 
 <template>
   <div ref="pageRef" class="wrap page">
-    <!-- 页头（紧凑单行，走 base.css .compact-head；radar:monitor 提示在过期条里） -->
+    <!-- 页头（紧凑单行，走 base.css .compact-head；数据过期提示在下方 stale-tip） -->
     <header class="compact-head">
       <h1>全品类异动雷达 <span class="live-dot" :class="{ stale: ageMin !== null && ageMin > STALE_DOT_MIN }" aria-hidden="true"></span></h1>
-      <p v-if="market" class="meta" :title="`数据版本 ${versionLabel}${liveShort ? ' · 实时通道 ' + liveChannel : ''}`">
+      <p v-if="market" class="meta" :title="`数据版本 ${versionLabel}${liveTip ? ' · ' + liveTip : ''}`">
         <template v-if="ageLabel"><span :class="{ 'meta-stale': ageMin > STALE_TIP_MIN }">{{ ageLabel }}更新</span> · </template>kkrb 涨幅榜 + moligod 曲线<span v-if="liveShort"> · {{ liveShort }}</span>
       </p>
     </header>
 
     <p v-if="ageMin !== null && ageMin > STALE_TIP_MIN" class="state-tip stale-tip" role="status">
-      数据已 {{ ageLabel }} 未更新——确认 <code>radar:monitor</code> 是否在跑（榜单约每小时滚动）。
+      数据已 {{ ageLabel }} 未更新（榜单约每小时滚动），可稍后回来查看。
     </p>
     <p v-if="loadState === 'loading'" class="state-tip">正在加载雷达数据…</p>
     <div v-else-if="loadState === 'empty'" class="state-card">
-      <p>还没有雷达数据。先运行一次抓取脚本生成快照：</p>
-      <pre><code>npm run radar:fetch</code></pre>
+      <p>还没有雷达数据。</p>
+      <p class="dim">雷达快照正在准备中，稍后再来看看。</p>
     </div>
     <div v-else-if="loadState === 'error'" class="state-card">
       <p>雷达数据加载失败：{{ loadError }}</p>

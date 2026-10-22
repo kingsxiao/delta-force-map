@@ -9,7 +9,7 @@
    排行行点开懒加载逐发模拟、弹药库全表（默认收起）、穿透×护甲判定矩阵。
    枪名搜索（zh/en 不区分大小写子串）只保留命中枪的行；六组筛选 + 搜索词序列化进
    hash query（?p&a&cls&pen&mode&sort&q，可分享链接），进入时还原（query 属路由状态，
-   不属被禁的裸锚点 hash，契约同 TacticsView ?map=）。
+   不属被禁的裸锚点 hash）。
    入场统一走 useReveal；rank-list / champs 容器挂 reveal-group 行级级联（§7.3）。
    ============================================================ */
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'

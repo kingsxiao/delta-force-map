@@ -21,11 +21,11 @@ final class LiveChannel {
         var label: String {
             switch self {
             case .idle: "未连接"
-            case .probing: "探测服务…"
-            case .connecting: "连接实时通道…"
+            case .probing: "检查服务…"
+            case .connecting: "连接中…"
             case .live: "实时推送"
             case .reconnecting: "重连中"
-            case .unavailable: "轮询模式"
+            case .unavailable: "定时刷新"
             }
         }
     }

@@ -1,10 +1,10 @@
-// RootView.swift — 五个 Tab：行情 / 雷达 / TTK / 地图 / 设置
+// RootView.swift — 四个 Tab：行情 / 雷达 / TTK / 设置
 // （tint 由 App 入口统一——DeltaForceApp.swift 根上已有 .tint(Theme.accent)，这里不重复设置）
 import SwiftUI
 
 /// Tab 枚举：纯视图状态（不触 State/ 数据层），供跨页深链切 Tab（如 UI 巡检 -startTab 启动参数）
 enum AppTab: Hashable {
-    case ammo, radar, ttk, maps, settings
+    case ammo, radar, ttk, settings
 }
 
 /// 经 environment 暴露 Tab 选中 Binding 的 key（默认 .constant，保证预览/独立预览不炸）
@@ -30,7 +30,6 @@ struct RootView: View {
         switch args[i + 1] {
         case "radar": return .radar
         case "ttk": return .ttk
-        case "maps": return .maps
         case "settings": return .settings
         default: return .ammo
         }
@@ -47,9 +46,6 @@ struct RootView: View {
             TtkView()
                 .tabItem { Label("TTK", systemImage: "scope") }
                 .tag(AppTab.ttk)
-            MapsView()
-                .tabItem { Label("地图", systemImage: "map") }
-                .tag(AppTab.maps)
             SettingsView()
                 .tabItem { Label("设置", systemImage: "gearshape") }
                 .tag(AppTab.settings)

@@ -68,7 +68,7 @@ export function fmtAge(ageMin) {
 export function staleTipText(source, ageMin) {
   const age = fmtAge(ageMin)
   if (source === 'moligod') {
-    return `数据已 ${age} 未更新（静态快照，未运行 live 服务时不会自动更新），价格可能已变化，可点『刷新数据』重试`
+    return `数据已 ${age} 未更新（当前为历史快照），价格可能已变化，可点『刷新数据』重试`
   }
   return `数据已 ${age} 未更新，价格可能已变化，可点『刷新数据』重试`
 }

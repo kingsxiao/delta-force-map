@@ -69,7 +69,7 @@ final class TtkStore {
     func loadIfNeeded() {
         guard data == nil, error == nil else { return }
         guard let url = Bundle.main.url(forResource: "ttk", withExtension: "json") else {
-            error = "App 内缺少 ttk.json（先在仓库根运行 npm run export:ios）"
+            error = "TTK 数据缺失，请重新安装 App"
             return
         }
         do {

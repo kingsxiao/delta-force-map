@@ -10,7 +10,7 @@ public enum APIError: Error, LocalizedError, Sendable, Equatable {
 
     public var errorDescription: String? {
         switch self {
-        case .invalidBaseURL(let s): "服务器地址无效：\(s)"
+        case .invalidBaseURL: "服务地址配置无效"
         case .notHTTP: "响应不是 HTTP"
         case .badStatus(let code): "服务器返回 HTTP \(code)"
         }
@@ -45,11 +45,6 @@ public struct APIClient: Sendable {
 
     public var eventsURL: URL { baseURL.appending(path: "events") }
     public var healthURL: URL { baseURL.appending(path: "health") }
-    /// 网页端路由（hash 模式），供地图 / 打法 WebView 使用
-    public func webURL(route: String) -> URL {
-        URL(string: baseURL.absoluteString + "/#" + route) ?? baseURL
-    }
-
     public func fetchMarket() async throws -> MarketSnapshot {
         try await fetchJSON("ammo/market.json")
     }

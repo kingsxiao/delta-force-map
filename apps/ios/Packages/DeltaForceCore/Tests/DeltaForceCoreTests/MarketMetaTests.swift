@@ -27,8 +27,8 @@ struct MarketMetaTests {
         #expect(MarketMeta.fmtAge(minutes: 90) == "2 小时")
         #expect(MarketMeta.fmtAge(minutes: 4320) == "3 天")
         #expect(MarketMeta.fmtAge(minutes: nil) == "—")
-        #expect(MarketMeta.staleTipText(source: "moligod", ageMin: 4320).contains("静态快照"))
-        #expect(!MarketMeta.staleTipText(source: "kkrb", ageMin: 60).contains("静态快照"))
+        #expect(MarketMeta.staleTipText(source: "moligod", ageMin: 4320).contains("历史快照"))
+        #expect(!MarketMeta.staleTipText(source: "kkrb", ageMin: 60).contains("历史快照"))
     }
 
     @Test("图标缩略：imageMogr2 拼接，已带查询串原样返回")
