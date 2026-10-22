@@ -1,4 +1,4 @@
-// SettingsView.swift — 数据状态 / 信号通知 / 关于（后端地址固定写死，无需配置界面）
+// SettingsView.swift — 数据状态 / 信号通知 / 关于
 import DeltaForceCore
 import SwiftUI
 
@@ -14,11 +14,7 @@ struct SettingsView: View {
         NavigationStack {
             Form {
                 Section("数据") {
-                    // 只读展示固定后端（地址写死在 APIClient.productionBaseURL，不提供配置入口）
-                    LabeledContent("服务器") {
-                        Text(APIClient.productionBaseURL.absoluteString).monospacedDigit()
-                    }
-                    LabeledContent("实时通道") {
+                    LabeledContent("实时推送") {
                         Text(app.channel.state.label).monospacedDigit()
                     }
                     LabeledContent("行情版本") {
@@ -66,7 +62,7 @@ struct SettingsView: View {
                 } header: {
                     Text("通知")
                 } footer: {
-                    Text("去抖与后端 notify-policy 同口径：首次出现立即通知；信号切换需连续 2 轮确认；同信号 6 小时冷却；买入信号冷却期内再跌 5% 重报。通知只在 App 在前台拉到新快照时判定（iOS 无常驻后台），要 7×24 推送请在服务端跑 --notify。")
+                    Text("首次出现立即通知；信号切换需连续 2 轮确认；同信号 6 小时冷却；买入信号冷却期内再跌 5% 重报。通知只在 App 处于前台拿到最新数据时判定。")
                 }
                 .listRowBackground(Theme.card)
 
@@ -74,12 +70,7 @@ struct SettingsView: View {
                     LabeledContent("版本") {
                         Text(appVersion).monospacedDigit()
                     }
-                    LabeledContent("技术栈", value: "Swift 6 · SwiftUI · Swift Charts · URLSession SSE")
-                    LabeledContent("接口契约", value: "shared/API.md")
-                    Link(destination: URL(string: "https://github.com/kingsxiao/delta-force-map")!) {
-                        Label("GitHub 仓库", systemImage: "link")
-                    }
-                    Text("数据来源：三角洲攻略站 moligod（分钟级）、KK三角洲一图流 kkrb.net（兜底 / 涨幅榜）。点位与打法整理自社区公开资料；游戏素材版权归腾讯/天美所有，本 App 仅供个人学习参考。历史分位不代表未来走势，信号仅供参考。")
+                    Text("数据来源：三角洲攻略站 moligod（分钟级）、KK三角洲一图流 kkrb.net（兜底 / 涨幅榜）。游戏素材版权归腾讯/天美所有，本 App 仅供个人学习参考。历史分位不代表未来走势，信号仅供参考。")
                         .font(Theme.font(.xs)) // 版权/来源声明下限 footnote（原 11pt 固定字号不随系统字号设置）
                         .foregroundStyle(Theme.faint)
                 }

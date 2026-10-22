@@ -24,7 +24,6 @@
 		B9E78C48A5AD564B62FC129A /* guns in Resources */ = {isa = PBXBuildFile; fileRef = 079FACD94CB1FA7B3890F071 /* guns */; };
 		C06B02CF85E79528FF381EAB /* Components.swift in Sources */ = {isa = PBXBuildFile; fileRef = C61126AC7A531A3E1FD92208 /* Components.swift */; };
 		C4E8538CB47ED113969020C0 /* ttk.json in Resources */ = {isa = PBXBuildFile; fileRef = 6EE2DFE84128EB5E93A15099 /* ttk.json */; };
-		CCDD7BFDEBE5D0970EDF7A30 /* MapsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 667CAB54476666B094DE7121 /* MapsView.swift */; };
 		CF52128DA1A2C782752BA8DA /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BAB61D2590A1F5D6ACDD0C00 /* RootView.swift */; };
 		DDED2E4E88C06C94EBC3B98D /* NotificationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9F69DCDA745EBFA7BC19C7B /* NotificationManager.swift */; };
 		F8147C75B503E2D35C661FAF /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFF45918F5883AC55E7BF471 /* AppModel.swift */; };
@@ -38,7 +37,6 @@
 		15D00955C26A5370B3ABFA96 /* DeltaForce.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = DeltaForce.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		54F423207E9BAC8130C26CE7 /* FeedModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedModel.swift; sourceTree = "<group>"; };
 		64C5F5E25A909E4CE3A6BB7D /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
-		667CAB54476666B094DE7121 /* MapsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapsView.swift; sourceTree = "<group>"; };
 		6EE2DFE84128EB5E93A15099 /* ttk.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = ttk.json; sourceTree = "<group>"; };
 		6F621475F07A595782A36D14 /* DeltaForceCore */ = {isa = PBXFileReference; lastKnownFileType = folder; name = DeltaForceCore; path = Packages/DeltaForceCore; sourceTree = SOURCE_ROOT; };
 		912F43E1532064B3CA2BEAC7 /* RadarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RadarView.swift; sourceTree = "<group>"; };
@@ -79,7 +77,6 @@
 		20650FBD1B92CF2D5CC0322E /* Maps */ = {
 			isa = PBXGroup;
 			children = (
-				667CAB54476666B094DE7121 /* MapsView.swift */,
 			);
 			path = Maps;
 			sourceTree = "<group>";
@@ -294,7 +291,6 @@
 				4A559BD153CF9EA01E3CB8B9 /* FeedModel.swift in Sources */,
 				A0FD561C3D4B85E83094E8D0 /* ItemDetailView.swift in Sources */,
 				1E834ACACD533AE24EE19FEE /* LiveChannel.swift in Sources */,
-				CCDD7BFDEBE5D0970EDF7A30 /* MapsView.swift in Sources */,
 				DDED2E4E88C06C94EBC3B98D /* NotificationManager.swift in Sources */,
 				43083D2D9E33A1A762D0BEC5 /* PlaybookView.swift in Sources */,
 				3DCB15123891100D89E6CF80 /* PriceChart.swift in Sources */,

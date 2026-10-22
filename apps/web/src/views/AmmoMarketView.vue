@@ -94,7 +94,7 @@ async function load(opts = {}) {
       refreshTipKind.value = 'warn'
     } else {
       loadError.value = e instanceof SyntaxError
-        ? '行情数据格式异常（public/ammo/market.json 可能未部署或被回退到页面）'
+        ? '行情数据格式异常，请稍后重试'
         : e.message
       loadState.value = 'error'
     }
@@ -181,9 +181,9 @@ function connectLive() {
   live.start()
 }
 const liveText = computed(() => {
-  if (liveChannel.value === 'on') return '实时通道已连接（落盘 ≤5s 达）'
-  if (liveChannel.value === 'down') return '实时通道断开，自动重连中；60s 轮询兜底'
-  if (liveChannel.value === 'connecting') return '实时通道连接中…'
+  if (liveChannel.value === 'on') return '实时推送已连接，行情更新自动送达'
+  if (liveChannel.value === 'down') return '实时推送已断开，自动重连中；期间每 60 秒自动刷新'
+  if (liveChannel.value === 'connecting') return '实时推送连接中…'
   return '' // off：纯静态环境不显示，避免误导
 })
 /* 紧凑页头右列短语：来源/通道收成短标（完整来源、版本号与通道全文在悬浮
@@ -193,7 +193,7 @@ const srcShort = computed(() => {
   return s === 'moligod' ? 'moligod · 分钟级' : s === 'kkrb' ? 'kkrb · 小时级' : ''
 })
 const liveShort = computed(() =>
-  ({ on: '实时推送', down: '60s 轮询', connecting: '连接中…' }[liveChannel.value] || ''))
+  ({ on: '实时推送', down: '60s 自动刷新', connecting: '连接中…' }[liveChannel.value] || ''))
 const headTip = computed(() =>
   `数据版本 ${versionLabel.value} · 来源 ${srcLabel.value}${liveText.value ? ` · ${liveText.value}` : ''}`)
 
@@ -451,9 +451,8 @@ onUnmounted(() => {
     <!-- 加载 / 空态 -->
     <p v-if="loadState === 'loading'" class="state-tip">正在加载行情…</p>
     <div v-else-if="loadState === 'empty'" class="state-card">
-      <p>还没有行情数据。先运行一次抓取脚本生成快照：</p>
-      <pre><code>npm run ammo:fetch</code></pre>
-      <p class="dim">本地分钟级用 <code>npm run ammo:live</code>（配 <code>npm run dev</code>，落盘 ≤5s 到页面）；只挂通知用 <code>npm run ammo:monitor</code>。</p>
+      <p>还没有行情数据。</p>
+      <p class="dim">行情快照正在准备中，稍后再来看看。</p>
     </div>
     <div v-else-if="loadState === 'error'" class="state-card">
       <p>行情加载失败：{{ loadError }}</p>
@@ -682,7 +681,6 @@ onUnmounted(() => {
               <li><b>预计卖出</b>：统计近 7 天小时曲线——「从当前价位档涨到 P75 挂卖价」的完整上涨段给出中位/最快历时；同小时均价聚合给出日内高位时段。历史统计不代表未来。</li>
               <li><b>能赚多少</b>：每发利润 = 目标挂卖价 × (1−税率) − 当前买入价；税率按上游税后价实测反推（约 15%，逐弹计算）。</li>
               <li><b>数据</b>：{{ dataLine }}</li>
-              <li><b>本地工具</b>：<code>npm run ammo:live</code> 分钟级抓取落盘（配 dev 服务，页面 ≤5s 收到）；<code>npm run ammo:monitor</code> 只挂买入/卖出系统通知。</li>
               <li><b>提醒</b>：交易行价格受版本、活动与大盘供需影响，历史分位不代表未来走势；利润测算未计挂单时间成本。</li>
             </ul>
           </section>

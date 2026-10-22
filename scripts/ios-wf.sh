@@ -38,7 +38,7 @@ shoot() {
   xcrun simctl bootstatus "$UDID" -b >/dev/null 2>&1 || true
   xcrun simctl install "$UDID" "$app" || { echo "ERROR 安装失败：$app"; exit 1; }
   mkdir -p "$out"
-  for tab in ammo radar ttk maps settings; do
+  for tab in ammo radar ttk settings; do
     f="$out/$tab.png"
     # 冷启动首拍渲染最慢，多等
     if ((first)); then

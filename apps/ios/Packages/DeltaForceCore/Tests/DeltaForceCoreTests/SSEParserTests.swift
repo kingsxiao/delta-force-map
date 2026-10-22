@@ -76,6 +76,5 @@ struct APIClientTests {
         let c = APIClient(baseURL: try APIClient.parseBaseURL("http://10.0.0.2:8080"))
         #expect(c.eventsURL.absoluteString == "http://10.0.0.2:8080/events")
         #expect(c.healthURL.absoluteString == "http://10.0.0.2:8080/health")
-        #expect(c.webURL(route: "/tactics").absoluteString == "http://10.0.0.2:8080/#/tactics")
     }
 }
