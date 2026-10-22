@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="3900" height="3900" viewBox="0 0 3900 3900" xmlns="http://www.w3.org/2000/svg">
+<path id="Capline-S" d="M 0 1023 L 3900 1023" stroke="#E4A33C" stroke-width="39" fill="none"/>
+<path id="Baseline-S" d="M 0 2877 L 3900 2877" stroke="#E4A33C" stroke-width="39" fill="none"/>
+<path id="Capline-M" d="M 0 1023 L 3900 1023" stroke="#E4A33C" stroke-width="39" fill="none"/>
+<path id="Baseline-M" d="M 0 2877 L 3900 2877" stroke="#E4A33C" stroke-width="39" fill="none"/>
+<path id="Capline-L" d="M 0 1023 L 3900 1023" stroke="#E4A33C" stroke-width="39" fill="none"/>
+<path id="Baseline-L" d="M 0 2877 L 3900 2877" stroke="#E4A33C" stroke-width="39" fill="none"/>
+  <g id="Regular-M">
+    <path fill="#000000" fill-rule="nonzero" d="M 812.5 3067.19 L 1462.5 3067.19 A 142.19 142.19 0 0 1 1462.5 2782.81 L 812.5 2782.81 A 142.19 142.19 0 0 1 812.5 3067.19 Z"/>
+    <path fill="#000000" fill-rule="nonzero" d="M 1604.69 2925 L 1604.69 2356.25 A 142.19 142.19 0 0 1 1320.31 2356.25 L 1320.31 2925 A 142.19 142.19 0 0 1 1604.69 2925 Z"/>
+    <path fill="#000000" fill-rule="nonzero" d="M 1462.5 2498.44 L 2031.25 2498.44 A 142.19 142.19 0 0 1 2031.25 2214.06 L 1462.5 2214.06 A 142.19 142.19 0 0 1 1462.5 2498.44 Z"/>
+    <path fill="#000000" fill-rule="nonzero" d="M 2173.44 2356.25 L 2173.44 1706.25 A 142.19 142.19 0 0 1 1889.06 1706.25 L 1889.06 2356.25 A 142.19 142.19 0 0 1 2173.44 2356.25 Z"/>
+    <path fill="#000000" fill-rule="nonzero" d="M 2031.25 1848.44 L 2518.75 1848.44 A 142.19 142.19 0 0 1 2518.75 1564.06 L 2031.25 1564.06 A 142.19 142.19 0 0 1 2031.25 1848.44 Z"/>
+    <path fill="#000000" fill-rule="nonzero" d="M 2660.94 1706.25 L 2660.94 1056.25 A 142.19 142.19 0 0 1 2376.56 1056.25 L 2376.56 1706.25 A 142.19 142.19 0 0 1 2660.94 1706.25 Z"/>
+    <path fill="#000000" fill-rule="nonzero" d="M 2518.75 1198.44 L 2762.5 1198.44 A 142.19 142.19 0 0 1 2762.5 914.06 L 2518.75 914.06 A 142.19 142.19 0 0 1 2518.75 1198.44 Z"/>
+    <path fill="#000000" fill-rule="nonzero" d="M 2673.13 1056.25 A 235.62 235.62 0 1 1 3144.37 1056.25 A 235.62 235.62 0 1 1 2673.13 1056.25 Z"/>
+    <path fill="#000000" fill-rule="nonzero" d="M 1462.5 2925 L 1462.5 2600 L 2031.25 2600 L 2031.25 1950 L 2518.75 1950 L 2518.75 1300 L 2762.5 1300 L 2762.5 2925 Z"/>
+  </g>
+</svg>

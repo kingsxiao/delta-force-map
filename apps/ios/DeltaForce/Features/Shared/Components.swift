@@ -1,5 +1,8 @@
-// Components.swift — 共享小部件：信号胶囊、等级角标、分位条、迷你走势、状态头、下拉筛选
+// Components.swift — 共享小部件：信号胶囊、等级角标、分位条、迷你走势、状态头、下拉筛选、
+// 状态胶囊 / 四格行 / 重试错误行 / 连接状态点（DESIGN.md §3 C1–C11）
 // 字阶一律走 Theme.font/monoFont（随 Dynamic Type）；含中文的胶囊用默认 design + .monospacedDigit()。
+// 徽标四族统一配方（§1.4）：文字=语义色、底=同色 12%、描边=同色 40%、内边距 h8/v2；
+// 圆角按语义二分——状态类（SignalChip / StatusChip）=胶囊，属性类（GradeBadge / PenBadge / CategoryChip）=方角 radiusBadge。
 import Charts
 import DeltaForceCore
 import SwiftUI
@@ -10,18 +13,27 @@ struct SignalChip: View {
 
     var body: some View {
         let color = anomaly ? Theme.warn : Theme.signal(signal)
-        // 文案含中文（「⚠ 双源异常」/「买入」等）：默认 design，数字用等宽
-        Text(anomaly ? "⚠ 双源异常" : signal.label)
-            .font(Theme.font(.micro, weight: .bold))
-            .monospacedDigit()
-            // 徽标一律单行：宽度吃紧时保持理想宽，挤压由同行名称截断承担（否则会被压成单字竖排）
-            .lineLimit(1)
-            .fixedSize(horizontal: true, vertical: false)
-            .foregroundStyle(color)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 2)
-            .background(color.opacity(0.12), in: Capsule())
-            .overlay(Capsule().stroke(color.opacity(0.4), lineWidth: 1))
+        // 文案含中文（「双源异常」/「买入」等）：默认 design，数字用等宽
+        HStack(spacing: 3) {
+            if anomaly {
+                // 异常态图标走 SF Symbol（C3）：U+26A0 无变体选择符可能渲染成彩色 emoji，破坏「信号色唯一来源 Theme」纪律；
+                // 尺寸跟 micro 字阶走（§6.1-3 不裸设字号），警示语义由「双源异常」文本承担
+                Image(systemName: "exclamationmark.triangle")
+                    .font(Theme.font(.micro, weight: .bold))
+                    .accessibilityHidden(true)
+            }
+            Text(anomaly ? "双源异常" : signal.label)
+                .font(Theme.font(.micro, weight: .bold))
+                .monospacedDigit()
+        }
+        // 徽标一律单行：宽度吃紧时保持理想宽，挤压由同行名称截断承担（否则会被压成单字竖排）
+        .lineLimit(1)
+        .fixedSize(horizontal: true, vertical: false)
+        .foregroundStyle(color)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 2)
+        .background(color.opacity(0.12), in: Capsule())
+        .overlay(Capsule().stroke(color.opacity(0.4), lineWidth: 1))
     }
 }
 
@@ -39,7 +51,9 @@ struct GradeBadge: View {
                 .foregroundStyle(Theme.levelText(grade))
                 .padding(.horizontal, 8)
                 .padding(.vertical, 2)
-                .overlay(RoundedRectangle(cornerRadius: 6).stroke(Theme.level(grade).opacity(0.5), lineWidth: 1))
+                // C1：补 12% 底（原仅描边），描边统一 40%；底色 / 描边属图形，保留 level() 原色
+                .background(Theme.level(grade).opacity(0.12), in: RoundedRectangle(cornerRadius: Theme.radiusBadge))
+                .overlay(RoundedRectangle(cornerRadius: Theme.radiusBadge).stroke(Theme.level(grade).opacity(0.4), lineWidth: 1))
         }
     }
 }
@@ -57,7 +71,9 @@ struct PenBadge: View {
             .foregroundStyle(Theme.penText(pen))
             .padding(.horizontal, 8)
             .padding(.vertical, 2)
-            .background(Theme.pen(pen).opacity(0.12), in: RoundedRectangle(cornerRadius: 6))
+            .background(Theme.pen(pen).opacity(0.12), in: RoundedRectangle(cornerRadius: Theme.radiusBadge))
+            // C1：补 40% 描边（原仅底）
+            .overlay(RoundedRectangle(cornerRadius: Theme.radiusBadge).stroke(Theme.pen(pen).opacity(0.4), lineWidth: 1))
     }
 }
 
@@ -79,7 +95,33 @@ struct CategoryChip: View {
             .foregroundStyle(Theme.dim)
             .padding(.horizontal, 8)
             .padding(.vertical, 2)
-            .background(Theme.card2, in: Capsule())
+            // C1：card2 实底 → dim 色 10% 底 + 30% 描边（最轻的一族，比状态 / 等级徽标再降一档）；
+            // 属性类徽标取方角 radiusBadge（§1.4 圆角语义二分）
+            .background(Theme.dim.opacity(0.10), in: RoundedRectangle(cornerRadius: Theme.radiusBadge))
+            .overlay(RoundedRectangle(cornerRadius: Theme.radiusBadge).stroke(Theme.dim.opacity(0.3), lineWidth: 1))
+    }
+}
+
+/// 状态语义胶囊（C2 / §1.4）：文字=tint、底=tint 12%、描边=tint 40%、胶囊圆角、h8/v2。
+/// 供手册时间窗标签（扫货 / 囤货…）与雷达态势计数（买入 N / 卖出 N…）等纯状态标签复用，
+/// 与属性类方角徽标（等级 / 穿透 / 分类）区分。单行纪律与四族同款。
+struct StatusChip: View {
+    let text: String
+    var tint: Color = Theme.dim
+
+    var body: some View {
+        // 文案多为中文混排（「买入 12」）：默认 design + 等宽数字
+        Text(text)
+            .font(Theme.font(.micro, weight: .bold))
+            .monospacedDigit()
+            // 徽标一律单行：宽度吃紧时保持理想宽，挤压由同行名称截断承担（否则会被压成单字竖排）
+            .lineLimit(1)
+            .fixedSize(horizontal: true, vertical: false)
+            .foregroundStyle(tint)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 2)
+            .background(tint.opacity(0.12), in: Capsule())
+            .overlay(Capsule().stroke(tint.opacity(0.4), lineWidth: 1))
     }
 }
 
@@ -127,29 +169,41 @@ struct FilterMenu<ID: Hashable>: View {
     }
 }
 
-/// FilterMenu 的触发器 chip（同族观感：胶囊 / card2 底 / 1px 描边，字阶随 Dynamic Type）
+/// FilterMenu 的触发器 chip（同族观感：胶囊 / card2 底 / 1px 描边，字阶随 Dynamic Type）。
+/// C8：ViewThatFits 降级——正常 caption+value 单行；特大字号 / 窄屏放不下时 value 允许折 2 行，
+/// 不再把关键值压成「护甲 …」截断（AX 韧性，DESIGN.md §7-6）
 private struct FilterChipLabel: View {
     let caption: String
     let value: String
     let active: Bool
 
     var body: some View {
-        HStack(spacing: 7) {
-            Text(caption)
-                .font(Theme.font(.micro, weight: .medium))
-                .foregroundStyle(active ? Theme.accent : Theme.faint)
-            Text(value)
-                .font(Theme.font(.sm, weight: .semibold))
-                .foregroundStyle(Theme.txStrong)
-                .lineLimit(1)
-            Image(systemName: "chevron.down")
-                .font(Theme.monoFont(.micro, weight: .semibold))
-                .foregroundStyle(active ? Theme.accent : Theme.faint)
+        ViewThatFits(in: .horizontal) {
+            content(valueLineLimit: 1)
+            content(valueLineLimit: 2)
         }
         .padding(.horizontal, 13)
         .padding(.vertical, 8)
         .background(Capsule().fill(Theme.card2))
         .overlay(Capsule().strokeBorder(active ? Theme.accent.opacity(0.45) : Theme.line, lineWidth: 1))
+    }
+
+    private func content(valueLineLimit: Int) -> some View {
+        HStack(spacing: 7) {
+            Text(caption)
+                .font(Theme.font(.micro, weight: .medium))
+                .foregroundStyle(active ? Theme.accent : Theme.faint)
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false) // caption 恒单行，宽度压力全部交给 value 折行
+            Text(value)
+                .font(Theme.font(.sm, weight: .semibold))
+                .foregroundStyle(Theme.txStrong)
+                .lineLimit(valueLineLimit)
+                .multilineTextAlignment(.leading)
+            Image(systemName: "chevron.down")
+                .font(Theme.monoFont(.micro, weight: .semibold))
+                .foregroundStyle(active ? Theme.accent : Theme.faint)
+        }
     }
 }
 
@@ -246,18 +300,16 @@ struct FeedHeader: View {
         TimelineView(.periodic(from: .now, by: 30)) { ctx in
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 8) {
-                    Circle()
-                        .fill(dotColor(now: ctx.date))
-                        .frame(width: 8, height: 8)
-                        .accessibilityHidden(true) // 状态语义由 statusText 文本承担
-                    // 含中文状态文案：默认 design + 等宽数字
-                    Text(statusText)
-                        .font(Theme.font(.xs, weight: .semibold))
-                        .monospacedDigit()
-                        .foregroundStyle(Theme.dim)
+                    // 连接点复用共享 ConnectionDot（C11 提为共享 API），着色维度全参传入：
+                    // 观感与原 private dotColor 逐分支等价（live 且未过期→ok / 有错误→danger / 其余→faint）
+                    ConnectionDot(
+                        state: channel.state,
+                        error: feed.lastError != nil,
+                        stale: feed.isDotStale(now: ctx.date)
+                    )
                     Spacer()
                     if feed.isLoading { ProgressView().controlSize(.mini) }
-                    Mono(MarketMeta.formatVersionLabel(feed.snapshot?.version), size: 12, weight: .medium, color: Theme.dim)
+                    Mono(MarketMeta.formatVersionLabel(feed.snapshot?.version), step: .micro, color: Theme.dim)
                 }
                 if let snap = feed.snapshot {
                     // 「X小时前」中文不断开：fmtAge 尾部无空格，"前"前不加字面空格
@@ -269,9 +321,14 @@ struct FeedHeader: View {
                     Text(subtitle).font(Theme.font(.xs)).foregroundStyle(Theme.faint)
                 }
                 if let err = feed.lastError {
+                    // C7：错误行升格为 danger 8% 底胶囊行，断网时在列表顶部一眼可见（原图标语义=警告）
                     Label(err, systemImage: "exclamationmark.triangle")
                         .font(Theme.font(.xs))
                         .foregroundStyle(Theme.danger)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Theme.danger.opacity(0.08), in: Capsule())
                 }
                 if feed.isStale(now: ctx.date), let snap = feed.snapshot {
                     Text(MarketMeta.staleTipText(source: snap.source, ageMin: feed.ageMinutes(now: ctx.date)))
@@ -280,25 +337,91 @@ struct FeedHeader: View {
                 }
             }
         }
-    }
-
-    private var statusText: String { channel.state.label }
-
-    private func dotColor(now: Date) -> Color {
-        if channel.state.isLive, !feed.isDotStale(now: now) { return Theme.ok }
-        if feed.lastError != nil { return Theme.danger }
-        return Theme.faint
+        // C6：id 绑 version × lastRefreshAt 组合——任一前进即重建 TimelineView、以当前时间重算年龄。
+        // 只绑 version 不够：FeedModel.refresh 明确处理「version 不变、fetchedAt 前进」的同版本重拉
+        //（State/FeedModel.swift:60 changed 判断），此时恰好漏掉要消灭的 30s 年龄滞后；30s 周期兜底保留
+        .id("\(feed.snapshot?.version ?? "-")-\(Int(feed.lastRefreshAt?.timeIntervalSince1970 ?? 0))")
     }
 }
 
-/// 成功内容淡入（图片加载完成的瞬跳感收敛）
+/// 连接状态小组件（C11）：8pt 圆点 + state.label 文案，供 FeedHeader 与设置页「连接状态」行共用。
+/// 着色规则（与原 FeedHeader.dotColor 逐步对齐）：`state.isLive && !stale` → ok；`error` → danger；其余 → faint。
+/// LiveChannel.State 六态没有 error 态，故签名必须带 `error`/`stale` 两个带默认值参数承载这两个维度：
+/// 设置页只传 `state`（live 显 ok、其余 faint）；FeedHeader 传全参（观感与现状逐分支等价）。
+struct ConnectionDot: View {
+    let state: LiveChannel.State
+    /// feed.lastError != nil 时圆点转 danger
+    var error: Bool = false
+    /// feed.isDotStale(now:) 为 true 时 live 也不显 ok
+    var stale: Bool = false
+
+    private var tint: Color {
+        if state.isLive, !stale { return Theme.ok }
+        if error { return Theme.danger }
+        return Theme.faint
+    }
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Circle()
+                .fill(tint)
+                .frame(width: 8, height: 8)
+                .accessibilityHidden(true) // 状态语义由 label 文本承担
+            // 含中文状态文案：默认 design + 等宽数字
+            Text(state.label)
+                .font(Theme.font(.xs, weight: .semibold))
+                .monospacedDigit()
+                .foregroundStyle(Theme.dim)
+        }
+    }
+}
+
+/// 带重试的错误行（C10）：错误胶囊（C7 同款样式）+ 重试按钮；`busy` 为 true 时按钮禁用并显示内联进度，
+/// 消除「点了没反应」的空转。雷达 / 行情 / 设置的首拉失败态共用；旧 FeedErrorView（原 AmmoView 内）
+/// 已按 DESIGN.md §3 C10 安全序在各页换用后删除。
+struct RetryErrorRow: View {
+    let message: String
+    let retry: () -> Void
+    var busy = false
+
+    var body: some View {
+        VStack(spacing: 10) {
+            Label(message, systemImage: "wifi.exclamationmark")
+                .font(Theme.font(.xs))
+                .foregroundStyle(Theme.danger)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(Theme.danger.opacity(0.08), in: Capsule())
+            Button {
+                if !busy { retry() }
+            } label: {
+                HStack(spacing: 6) {
+                    if busy { ProgressView().controlSize(.mini) }
+                    Text("重试").font(Theme.font(.sm, weight: .semibold))
+                }
+            }
+            .buttonStyle(.bordered)
+            .disabled(busy)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 8)
+    }
+}
+
+/// 成功内容淡入（图片加载完成的瞬跳感收敛；时长走 durFast 令牌，Reduce Motion 下直接呈现）
 private struct FadeInModifier: ViewModifier {
     @State private var shown = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     func body(content: Content) -> some View {
         content
             .opacity(shown ? 1 : 0)
             .onAppear {
-                withAnimation(.easeOut(duration: 0.2)) { shown = true }
+                if reduceMotion {
+                    shown = true
+                } else {
+                    withAnimation(.easeOut(duration: Theme.durFast)) { shown = true }
+                }
             }
     }
 }
@@ -333,23 +456,63 @@ struct ItemThumb: View {
                 Image(systemName: "shippingbox").foregroundStyle(Theme.faint)
             }
         }
-        .frame(width: size, height: size)        .background(Theme.card2, in: RoundedRectangle(cornerRadius: 8))
+        .frame(width: size, height: size)        .background(Theme.card2, in: RoundedRectangle(cornerRadius: Theme.radiusTile))
         .accessibilityHidden(true)
     }
 }
 
+/// 统计格：label 微字 + 等宽数值；`emphasis: .hero` 时数值升 lead 档并随宽缩至 0.8（C4「主数字立权」用），
+/// 默认 `.plain` 与历史行为逐像素一致（size 14 / relativeTo .body / minimumScaleFactor 0.75）
 struct StatCell: View {
+    /// 数值强调档（C4）：plain=次级统计格（现状）；hero=行内主角数字（升 MonoStep.lead + 0.8 缩放兜底）
+    enum Emphasis {
+        case plain
+        case hero
+    }
+
     let label: String
     let value: String
     var color: Color = Theme.txStrong
+    var emphasis: Emphasis = .plain
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(label).font(Theme.font(.micro)).foregroundStyle(Theme.faint)
-            Mono(value, size: 14, color: color) // 随基础层 ScaledMetric 自动缩放
-                .lineLimit(1)
-                .minimumScaleFactor(0.75) // 窄屏大数兜底
+            switch emphasis {
+            case .plain:
+                Mono(value, size: 14, color: color) // 随基础层 ScaledMetric 自动缩放（兼容通道，观感与历史一致）
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75) // 窄屏大数兜底
+            case .hero:
+                Mono(value, step: .lead, color: color, minScale: 0.8) // 主数字立权：lead 档 + 0.8 缩放兜底
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// 统计四格行（C5）：宽度足够时一行 4 列，窄屏 / 特大字号自动折成 2×2 两行（ViewThatFits 降级）。
+/// 自 ItemDetailView 私有 statQuad 提为共享（DESIGN.md §3 C5）：详情页与 GunDetail 头部共用同一韧性。
+struct StatQuadRow: View {
+    let a: StatCell
+    let b: StatCell
+    let c: StatCell
+    let d: StatCell
+
+    init(_ a: StatCell, _ b: StatCell, _ c: StatCell, _ d: StatCell) {
+        self.a = a
+        self.b = b
+        self.c = c
+        self.d = d
+    }
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack { a; b; c; d }
+            VStack(alignment: .leading, spacing: 8) {
+                HStack { a; b }
+                HStack { c; d }
+            }
+        }
     }
 }

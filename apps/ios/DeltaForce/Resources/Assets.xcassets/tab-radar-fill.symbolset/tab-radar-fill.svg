@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="3900" height="3900" viewBox="0 0 3900 3900" xmlns="http://www.w3.org/2000/svg">
+<path id="Capline-S" d="M 0 1023 L 3900 1023" stroke="#E4A33C" stroke-width="39" fill="none"/>
+<path id="Baseline-S" d="M 0 2877 L 3900 2877" stroke="#E4A33C" stroke-width="39" fill="none"/>
+<path id="Capline-M" d="M 0 1023 L 3900 1023" stroke="#E4A33C" stroke-width="39" fill="none"/>
+<path id="Baseline-M" d="M 0 2877 L 3900 2877" stroke="#E4A33C" stroke-width="39" fill="none"/>
+<path id="Capline-L" d="M 0 1023 L 3900 1023" stroke="#E4A33C" stroke-width="39" fill="none"/>
+<path id="Baseline-L" d="M 0 2877 L 3900 2877" stroke="#E4A33C" stroke-width="39" fill="none"/>
+  <g id="Regular-M">
+    <path fill="#000000" fill-rule="evenodd" d="M 796.25 2047.5 A 1056.25 1056.25 0 1 1 2908.75 2047.5 A 1056.25 1056.25 0 1 1 796.25 2047.5 Z M 1080.62 2047.5 A 771.88 771.88 0 1 1 2624.38 2047.5 A 771.88 771.88 0 1 1 1080.62 2047.5 Z"/>
+    <path fill="#000000" fill-rule="nonzero" d="M 1852.5 2047.5 L 2624.38 2047.5 A 771.88 771.88 0 0 0 2398.3 1501.7 Z"/>
+    <path fill="#000000" fill-rule="nonzero" d="M 2607.85 1105.28 A 186.87 186.87 0 1 1 2981.59 1105.28 A 186.87 186.87 0 1 1 2607.85 1105.28 Z"/>
+    <path fill="#000000" fill-rule="nonzero" d="M 2862.03 875.47 A 162.5 162.5 0 1 1 3187.03 875.47 A 162.5 162.5 0 1 1 2862.03 875.47 Z"/>
+  </g>
+</svg>

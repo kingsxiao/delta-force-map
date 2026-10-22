@@ -4,6 +4,7 @@ import SwiftUI
 
 struct TtkView: View {
     @Environment(AppModel.self) private var app
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var classId = "ar"
     @State private var partId = "chest"
     @State private var armor = 4
@@ -15,6 +16,12 @@ struct TtkView: View {
 
     /// 筛选变化后滚回榜首的锚点 id
     private static let topAnchor = "ttk-top"
+
+    /// 默认口径（DESIGN §4.4-1）：「重置筛选」出口回到这套基准，与四枚 FilterMenu 的 defaultId 同源
+    private static let defaultClassId = "ar"
+    private static let defaultPartId = "chest"
+    private static let defaultArmor = 4
+    private static let defaultFilterTag = "best"
 
     private var filter: AmmoFilter {
         switch filterTag {
@@ -39,16 +46,31 @@ struct TtkView: View {
                 if let data = app.ttk.data {
                     content(data)
                 } else if let err = app.ttk.error {
-                    ContentUnavailableView("TTK 数据不可用", systemImage: "scope", description: Text(err))
+                    // 错误态给出口（DESIGN §4.4-4）：只给「复制错误信息」——数据自 bundle 一次性加载，
+                    // loadIfNeeded 的 guard（State/Stores.swift:69-80，禁改）决定「重试」必空转，诚实降级不给假按钮
+                    ContentUnavailableView {
+                        Label("TTK 数据不可用", systemImage: "scope")
+                    } description: {
+                        Text(err)
+                    } actions: {
+                        Button {
+                            UIPasteboard.general.string = err
+                        } label: {
+                            Label("复制错误信息", systemImage: "doc.on.doc")
+                        }
+                    }
+                    .transition(.opacity) // 错误态出现淡入（DESIGN §5 P2）
                 } else {
                     // 加载态：转圈配一句说明，冷启动不再是白屏转圈
-                    VStack(spacing: 8) {
+                    VStack(spacing: Theme.Space.sm) {
                         ProgressView()
                         Text("正在载入 TTK 数据").font(Theme.font(.xs)).foregroundStyle(Theme.dim)
                     }
                 }
             }
             .background(Theme.bg)
+            // 错误态出现淡入（durFast 令牌；Reduce Motion 直接呈现，§7-9）
+            .animation(reduceMotion ? nil : .easeOut(duration: Theme.durFast), value: app.ttk.error)
             .navigationTitle("TTK 排行")
             .toolbar {
                 Button {
@@ -75,23 +97,24 @@ struct TtkView: View {
         return ScrollViewReader { proxy in
             List {
                 Section {
-                    VStack(alignment: .leading, spacing: 10) {
-                        // 下拉筛选统一换 FilterMenu 胶囊 chip：caption + 当前值一体呈现，
-                        // 偏离默认值时描边点亮 accent；浮层为原生 Menu，选中项系统 checkmark + 根 tint
-                        FilterMenu(
-                            caption: "兵种",
-                            options: data.classes.map { FilterOption(id: $0.id, label: $0.label) },
-                            selection: $classId,
-                            defaultId: "ar"
-                        )
-                        Picker("部位", selection: $partId) {
-                            ForEach(data.parts) { Text($0.label).tag($0.id) }
-                        }
-                        .pickerStyle(.segmented)
-                        HStack(spacing: 8) {
-                            FilterMenu(caption: "护甲", options: armorOptions, selection: $armor, defaultId: 4)
-                            FilterMenu(caption: "弹药", options: ammoOptions, selection: $filterTag, defaultId: "best")
-                            Spacer(minLength: 0)
+                    // 筛选区收敛为一行横滚 chips（DESIGN §4.4-3）：部位 segmented 并入 FilterMenu，
+                    // 四枚胶囊同族呈现（原生 Menu 浮层 + 偏离默认描边点亮 accent），榜单首行上移到折叠线内
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: Theme.Space.sm) {
+                            FilterMenu(
+                                caption: "兵种",
+                                options: data.classes.map { FilterOption(id: $0.id, label: $0.label) },
+                                selection: $classId,
+                                defaultId: Self.defaultClassId
+                            )
+                            FilterMenu(
+                                caption: "部位",
+                                options: data.parts.map { FilterOption(id: $0.id, label: $0.label) },
+                                selection: $partId,
+                                defaultId: Self.defaultPartId
+                            )
+                            FilterMenu(caption: "护甲", options: armorOptions, selection: $armor, defaultId: Self.defaultArmor)
+                            FilterMenu(caption: "弹药", options: ammoOptions, selection: $filterTag, defaultId: Self.defaultFilterTag)
                         }
                     }
                     .id(Self.topAnchor)
@@ -99,10 +122,7 @@ struct TtkView: View {
                 .listRowBackground(Theme.card)
 
                 Section("排行 · \(ranking.count) 项 · \(part?.label ?? "") · \(armor == 0 ? "无甲" : "\(armor) 级甲")") {
-                    if ranking.isEmpty {
-                        // 空态行（做法对齐 AmmoView）：不再只剩「排行 · 0 项」标题
-                        Text("当前筛选无匹配弹药").font(Theme.font(.xs)).foregroundStyle(Theme.faint)
-                    }
+                    if ranking.isEmpty { emptyState }
                     ForEach(Array(ranking.enumerated()), id: \.element.id) { idx, combo in
                         NavigationLink(value: combo.gun) {
                             RankRow(index: idx + 1, combo: combo)
@@ -123,8 +143,11 @@ struct TtkView: View {
             }
             .themedList()
             .listStyle(.insetGrouped)
-            .searchable(text: $query, prompt: "搜索枪械")
+            // 搜索栏常驻（DESIGN §4.4-6）：与行情页对齐，数据密集工具搜索是跨 Tab 恒量
+            .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "搜索枪械")
             .sensoryFeedback(.selection, trigger: hapticTick)
+            // 空态出现/消失淡入（DESIGN §5 P2；Reduce Motion 直接呈现，§7-9）
+            .animation(reduceMotion ? nil : .easeOut(duration: Theme.durFast), value: ranking.isEmpty)
             .onChange(of: classId) { _, _ in filterChanged(proxy) }
             .onChange(of: partId) { _, _ in filterChanged(proxy) }
             .onChange(of: armor) { _, _ in filterChanged(proxy) }
@@ -135,25 +158,63 @@ struct TtkView: View {
         }
     }
 
-    /// 筛选变化：滚回榜首 + 轻触反馈（长榜单深处换筛选不再迷失位置）
+    /// 空态按成因分文案（DESIGN §4.4-1）：搜索无果给「清空搜索」、筛选无果给「重置筛选」回默认口径，
+    /// 四维度组合无结果不再让用户逐个猜（对齐行情页空态做法）
+    @ViewBuilder
+    private var emptyState: some View {
+        if !query.isEmpty {
+            ContentUnavailableView {
+                Label("没有匹配的枪械", systemImage: "magnifyingglass")
+            } description: {
+                Text("换个关键词，或清空搜索看全部枪械")
+            } actions: {
+                Button("清空搜索") { query = "" }
+            }
+            .frame(maxWidth: .infinity)
+            .transition(.opacity)
+        } else {
+            ContentUnavailableView {
+                Label("当前筛选无匹配弹药", systemImage: "line.3.horizontal.decrease.circle")
+            } description: {
+                Text("兵种 · 部位 · 护甲 · 弹药组合无结果")
+            } actions: {
+                Button("重置筛选") {
+                    classId = Self.defaultClassId
+                    partId = Self.defaultPartId
+                    armor = Self.defaultArmor
+                    filterTag = Self.defaultFilterTag
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .transition(.opacity)
+        }
+    }
+
+    /// 筛选变化：滚回榜首 + 轻触反馈（长榜单深处换筛选不再迷失位置）；
+    /// 动画走 durMed 令牌（DESIGN §5），Reduce Motion 下无动画直达（§7-9）
     private func filterChanged(_ proxy: ScrollViewProxy) {
         hapticTick += 1
-        withAnimation { proxy.scrollTo(Self.topAnchor, anchor: .top) }
+        if reduceMotion {
+            proxy.scrollTo(Self.topAnchor, anchor: .top)
+        } else {
+            withAnimation(.easeOut(duration: Theme.durMed)) { proxy.scrollTo(Self.topAnchor, anchor: .top) }
+        }
     }
 }
 
 struct RankRow: View {
     let index: Int
     let combo: ComboResult
-    /// 序号列宽随 Dynamic Type 缩放（原固定 24pt 违例清理）
-    @ScaledMetric(relativeTo: .footnote) private var indexWidth: CGFloat = 24
+    /// 序号列宽随 Dynamic Type 缩放（锚与名次 sub 档同步走 subheadline）
+    @ScaledMetric(relativeTo: .subheadline) private var indexWidth: CGFloat = 24
 
     var body: some View {
         HStack(spacing: 10) {
-            Mono(String(format: "%02d", index), size: 12, color: index <= 3 ? Theme.accent : Theme.faint, relativeTo: .footnote)
+            // 名次对齐雷达语言（DESIGN §4.4-7）：零填充 + sub 档，前三 accent 其余 faint
+            Mono(String(format: "%02d", index), step: .sub, color: index <= 3 ? Theme.accent : Theme.faint)
                 .frame(minWidth: indexWidth, alignment: .leading)
-            GunImage(img: combo.gun.img, size: 44)
-            VStack(alignment: .leading, spacing: 3) {
+            GunImage(img: combo.gun.img)
+            VStack(alignment: .leading, spacing: Theme.Space.xs) {
                 HStack(spacing: 6) {
                     Text(combo.gun.zh).font(Theme.font(.md, weight: .semibold)).foregroundStyle(Theme.txStrong)
                     if combo.gun.burst == true { CategoryChip(text: "三连发") }
@@ -167,9 +228,10 @@ struct RankRow: View {
                 }
             }
             Spacer(minLength: 4)
-            VStack(alignment: .trailing, spacing: 2) {
+            VStack(alignment: .trailing, spacing: Theme.Space.xs) {
                 HStack(alignment: .firstTextBaseline, spacing: 2) {
-                    Mono("\(Int(combo.ttk.rounded()))", size: 16, weight: .bold, relativeTo: .callout)
+                    // 行内最强数字（DESIGN §4.4-2 主数字立权）：TTK 毫秒数 lead 档 bold——排行页比较的就是它
+                    Mono("\(Int(combo.ttk.rounded()))", step: .lead, weight: .bold)
                     Text("ms").font(Theme.monoFont(.micro)).foregroundStyle(Theme.faint)
                 }
                 // 中文混排：默认 design + 等宽数字
@@ -199,16 +261,17 @@ struct GunDetailView: View {
         let cal = data.calibers[gun.cal]
         List {
             Section {
-                HStack(spacing: 12) {
+                HStack(spacing: Theme.Space.md) {
                     GunImage(img: gun.img, size: 80)
-                    VStack(alignment: .leading, spacing: 4) {
+                    VStack(alignment: .leading, spacing: Theme.Space.xs) {
                         Text(gun.en).font(Theme.font(.xs)).foregroundStyle(Theme.dim)
-                        HStack(spacing: 10) {
-                            StatCell(label: "肉伤", value: "\(Int(gun.dmg))")
-                            StatCell(label: "甲伤", value: "\(Int(gun.admg))")
-                            StatCell(label: "射速", value: "\(Int(gun.rpm))")
+                        // 四格走共享 StatQuadRow（DESIGN §4.4-5 / §3 C5）：窄屏 / 特大字号 4→2×2 自动降级
+                        StatQuadRow(
+                            StatCell(label: "肉伤", value: "\(Int(gun.dmg))"),
+                            StatCell(label: "甲伤", value: "\(Int(gun.admg))"),
+                            StatCell(label: "射速", value: "\(Int(gun.rpm))"),
                             StatCell(label: "弹匣", value: "\(gun.mag)")
-                        }
+                        )
                         // 口径标签含中文（× 亦非 ASCII）：默认 design + 等宽数字
                         if let cal { Text("\(cal.label) · \(cal.sub)").font(Theme.font(.xs)).monospacedDigit().foregroundStyle(Theme.accent) }
                     }
@@ -220,15 +283,16 @@ struct GunDetailView: View {
 
             Section("全部弹药 · \(data.part(partId)?.label ?? "") · \(armor == 0 ? "无甲" : "\(armor) 级甲")") {
                 ForEach(combos) { c in
-                    HStack(spacing: 8) {
+                    HStack(spacing: Theme.Space.sm) {
                         PenBadge(pen: c.ammo.pen)
-                        VStack(alignment: .leading, spacing: 2) {
+                        VStack(alignment: .leading, spacing: Theme.Space.xs) {
                             Text(c.ammo.n).font(Theme.font(.md, weight: .semibold)).foregroundStyle(Theme.txStrong)
                             if let note = c.ammo.note { Text(note).font(Theme.font(.xs)).foregroundStyle(Theme.faint).lineLimit(2) }
                         }
                         Spacer()
-                        VStack(alignment: .trailing, spacing: 2) {
-                            Mono("\(Int(c.ttk.rounded())) ms", size: 14, relativeTo: .subheadline)
+                        VStack(alignment: .trailing, spacing: Theme.Space.xs) {
+                            // 行主数字走 lead 档（DESIGN §1.3「同层级同档」）：弹药对比行比的就是 TTK
+                            Mono("\(Int(c.ttk.rounded())) ms", step: .lead)
                             // 中文混排：默认 design + 等宽数字
                             Text("\(c.btk) 发 · 通过 \(Int(c.sim.pass * 100))% · 无甲 \(c.sim.noArmorBtk) 发")
                                 .font(Theme.font(.xs)).monospacedDigit().foregroundStyle(Theme.dim)
@@ -245,10 +309,11 @@ struct GunDetailView: View {
     }
 }
 
-/// 官方渲染图：apps/web/public/guns 以文件夹引用捆绑（guns/<id>.webp）；AA-12 无图走剪影占位
+/// 官方渲染图：apps/web/public/guns 以文件夹引用捆绑（guns/<id>.webp）；AA-12 无图走剪影占位。
+/// 缩略降权（DESIGN §4.4-2）：36pt + line 描边透明底（原 card2 亮底 44pt）——排行页要比较的是毫秒数，不是枪图
 struct GunImage: View {
     let img: String?
-    var size: CGFloat = 44
+    var size: CGFloat = 36
 
     var body: some View {
         Group {
@@ -259,8 +324,9 @@ struct GunImage: View {
                 Image(systemName: "scope").foregroundStyle(Theme.faint)
             }
         }
+        .padding(2) // 内衬让枪图不贴描边
         .frame(width: size * 1.6, height: size)
-        .background(Theme.card2, in: RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: Theme.radiusTile).stroke(Theme.line, lineWidth: 1))
         .accessibilityHidden(true) // 纯图形：枪名由所在行的合并 label 转述
     }
 }
@@ -275,7 +341,7 @@ struct PenMatrixView: View {
     var body: some View {
         NavigationStack {
             ScrollView([.horizontal, .vertical]) {
-                Grid(horizontalSpacing: 4, verticalSpacing: 4) {
+                Grid(horizontalSpacing: Theme.Space.xs, verticalSpacing: Theme.Space.xs) {
                     GridRow {
                         // 表头与导航标题口径一致；中文默认 design + 等宽数字
                         Text("穿透 \\ 护甲").font(Theme.font(.micro)).monospacedDigit().foregroundStyle(Theme.faint).frame(minWidth: cellWidth)
@@ -292,16 +358,16 @@ struct PenMatrixView: View {
                                     .font(Theme.monoFont(.micro, weight: .semibold)) // 纯 ASCII（如 50%）保留 mono
                                     .foregroundStyle(r == 0 ? Theme.danger : r == 1 ? Theme.ok : Theme.warn)
                                     .frame(minWidth: cellWidth, minHeight: cellHeight)
-                                    .background(Theme.card, in: RoundedRectangle(cornerRadius: 6))
+                                    .background(Theme.card, in: RoundedRectangle(cornerRadius: Theme.radiusBadge))
                                     // Grid 不关联行列头：单元格自述行列语义，补 VoiceOver 缺口
                                     .accessibilityLabel(al == 0 ? "穿 \(pen) 对无甲，通过率 \(Int(r * 100))%" : "穿 \(pen) 对 \(al) 级甲，通过率 \(Int(r * 100))%")
                             }
                         }
                     }
                 }
-                .padding(12)
+                .padding(Theme.Space.md)
                 Text("国服社区实测口径：穿透低于护甲 0%，持平 50%，高 1 级 75%，高 2 级及以上 100%；无甲一律 100%。")
-                    .font(Theme.font(.xs)).foregroundStyle(Theme.dim).padding(.horizontal, 12)
+                    .font(Theme.font(.xs)).foregroundStyle(Theme.dim).padding(.horizontal, Theme.Space.md)
             }
             .background(Theme.bg)
             .navigationTitle("穿透 × 护甲判定")

@@ -1,4 +1,5 @@
 // PriceChart.swift — 7 天价格大图：P25 / P75 参考线、现价点 + 数值标注、拖动查值（对齐网页端 PriceChart.vue）
+// P1 逐点触感 / P2 气泡淡入 / P3 字阶收编 / P4 VO 逐点听值（DESIGN.md §3，iOS 17 API）
 import Charts
 import DeltaForceCore
 import SwiftUI
@@ -8,6 +9,10 @@ struct PriceChart: View {
 
     /// 拖动查值选中的点（nil = 未拖动）；本页局部 @State，抬手即清
     @State private var selected: Pt?
+    /// VO 逐点听值游标（P4）：-1 = 未开始（从最新点起步），否则为 points 下标；
+    /// 只服务 accessibilityValue，不与拖动 selected 互扰
+    @State private var voCursor = -1
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private struct Pt: Identifiable {
         let id: String
@@ -48,10 +53,7 @@ struct PriceChart: View {
                     .foregroundStyle(Theme.ok.opacity(0.8))
                     .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 3]))
                     .annotation(position: .top, alignment: .leading) {
-                        Text("P25 \(Fmt.price(p25))")
-                            .font(Theme.monoFont(.micro)) // 纯 ASCII：mono design
-                            .monospacedDigit()
-                            .foregroundStyle(Theme.ok)
+                        Mono("P25 \(Fmt.price(p25))", step: .micro, color: Theme.ok) // P3：纯 ASCII 收编 micro 档
                     }
             }
             if let p75 = item.p75 {
@@ -59,19 +61,16 @@ struct PriceChart: View {
                     .foregroundStyle(Theme.danger.opacity(0.8))
                     .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 3]))
                     .annotation(position: .top, alignment: .trailing) {
-                        Text("P75 \(Fmt.price(p75))")
-                            .font(Theme.monoFont(.micro)) // 纯 ASCII：mono design
-                            .monospacedDigit()
-                            .foregroundStyle(Theme.danger)
+                        Mono("P75 \(Fmt.price(p75))", step: .micro, color: Theme.danger) // P3：纯 ASCII 收编 micro 档
                     }
             }
             if let cur = item.current, let last = pts.last {
                 PointMark(x: .value("时间", last.date), y: .value("现价", cur))
                     .foregroundStyle(Theme.txStrong)
                     .symbolSize(40)
-                    // 现价数值标注：不必再对照 Y 轴估读
+                    // 现价数值标注：不必再对照 Y 轴估读（P3 收编 micro 档，与气泡数字同源）
                     .annotation(position: .top, alignment: .trailing) {
-                        Mono(Fmt.price(cur), size: 12, weight: .bold)
+                        Mono(Fmt.price(cur), step: .micro, weight: .bold)
                     }
             }
             if let sel = selected {
@@ -83,12 +82,12 @@ struct PriceChart: View {
                             Text(sel.date.formatted(.dateTime.month().day().hour().minute()))
                                 .font(Theme.font(.micro))
                                 .foregroundStyle(Theme.faint)
-                            Mono(Fmt.price(sel.price), size: 12, weight: .bold)
+                            Mono(Fmt.price(sel.price), step: .micro, weight: .bold) // P3：与现价标注同源同档
                         }
                         .padding(.horizontal, 8)
                         .padding(.vertical, 4)
-                        .background(Theme.card, in: RoundedRectangle(cornerRadius: 6))
-                        .overlay(RoundedRectangle(cornerRadius: 6).stroke(Theme.line, lineWidth: 1))
+                        .background(Theme.card, in: RoundedRectangle(cornerRadius: Theme.radiusBadge))
+                        .overlay(RoundedRectangle(cornerRadius: Theme.radiusBadge).stroke(Theme.line, lineWidth: 1))
                     }
             }
         }
@@ -119,6 +118,26 @@ struct PriceChart: View {
         .frame(height: 220)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(a11ySummary)
+        // P4：VO 逐点听值——上下滑动逐点朗读「M月d日 HH:mm，价格 X」，起点为最新点；
+        // 值经 accessibilityValue 呈现（状态更新后 VoiceOver 自动播报新值），摘要 label 保留兜底
+        .accessibilityHint("上下滑动逐点朗读价格")
+        .accessibilityValue(voValue(pts))
+        .accessibilityAdjustableAction { direction in
+            let last = pts.count - 1
+            guard last >= 0 else { return }
+            let cur = voCursor < 0 ? last : voCursor // 未开始 → 最新点起步
+            switch direction {
+            case .increment: voCursor = min(last, cur + 1)
+            case .decrement: voCursor = max(0, cur - 1)
+            @unknown default: break
+            }
+        }
+        // P1：拖动查值逐点触感——选点跨数据点时轻「咯哒」；condition 必须带：onEnded 把 selected 置 nil，
+        // selected?.id 从非 nil 变 nil 同样是一次 trigger 变化，不带条件抬手会多一声咯哒（trigger 绑图内局部 State）
+        .sensoryFeedback(.selection, trigger: selected?.id) { _, new in new != nil }
+        // P2：十字线气泡淡入——选点变化时 durFast/easeOut 过渡（Charts 对 annotation 过渡支持有限，
+        // 系统不产生过渡时按 DESIGN.md §3 P2 允许降级为瞬现）；Reduce Motion 下跳过（触感不受影响）
+        .animation(reduceMotion ? nil : .easeOut(duration: Theme.durFast), value: selected?.id)
     }
 
     /// 拖动查值：把拖动位置 x 换算到最近的数据点
@@ -151,5 +170,13 @@ struct PriceChart: View {
         if let hi = item.weekHigh { parts.append("周高 \(Fmt.price(hi))") }
         parts.append("近 7 天价格走势图")
         return parts.joined(separator: "，")
+    }
+
+    /// VO 游标当前听值（P4）：「M月d日 HH:mm，价格 X」；未开始 / 越界回落到最新点
+    private func voValue(_ pts: [Pt]) -> String {
+        let idx = pts.indices.contains(voCursor) ? voCursor : pts.count - 1
+        guard pts.indices.contains(idx) else { return "暂无数据" }
+        let p = pts[idx]
+        return "\(p.date.formatted(.dateTime.month().day().hour().minute()))，价格 \(Fmt.price(p.price))"
     }
 }
