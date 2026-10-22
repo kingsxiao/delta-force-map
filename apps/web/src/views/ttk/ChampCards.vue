@@ -7,6 +7,7 @@ import PenBadge from './PenBadge.vue'
 
 defineProps({
   picks: { type: Array, required: true },
+  delay: { type: Number, default: 0 }, // 展示层扳机延迟（ms）：与排行行同口径等量平移
 })
 </script>
 
@@ -20,7 +21,7 @@ defineProps({
         <PenBadge :p="p.c.am.pen" solid />
         <span>{{ CAL[p.c.gun.cal].label }} · {{ p.c.am.n }} · {{ p.c.btk }} 发<template v-if="p.scen"> · {{ p.scen }}</template></span>
       </div>
-      <div class="champ-ttk">{{ fmtMs(p.c.ttk) }}<small>TTK · {{ p.c.gun.rpm }} RPM</small></div>
+      <div class="champ-ttk">{{ fmtMs(p.c.ttk + delay) }}<small>TTK · {{ p.c.gun.rpm }} RPM</small></div>
     </div>
   </div>
 </template>

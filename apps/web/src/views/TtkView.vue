@@ -22,11 +22,13 @@ import AmmoTable from './ttk/AmmoTable.vue'
 import PenMatrix from './ttk/PenMatrix.vue'
 import PenBadge from './ttk/PenBadge.vue'
 import CollapseCol from '../components/CollapseCol.vue'
+import TierBoard from './ttk/TierBoard.vue'
+import BalanceLog from './ttk/BalanceLog.vue'
 import { CAL } from '../data/ttk/calibers.js'
 import { GUNS } from '../data/ttk/guns.js'
 import { DUR, HEAD_DUR, PARTS } from '../data/ttk/armor.js'
 import { combo } from '../data/ttk/model.js'
-import { PART_CHAR, scenLabel } from './ttk/format.js'
+import { PART_CHAR, scenLabel, fmtMs } from './ttk/format.js'
 
 /* ---------- 分段控件条目（legacy segDefs L714-742 原样，共六组实例） ---------- */
 const PART_SEGS = [
@@ -74,9 +76,16 @@ const SORT_SEGS = [
   { v: 'ttk', label: 'TTK' },
   { v: 'btk', label: '发数' },
 ]
+/* 展示层「实战修正」（借鉴 DFTTK 扳机延迟口径）：等量叠加不改名次/模型，
+   只让展示 TTK 更贴近实战节奏；展开详情仍为纯理论值 */
+const DELAY_SEGS = [
+  { v: 0, label: '理论', title: '纯射击时间（社区通用口径）' },
+  { v: 80, label: '+80ms', title: '叠加 80ms 扳机延迟（快手连点）' },
+  { v: 150, label: '+150ms', title: '叠加 150ms 扳机延迟（普通反应）' },
+]
 
 /* ---------- 状态：部位/护甲/类别/穿透等级均为多选（数组），弹药模式/排序单选，q 枪名搜索词 ---------- */
-const state = reactive({ parts: ['chest'], armors: [5], cls: [], ammoMode: 'best', pens: [], sort: 'ttk', q: '' })
+const state = reactive({ parts: ['chest'], armors: [5], cls: [], ammoMode: 'best', pens: [], sort: 'ttk', delay: 0, q: '' })
 
 /* 多选更新回调：部位/护甲至少保留一项；
    类别/穿透等级用"全部"芯片（空数组 = 全部）：新增具体项则保留，新增的是"全部"则清空。
@@ -96,7 +105,7 @@ function setPens(v) { state.pens = pickWithAll(state.pens, v) }
    与默认值相同的组不写入（默认视图保持干净的 /#/ttk，分享链接只带差异项）；
    codec 为纯函数（buildQuery/applyQuery 不碰 Vue，便于对拍）；非法值一律丢弃回默认，
    parts/armors 至少保留一项（与 setParts/setArmors 守卫同口径） */
-const Q_DEFAULTS = { p: 'chest', a: '5', cls: '', pen: '', mode: 'best', sort: 'ttk', q: '' }
+const Q_DEFAULTS = { p: 'chest', a: '5', cls: '', pen: '', mode: 'best', sort: 'ttk', d: '0', q: '' }
 function buildQuery(s) {
   const vals = {
     p: s.parts.join(','),
@@ -105,6 +114,7 @@ function buildQuery(s) {
     pen: s.pens.join(','),
     mode: s.ammoMode,
     sort: s.sort,
+    d: String(s.delay),
     q: s.q.trim(),
   }
   const out = {}
@@ -123,6 +133,8 @@ function applyQuery(s, query) {
   s.pens = qList(query.pen).map(Number).filter((x) => Number.isInteger(x) && x >= 0 && x <= 7)
   if (query.mode === 'best' || query.mode === 'full') s.ammoMode = query.mode
   if (query.sort === 'ttk' || query.sort === 'btk') s.sort = query.sort
+  const dv = Number(query.d)
+  if (query.d !== undefined && DELAY_SEGS.some((sg) => sg.v === dv)) s.delay = dv
   if (typeof query.q === 'string' && query.q.trim()) s.q = query.q.trim().slice(0, 40)
 }
 
@@ -208,6 +220,61 @@ const bestTtk = computed(() => {
   return m || 1
 })
 
+/* ---------- T0-T3 强度分档带（借鉴 DFTTK 首页分档总览；固定基准：5 级甲 · 胸部 · 每枪最佳弹） ----------
+   分档只随枪械面板变化（不随筛选联动），作稳定「强度标签」：排行行内徽标 + 顶部速览带。
+   切点：前 8% T0 / 至 25% T1 / 至 60% T2 / 其余 T3（68 枪约 5 / 12 / 24 / 27 把）。 */
+const TIER_DEFS = [
+  { t: 'T0', label: '顶级', cut: 0.08, color: 'var(--lv5)' },
+  { t: 'T1', label: '强势', cut: 0.25, color: 'var(--accent)' },
+  { t: 'T2', label: '主流', cut: 0.60, color: 'var(--lv3)' },
+  { t: 'T3', label: '入门', cut: 1, color: 'var(--lv0)' },
+]
+const tierBase = computed(() => {
+  const rows = []
+  for (const g of GUNS) {
+    let best = null
+    for (const am of CAL[g.cal].ammo) {
+      const r = combo(g, am, 5, PARTS.chest)
+      if (!best || r.ttk < best.ttk) best = r
+    }
+    if (best) rows.push({ gun: g, ttk: best.ttk })
+  }
+  rows.sort((a, b) => a.ttk - b.ttk)
+  return rows
+})
+function tierDefOf(i, n) {
+  const r = (i + 1) / n
+  for (const d of TIER_DEFS) if (r <= d.cut) return d
+  return TIER_DEFS[TIER_DEFS.length - 1]
+}
+const tierGun = computed(() => {
+  const m = {}
+  const rows = tierBase.value
+  rows.forEach((row, i) => { m[row.gun.en] = tierDefOf(i, rows.length).t })
+  return m
+})
+const tiers = computed(() => {
+  const rows = tierBase.value
+  const groups = TIER_DEFS.map((d) => ({ ...d, guns: [] }))
+  rows.forEach((row, i) => groups[TIER_DEFS.indexOf(tierDefOf(i, rows.length))].guns.push(row))
+  return groups.map((g) => ({
+    t: g.t,
+    label: g.label,
+    color: g.color,
+    count: g.guns.length,
+    from: g.guns.length ? fmtMs(g.guns[0].ttk) : '—',
+    to: g.guns.length ? fmtMs(g.guns[g.guns.length - 1].ttk) : '—',
+    names: g.guns.map((x) => x.gun.zh),
+  }))
+})
+function pickGun(name) {
+  state.q = name
+  requestAnimationFrame(() => {
+    const el = document.getElementById('rank')
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  })
+}
+
 const rowKey = (c) => c.gun.en + '|' + c.am.n + '|' + c.part + '|' + c.armor
 
 /* 实际渲染的行 = 排行前 rankLimit 行（截断只裁尾、不改序，:rank 从 1 连续编号不受影响） */
@@ -284,6 +351,8 @@ const hintText = computed(() => {
       bits.push('以下 ' + miss.length + ' 把枪没有所选等级的弹药，未进入排行：' + show + '。')
     }
   }
+  if (state.delay > 0)
+    bits.push('已叠加 ' + state.delay + 'ms 扳机延迟（展示口径）：等量平移不改变名次，展开详情仍为纯理论值。')
   if (state.parts.length === 1 && state.parts[0] === 'chest' && state.armors.length === 1 && state.armors[0] > 0)
     bits.push('护甲满耐久按 ' + DUR[state.armors[0]] + ' 计；残甲目标更快倒地。')
   return bits.join(' ')
@@ -371,6 +440,10 @@ onBeforeUnmount(() => {
                 <ControlSeg v-model="state.sort" :items="SORT_SEGS" />
               </div>
               <div class="ctrl-cell">
+                <span class="ctrl-label">修正</span>
+                <ControlSeg v-model="state.delay" :items="DELAY_SEGS" />
+              </div>
+              <div class="ctrl-cell">
                 <span class="ctrl-label">枪械</span>
                 <input v-model.trim="state.q" class="search" type="search" placeholder="搜枪名，如 腾龙 / m7" aria-label="搜索枪名" />
               </div>
@@ -383,13 +456,15 @@ onBeforeUnmount(() => {
 
         <!-- reveal-group：行级级联（§7.3）；并挂 reveal 适配 useReveal 现行选择器
              （其扩入 .reveal-group 后容器上的 reveal 可去；两容器同此口径） -->
-        <ChampCards class="reveal reveal-group" :picks="champPicks" />
+        <ChampCards class="reveal reveal-group" :picks="champPicks" :delay="state.delay" />
+
+        <TierBoard class="reveal" :tiers="tiers" @pick="pickGun" />
 
         <div class="rank-meta reveal">
           <span class="rank-count">{{ rankCountText }}</span>
         </div>
 
-        <div class="rank-list reveal reveal-group">
+        <div id="rank" class="rank-list reveal reveal-group">
           <div class="rk-head">
             <span>#</span>
             <span>武器 / 口径</span>
@@ -406,6 +481,8 @@ onBeforeUnmount(() => {
               :c="c"
               :rank="i + 1"
               :best="bestTtk"
+              :tier="tierGun[c.gun.en] || ''"
+              :delay="state.delay"
               :show-scen="multiScen"
               :open="openKeys.has(rowKey(c))"
               :combos="allCombos"
@@ -447,6 +524,13 @@ onBeforeUnmount(() => {
           @toggle="ammoOpen[k] = !ammoOpen[k]"
         />
       </div>
+
+      <!-- 版本平衡调整（DFTTK 公告静态镜像，自托管；前端零外部请求） -->
+      <h3 id="balance" class="block-h reveal">
+        <span class="bht">版本平衡调整</span><span class="bhline"></span><span class="bhc">镜像快照</span>
+      </h3>
+      <p class="sec-lede">烽火地带版本平衡与数据修正记录。数据一次性镜像自 DFTTK 公告静态 JSON 并自托管（抓取时间见折叠块右侧注释），前端运行时不请求任何外部站点；赛季更新后在仓库根目录运行 npm run dfttk:snapshot 刷新快照。</p>
+      <BalanceLog class="reveal" />
 
       <!-- 穿透 × 护甲 判定矩阵 -->
       <h3 class="block-h reveal">
@@ -689,7 +773,7 @@ onBeforeUnmount(() => {
 /* 表头（§5.4：底色 card2 比行亮、padding 与行 11px 对齐消除基线错位；栅格值与 RankRow 内 .rk-row 保持同值） */
 .rk-head {
   display: grid;
-  grid-template-columns: 40px minmax(150px, 1.15fr) minmax(140px, 1fr) 52px 60px 62px minmax(150px, 1.2fr);
+  grid-template-columns: 40px 52px minmax(138px, 1.1fr) minmax(126px, 1fr) 52px 60px 62px minmax(140px, 1.2fr);
   gap: 12px;
   align-items: center;
   padding: 10px 34px 10px 16px;
@@ -817,7 +901,7 @@ onBeforeUnmount(() => {
     width: 100%;
   }
   /* 每组（label+控件）整组占一横行，与旧六行结构的手机端堆叠形态一致 */
-  .ctrl-cell { width: 100%; }
+  .ctrl-cell { width: 100%; flex-wrap: wrap; }
   /* 搜索框随整组占满一行（label 已换行在上方） */
   .search { width: 100%; }
   /* 手机端控件已纵向堆叠、无行尾留白问题，说明文案退场（信息由 .ctrl-hint 承担） */
@@ -830,7 +914,7 @@ onBeforeUnmount(() => {
 @media (max-width: 820px) {
   /* ≤820 断点：表头换窄栅格（padding 与行触达口径一致，§5.4） */
   .rk-head {
-    grid-template-columns: 26px minmax(0, 1.25fr) minmax(0, 1fr) 42px 82px;
+    grid-template-columns: 26px 44px minmax(0, 1.2fr) minmax(0, 1fr) 42px 82px;
     gap: 7px;
     padding: 10px 12px;
   }
