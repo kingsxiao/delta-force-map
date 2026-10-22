@@ -16,9 +16,15 @@ const props = defineProps({
   open: { type: Boolean, default: false },
   combos: { type: Array, required: true },  // 当前筛选下全部组合（详情数据源）
   showScen: { type: Boolean, default: false }, // 多场景时在副行标注归属（5 级头）
+  tier: { type: String, default: '' },  // T0-T3 强度分档标签（固定基准，见 TtkView tierGun）
+  delay: { type: Number, default: 0 },  // 展示层扳机延迟修正（ms）：等量平移，不改名次/模型
 })
 
 defineEmits(['toggle'])
+
+/* 分档徽标配色（与 TierBoard 卡片同色）：T0 金 / T1 主色 / T2 蓝 / T3 灰 */
+const TIER_COLORS = { T0: 'var(--lv5)', T1: 'var(--accent)', T2: 'var(--lv3)', T3: 'var(--lv0)' }
+const tierColor = computed(() => TIER_COLORS[props.tier] || 'var(--faint)')
 
 const rowClass = computed(() => ({
   top1: props.rank === 1,
@@ -68,8 +74,12 @@ const detail = computed(() => {
       @click="$emit('toggle')"
     >
       <span class="rk-num">{{ String(rank).padStart(2, '0') }}</span>
+      <span class="rk-thumb" :class="{ ph: !c.gun.img }" aria-hidden="true">
+        <img v-if="c.gun.img" class="rk-img" :src="'/guns/' + c.gun.img + '.webp'" alt="" loading="lazy" decoding="async">
+        <svg v-else class="rk-sil" viewBox="0 0 240 120"><g fill="currentColor"><rect x="4" y="56" width="54" height="7" rx="2.5"/><rect x="58" y="51" width="44" height="16" rx="3"/><rect x="100" y="47" width="72" height="23" rx="3"/><path d="M118 70 l19 0 l-7 32 l-17 0 z"/><path d="M152 70 l17 0 l-9 28 l-15 0 z"/><path d="M172 51 h27 c9 0 14 5 14 11 v9 h-15 l-6 -9 h-20 z"/></g></svg>
+      </span>
       <span class="rk-gun">
-        <span class="n">{{ c.gun.zh }}</span>
+        <span class="n"><em v-if="tier" class="tier-b" :style="{ color: tierColor }">{{ tier }}</em>{{ c.gun.zh }}</span>
         <span class="s">
           <em>{{ CAL[c.gun.cal].label }}</em> · {{ c.gun.rpm }} RPM · 面板 {{ c.gun.dmg }}/{{ c.gun.admg }}<template v-if="c.gun.burst"> · 三连发</template><template v-if="showScen"> · <b class="scen">{{ scenLabel(c) }}</b></template>
         </span>
@@ -83,7 +93,7 @@ const detail = computed(() => {
       <span class="rk-cell num strong">{{ c.btk }} 发</span>
       <span class="rk-ta">
         <span class="rk-bar"><i :style="{ width: barWidth }"></i></span>
-        <span class="rk-ttv">{{ fmtMs(c.ttk) }}</span>
+        <span class="rk-ttv">{{ fmtMs(c.ttk + delay) }}</span>
       </span>
       <svg class="caret" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
         <path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
@@ -182,7 +192,7 @@ const detail = computed(() => {
 /* 行栅格（legacy L95，与 TtkView 内 .rk-head 保持同值） */
 .rk-row {
   display: grid;
-  grid-template-columns: 40px minmax(150px, 1.15fr) minmax(140px, 1fr) 52px 60px 62px minmax(150px, 1.2fr);
+  grid-template-columns: 40px 52px minmax(138px, 1.1fr) minmax(126px, 1fr) 52px 60px 62px minmax(140px, 1.2fr);
   gap: 12px;
   align-items: center;
   width: 100%;
@@ -231,6 +241,39 @@ const detail = computed(() => {
 .rk-row.top1 .rk-num { color: var(--accent); }
 .rk-row.top2 .rk-num,
 .rk-row.top3 .rk-num { color: var(--accent); }
+/* 行内枪械缩略图：官方渲染图懒加载；无图枪用剪影占位（与详情头带同语言） */
+.rk-thumb {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 36px;
+}
+.rk-thumb .rk-img {
+  max-width: 100%;
+  max-height: 100%;
+  filter: drop-shadow(0 2px 5px rgba(0, 0, 0, .45));
+}
+.rk-thumb.ph { color: var(--faint); opacity: .38; }
+.rk-thumb .rk-sil { width: 46px; height: auto; }
+/* T0-T3 分档徽标：等宽字小方标，颜色随分档（与 TierBoard 身份色一致） */
+.tier-b {
+  display: inline-block;
+  font-family: var(--mono);
+  font-style: normal;
+  font-size: var(--fs-micro);
+  font-weight: 600;
+  letter-spacing: .08em;
+  line-height: 1;
+  padding: 2px 4px;
+  margin-right: 6px;
+  border: 1px solid currentColor;
+  border-radius: 4px;
+  opacity: .92;
+  vertical-align: 1px;
+}
+@media (max-width: 680px) {
+  .rk-thumb { grid-column: 2; grid-row: 1; height: 30px; }
+}
 .rk-gun { min-width: 0; }
 .rk-gun .n {
   display: block;
@@ -549,7 +592,7 @@ const detail = computed(() => {
 @media (max-width: 820px) {
   /* ≤820 行触达（§5.4）：上下 10px + min-height 44px 兜底，任何断点行高 ≥44px */
   .rk-row {
-    grid-template-columns: 26px minmax(0, 1.25fr) minmax(0, 1fr) 42px 82px;
+    grid-template-columns: 26px 44px minmax(0, 1.2fr) minmax(0, 1fr) 42px 82px;
     gap: 7px;
     padding: 10px 12px;
     min-height: 44px;
@@ -591,7 +634,7 @@ const detail = computed(() => {
 @media (max-width: 680px) {
   /* 排行行改两行式：第一行 排名+武器+BTK，第二行 弹药+TTK条 */
   .rk-row {
-    grid-template-columns: 24px minmax(0, 1fr) auto;
+    grid-template-columns: 24px 40px minmax(0, 1fr) auto;
     grid-template-rows: auto auto;
     column-gap: 10px;
     row-gap: 6px;
@@ -604,17 +647,17 @@ const detail = computed(() => {
     padding-top: 1px;
   }
   .rk-gun {
-    grid-column: 2;
+    grid-column: 3;
     grid-row: 1;
     min-width: 0;
   }
   .rk-cell.strong {
-    grid-column: 3;
+    grid-column: 4;
     grid-row: 1;
     align-self: start;
   }
   .rk-ammo {
-    grid-column: 1 / 3;
+    grid-column: 1 / 4;
     grid-row: 2;
   }
   .rk-ammo .an {
@@ -624,7 +667,7 @@ const detail = computed(() => {
     line-height: 1.5;
   }
   .rk-ta {
-    grid-column: 3;
+    grid-column: 4;
     grid-row: 2;
     width: 112px;
   }

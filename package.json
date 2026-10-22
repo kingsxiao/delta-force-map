@@ -20,6 +20,7 @@
     "radar:monitor": "node server/market/radar.mjs",
     "radar:selftest": "node server/market/selftest.mjs",
     "export:ios": "node server/export-ios-data.mjs",
+    "dfttk:snapshot": "node server/dfttk/snapshot-balance.mjs",
     "ios:archive": "bash deploy/ios-archive.sh"
   },
   "dependencies": {

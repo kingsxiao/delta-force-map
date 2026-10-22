@@ -142,7 +142,7 @@ const tabs = [
 }
 /* 窄屏（--bp-mini 480px）：brand 收缩 + tabs 改横向滚动条（复用全站 pills 的 overflow-x 范式），
    五个整词 tab 逐字折行竖排的问题随之消除；min-width:0 让 .tabs 可在 brand 旁收缩出滚动空间 */
-@media (max-width: 480px) {
+@media (max-width: 560px) {
   .brand-sub { display: none; }
   .brand-mark { letter-spacing: .12em; }
   .tabs {
