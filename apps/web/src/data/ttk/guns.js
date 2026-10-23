@@ -26,7 +26,7 @@ export const GUNS = [
   {zh:"SG552",    en:"SG552",           cls:"ar", dmg:24, admg:31, rpm:906,  cal:"556",   mag:20, note:"步枪最低肉伤，靠射速吃饭", img:"18010000017"},
   {zh:"AUG",      en:"AUG",             cls:"ar", dmg:35, admg:35, rpm:679,  cal:"556",   mag:30, note:"无托精确稳定，操控步枪顶级", img:"18010000015"},
   {zh:"PTR-32",   en:"PTR-32",          cls:"ar", dmg:34, admg:36, rpm:632,  cal:"76239", mag:30, note:"G3 改膛 7.62×39，甲伤好操控低", img:"18010000024"},
-  {zh:"MK47",     en:"MK47 Mutant",     cls:"ar", dmg:40, admg:46, rpm:625,  cal:"76239", mag:20, conflict:"另有来源记 30/48", note:"S6 新枪，AR 平台吃 AK 弹匣", img:"18010000043"},
+  {zh:"MK47",     en:"MK47 Mutant",     cls:"ar", dmg:40, admg:46, rpm:625,  cal:"76239", mag:20, note:"S6 新枪，AR 平台吃 AK 弹匣", img:"18010000043"},
   {zh:"MCX LT",   en:"MCX LT",          cls:"ar", dmg:34, admg:35, rpm:750,  cal:"300",   mag:30, est:true, note:"S8 季中新枪；甲伤缺实测，取同口径 K437 参考值", img:"18010000044"},
   {zh:"AR-57",    en:"AR-57",           cls:"ar", dmg:30, admg:31, rpm:900,  cal:"57",    mag:50, note:"S9 新枪，P90 弹匣上供弹的'步枪皮冲锋枪'", img:"18010000045"},
   {zh:"RM277",    en:"RM277",           cls:"ar", dmg:41, admg:42, rpm:550,  cal:"68",    mag:30, belly:1.0, note:"S10 新枪，胸腹同伤，初速 1155m/s", img:"18010000049"},
@@ -48,8 +48,8 @@ export const GUNS = [
   {zh:"SMG-45",   en:"SMG-45",          cls:"smg", dmg:35, admg:40, rpm:605,  cal:"45",  mag:25, note:"稳定，冲锋枪内伤害可观", img:"18020000006"},
   {zh:"SR-3M",    en:"SR-3M",           cls:"smg", dmg:36, admg:48, rpm:747,  cal:"939", mag:15, note:"9×39 碎甲效率高，近战压制强", img:"18020000008"},
   {zh:"二〇式",    en:"QCQ171",          cls:"smg", dmg:36, admg:33, rpm:763,  cal:"919", mag:30, note:"高速枪机改件后射速上限更高", img:"18020000011"},
-  {zh:"MK4",      en:"MK4 Banshee",     cls:"smg", dmg:34, admg:30, rpm:793,  cal:"46",  mag:24, belly:1.0, burst:true, conflict:"另有来源记 23/32", note:"默认单发+三连发，换枪管解锁全自动；面板射速含 burst 间隔", img:"18020000012"},
-  {zh:"汤姆逊",    en:"Thompson",        cls:"smg", dmg:34, admg:36, rpm:880,  cal:"45",  mag:20, conflict:"另有来源记 22/900", note:"S11 新枪'芝加哥打字机'，甲伤>肉伤罕见组合", img:"18020000046"},
+  {zh:"MK4",      en:"MK4 Banshee",     cls:"smg", dmg:34, admg:30, rpm:793,  cal:"46",  mag:24, belly:1.0, burst:true, note:"默认单发+三连发，换枪管解锁全自动；面板射速含 burst 间隔", img:"18020000012"},
+  {zh:"汤姆逊",    en:"Thompson",        cls:"smg", dmg:34, admg:36, rpm:880,  cal:"45",  mag:20, note:"S11 新枪'芝加哥打字机'，甲伤>肉伤罕见组合", img:"18020000046"},
 
   /* ===== 精确射手步枪 ===== */
   {zh:"SKS",      en:"SKS",             cls:"dmr", dmg:44, admg:42, rpm:510,  cal:"76239", mag:10, note:"半自动老兵，7.62×39 弹池与 AKM 共用", img:"18050000006"},
@@ -61,20 +61,20 @@ export const GUNS = [
   {zh:"VSS",      en:"VSS Vintorez",    cls:"dmr", dmg:35, admg:48, rpm:480,  cal:"939",   mag:15, note:"自带整体式消音，枪声传播最短档", img:"18050000003"},
   {zh:"SVD",      en:"SVD",             cls:"dmr", dmg:56, admg:52, rpm:300,  cal:"547",   mag:10, note:"社区称'小巴雷特'，70m 内爆头秒", img:"18050000004"},
   {zh:"Marlin",   en:"Marlin",          cls:"dmr", dmg:70, admg:25, rpm:100,  cal:"4570",  mag:10, note:"S6 杠杆步枪；专属'蜂鸟杠杆'：射速 200、75/59、爆头 112", img:"18050000032"},
-  {zh:"SVCH",     en:"SVCh",            cls:"dmr", dmg:48, admg:48, rpm:600,  cal:"547",   mag:10, conflict:"另有来源记 46/47", note:"S10 新枪；专属一体护木解锁全自动，爆发枪机前三发约 700 RPM", img:"18050000033"},
+  {zh:"SVCH",     en:"SVCh",            cls:"dmr", dmg:48, admg:48, rpm:600,  cal:"547",   mag:10, note:"S10 新枪；专属一体护木解锁全自动，爆发枪机前三发约 700 RPM", img:"18050000033"},
 
   /* ===== 狙击枪 ===== */
-  {zh:"R93",      en:"R93 LRS",         cls:"snp", dmg:55, admg:53, rpm:50,   cal:"76251", mag:10, conflict:"旧社区口径记 61/58", note:"开镜快，可瞬狙", img:"18060000008"},
-  {zh:"M700",     en:"M700",            cls:"snp", dmg:55, admg:53, rpm:48,   cal:"76251", mag:5,  conflict:"旧社区口径记 61/58", note:"S11'完全体'套件可改全自动", img:"18060000009"},
-  {zh:"SV-98",    en:"SV-98",           cls:"snp", dmg:55, admg:53, rpm:40,   cal:"547",   mag:7,  conflict:"旧社区口径记 61/58", note:"架点型，稳定性高", img:"18060000007"},
+  {zh:"R93",      en:"R93 LRS",         cls:"snp", dmg:55, admg:53, rpm:50,   cal:"76251", mag:10, note:"开镜快，可瞬狙", img:"18060000008"},
+  {zh:"M700",     en:"M700",            cls:"snp", dmg:55, admg:53, rpm:48,   cal:"76251", mag:5, note:"S11'完全体'套件可改全自动", img:"18060000009"},
+  {zh:"SV-98",    en:"SV-98",           cls:"snp", dmg:55, admg:53, rpm:40,   cal:"547",   mag:7, note:"架点型，稳定性高", img:"18060000007"},
   {zh:"AWM",      en:"AWM",             cls:"snp", dmg:100, admg:10, rpm:35,  cal:"338",   mag:5,  note:"甲伤极低为'留甲'特性；仅用全游戏唯一的 7 级 .338 AP", img:"18060000011"},
-  {zh:"M82",      en:"M82 Barrett",     cls:"snp", dmg:100, admg:20, rpm:100, cal:"50bmg", mag:5,  conflict:"另有来源记基础伤 150", note:"S9 反器材狙，半自动；三款专用弹禁入安全箱", img:"18060000033"},
+  {zh:"M82",      en:"M82 Barrett",     cls:"snp", dmg:100, admg:20, rpm:100, cal:"50bmg", mag:5, note:"S9 反器材狙，半自动；三款专用弹禁入安全箱", img:"18060000033"},
 
   /* ===== 轻机枪 ===== */
   {zh:"M249",     en:"M249",            cls:"lmg", dmg:30, admg:38, rpm:858,  cal:"556",   mag:100, note:"100 发弹链压制者，可改弹匣供弹", img:"18040000002"},
   {zh:"M250",     en:"M250",            cls:"lmg", dmg:55, admg:53, rpm:550,  cal:"68",    mag:125, note:"6.8 弹链 125 发，单发/全自动切换，有扳机延迟", img:"18040000003"},
   {zh:"PKM",      en:"PKM",             cls:"lmg", dmg:45, admg:42, rpm:669,  cal:"547",   mag:75,  note:"7.62×54R 弹链 75 发", img:"18040000001"},
-  {zh:"QJB201",   en:"QJB201",          cls:"lmg", dmg:32, admg:38, rpm:785,  cal:"58",    mag:125, conflict:"另有社区源记 873/827", note:"S3 上线；弹链/弹匣双路供弹", img:"18040000004"},
+  {zh:"QJB201",   en:"QJB201",          cls:"lmg", dmg:32, admg:38, rpm:785,  cal:"58",    mag:125, note:"S3 上线；弹链/弹匣双路供弹", img:"18040000004"},
 
   /* ===== 霰弹枪（面板为 8 弹丸合计伤） ===== */
   {zh:"M870",     en:"M870",            cls:"sg", dmg:112, admg:128, rpm:74,  cal:"12ga", mag:6,  note:"泵动老兵，军需 9 级解锁", img:"18030000004"},
@@ -82,13 +82,13 @@ export const GUNS = [
   {zh:"S12K",     en:"S12K",            cls:"sg", dmg:104, admg:128, rpm:300, cal:"12ga", mag:5,  est:true, note:"弹匣供弹；撞火枪托可全自动；弹丸数按 8 计", img:"18030000002"},
   {zh:"725 双管",  en:"725 Double Barrel", cls:"sg", dmg:136, admg:144, rpm:375, cal:"12ga", mag:2, note:"'众生平等'，双管瞬发两连喷", img:"18030000005"},
   {zh:"FS-12",    en:"FS-12",           cls:"sg", dmg:112, admg:128, rpm:300, cal:"12ga", mag:6,  note:"S8 新枪；半自动⇄泵动双模式，可折叠进副武器槽", img:"18030000006"},
-  {zh:"AA-12",    en:"AA-12",           cls:"sg", dmg:80,  admg:90,  rpm:320, cal:"12ga", mag:8,  est:true, conflict:"甲伤与弹匣未验证（甲伤按弹丸比例估 90）", note:"S11 新枪；首把原生全自动霰弹，四肢伤害特化"},
+  {zh:"AA-12",    en:"AA-12",           cls:"sg", dmg:80,  admg:90,  rpm:320, cal:"12ga", mag:8,  est:true, note:"S11 新枪；首把原生全自动霰弹，四肢伤害特化，甲伤按弹丸比例估 90"},
 
   /* ===== 手枪 ===== */
   {zh:"G17",      en:"Glock 17",        cls:"pst", dmg:27, admg:25, rpm:462,  cal:"919",  mag:17, note:"军需 0 级解锁的初始副武器", img:"18070000010"},
   {zh:"九二改",    en:"QSZ-92G",         cls:"pst", dmg:34, admg:32, rpm:375,  cal:"919",  mag:15, note:"固定弹匣 15 发，27m 优势射程", img:"18070000002"},
   {zh:"93R",      en:"Beretta 93R",     cls:"pst", dmg:34, admg:32, rpm:672,  cal:"919",  mag:12, burst:true, note:"三连发爆发手枪", img:"18070000006"},
-  {zh:"G18",      en:"Glock 18",        cls:"pst", dmg:23, admg:16, rpm:1172, cal:"919",  mag:17, conflict:"另有来源记 22 肉伤", note:"全自动手枪，全游戏射速最快", img:"18070000005"},
+  {zh:"G18",      en:"Glock 18",        cls:"pst", dmg:23, admg:16, rpm:1172, cal:"919",  mag:17, note:"全自动手枪，全游戏射速最快", img:"18070000005"},
   {zh:"沙漠之鹰",  en:"Desert Eagle",    cls:"pst", dmg:50, admg:34, rpm:207,  cal:"50ae", mag:7,  note:".50 AE 大口径副武器", img:"18070000004"},
   {zh:".357 左轮", en:".357 Revolver",   cls:"pst", dmg:56, admg:39, rpm:182,  cal:"357",  mag:6,  note:"双动左轮，弹巢固定 6 发", img:"18070000003"},
   {zh:"M1911",    en:"M1911",           cls:"pst", dmg:40, admg:30, rpm:373,  cal:"45",   mag:7,  note:"三角洲定制款 .45", img:"18070000033"}

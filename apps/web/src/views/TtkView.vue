@@ -80,7 +80,7 @@ const SORT_SEGS = [
 /* 展示层「实战修正」（借鉴 DFTTK 扳机延迟口径）：等量叠加不改名次/模型，
    只让展示 TTK 更贴近实战节奏；展开详情仍为纯理论值 */
 const DELAY_SEGS = [
-  { v: 0, label: '理论', title: '纯射击时间（社区通用口径）' },
+  { v: 0, label: '理论', title: '纯射击时间' },
   { v: 80, label: '+80ms', title: '叠加 80ms 扳机延迟（快手连点）' },
   { v: 150, label: '+150ms', title: '叠加 150ms 扳机延迟（普通反应）' },
 ]
@@ -426,10 +426,10 @@ onBeforeUnmount(() => {
 <template>
   <div ref="rootEl" class="ttk-page">
     <!-- 页头（紧凑单行，走 base.css .compact-head）：返回链接已删（全局顶栏常驻）；
-         口径与数据来源细节见文末「计算口径」一节 -->
+         口径细节见文末「计算口径」一节 -->
     <div class="wrap compact-head">
       <h1>TTK 排行 · 全枪械</h1>
-      <p class="meta">全枪械 × 全弹药 × 部位与护甲逐发模拟 · 多选筛选即时重算 · 数据基线 S5 补至 S11（2026-09） · 社区实测减伤口径，非官方仅供研究参考</p>
+      <p class="meta">全枪械 × 全弹药 × 部位与护甲逐发模拟 · 多选筛选即时重算 · 数值以游戏内当前面板为准</p>
     </div>
 
     <div id="top" class="wrap">
@@ -443,35 +443,35 @@ onBeforeUnmount(() => {
             <div class="ctrl-row">
               <div class="ctrl-cell">
                 <span class="ctrl-label">部位</span>
-                <ControlSeg multiple :model-value="state.parts" :items="PART_SEGS" @update:model-value="setParts" />
+                <ControlSeg multiple name="部位" :model-value="state.parts" :items="PART_SEGS" @update:model-value="setParts" />
               </div>
               <div class="ctrl-cell">
                 <span class="ctrl-label">目标护甲</span>
-                <ControlSeg multiple :model-value="state.armors" :items="ARMOR_SEGS" @update:model-value="setArmors" />
+                <ControlSeg multiple name="目标护甲" :model-value="state.armors" :items="ARMOR_SEGS" @update:model-value="setArmors" />
               </div>
             </div>
             <div class="ctrl-row">
               <div class="ctrl-cell">
                 <span class="ctrl-label">类别</span>
-                <ControlSeg multiple :model-value="state.cls.length ? state.cls : ['all']" :items="CLASS_SEGS" @update:model-value="setCls" />
+                <ControlSeg multiple name="类别" :model-value="state.cls.length ? state.cls : ['all']" :items="CLASS_SEGS" @update:model-value="setCls" />
               </div>
               <div class="ctrl-cell">
                 <span class="ctrl-label">穿透</span>
-                <ControlSeg multiple :model-value="state.pens.length ? state.pens : ['all']" :items="PEN_SEGS" @update:model-value="setPens" />
+                <ControlSeg multiple name="穿透等级" :model-value="state.pens.length ? state.pens : ['all']" :items="PEN_SEGS" @update:model-value="setPens" />
               </div>
             </div>
             <div class="ctrl-row">
               <div class="ctrl-cell">
                 <span class="ctrl-label">弹药</span>
-                <ControlSeg v-model="state.ammoMode" :items="AMMO_MODE_SEGS" />
+                <ControlSeg v-model="state.ammoMode" name="弹药模式" :items="AMMO_MODE_SEGS" />
               </div>
               <div class="ctrl-cell">
                 <span class="ctrl-label">排序</span>
-                <ControlSeg v-model="state.sort" :items="SORT_SEGS" />
+                <ControlSeg v-model="state.sort" name="排序" :items="SORT_SEGS" />
               </div>
               <div class="ctrl-cell">
                 <span class="ctrl-label">修正</span>
-                <ControlSeg v-model="state.delay" :items="DELAY_SEGS" />
+                <ControlSeg v-model="state.delay" name="实战修正" :items="DELAY_SEGS" />
               </div>
               <div class="ctrl-cell">
                 <span class="ctrl-label">枪械</span>
@@ -497,7 +497,9 @@ onBeforeUnmount(() => {
         <div id="rank" class="rank-list reveal reveal-group">
           <div class="rk-head">
             <span>#</span>
-            <span>武器 / 口径</span>
+            <!-- span2：跨「缩略图 + 枪名」两轨。行内 8 轨（含缩略图列），表头若不跨列，
+                 其后所有列头整体左移一轨、对不上数据列 -->
+            <span class="span2">武器 / 口径</span>
             <span>弹药</span>
             <span class="num hide-m">射速</span>
             <span class="num hide-m">单发伤</span>
@@ -584,30 +586,30 @@ onBeforeUnmount(() => {
           <div class="tbl-wrap">
             <table class="tbl">
               <thead>
-                <tr><th>等级</th><th>满耐久（本页口径）</th><th>代表护甲</th><th>覆盖与说明</th><th>负面</th></tr>
+                <tr><th>等级</th><th class="num">满耐久（本页口径）</th><th>代表护甲</th><th>覆盖与说明</th><th>负面</th></tr>
               </thead>
               <tbody>
-                <tr>
+                <tr class="data-row">
                   <td><PenBadge :p="1" /></td><td class="mono num">25</td><td class="dimtx">尼龙防弹衣</td>
                   <td class="dimc">仅胸，聊胜于无</td><td class="dimc">无</td>
                 </tr>
-                <tr>
+                <tr class="data-row">
                   <td><PenBadge :p="2" /></td><td class="mono num">40</td><td class="dimtx">TG 战术防弹衣</td>
                   <td class="dimc">不护腹部</td><td class="dimc">无</td>
                 </tr>
-                <tr>
+                <tr class="data-row">
                   <td><PenBadge :p="3" /></td><td class="mono num">75</td><td class="dimtx">TG-H 战术防弹衣</td>
                   <td class="dimc">胸 + 腹双护，低档性价比之王</td><td class="dimc">瞄准 -3% · 移速 -1%</td>
                 </tr>
-                <tr>
+                <tr class="data-row">
                   <td><PenBadge :p="4" /></td><td class="mono num">110</td><td class="dimtx">DT-AVS / MK-2 战术背心</td>
                   <td class="dimc">DT-AVS 单品 100，按档位上限计</td><td class="dimc">瞄准 -4% · 移速 -3%</td>
                 </tr>
-                <tr>
+                <tr class="data-row">
                   <td><PenBadge :p="5" solid /></td><td class="mono num">125</td><td class="dimtx">FS 复合防弹衣</td>
                   <td class="dimc">金甲；主流金头耐久 50（铁壁 75）</td><td class="dimc">瞄准 -5% · 移速 -3%</td>
                 </tr>
-                <tr>
+                <tr class="data-row">
                   <td><PenBadge :p="6" solid /></td><td class="mono num">150</td><td class="dimtx">HA-2 重型 / 特里克 MAS2.0</td>
                   <td class="dimc">红甲；仅 6 级弹可对穿（同级 50%）</td><td class="dimc">瞄准 -6% · 移速 -5%</td>
                 </tr>
@@ -659,9 +661,9 @@ onBeforeUnmount(() => {
             </div>
             <div class="m-row">
               <span class="m-num">05</span>
-              <div class="m-body"><strong>TTK 公式</strong>（社区通用口径）：
+              <div class="m-body"><strong>TTK 公式</strong>：
                 <div class="m-formula">TTK = 60000 ÷ RPM × (BTK − 1) <span class="c">// 逐发匀速展开：每发间隔 60000/RPM，首发命中即刻出膛不计入时间</span></div>
-                <div class="m-body"><strong>三连发武器（M16A4 / MK4 / 93R）</strong>：面板射速为计入两轮 burst 之间间隔的<strong>持续平均值</strong>（社区 wiki 口径，burst 内部射速更高，MK4 约接近 MP7 的 ~950）。本页按面板均值匀速近似：跨 burst 的多发击倒平均误差很小；单个 burst 内的击杀（≤3 发）实际比本页数字更快。burst 组间再开火间隔暂无可靠公开实测，不作单独建模。</div>
+                <div class="m-body"><strong>三连发武器（M16A4 / MK4 / 93R）</strong>：面板射速为计入两轮 burst 之间间隔的<strong>持续平均值</strong>（burst 内部射速更高，MK4 约接近 MP7 的 ~950）。本页按面板均值匀速近似：跨 burst 的多发击倒平均误差很小；单个 burst 内的击杀（≤3 发）实际比本页数字更快。burst 组间再开火间隔不作单独建模。</div>
               </div>
             </div>
             <div class="m-row">
@@ -671,11 +673,9 @@ onBeforeUnmount(() => {
           </div>
         </CollapseCol>
 
-        <CollapseCol :open="sourceOpen" label="资料来源与已知限制" note="社区口径" @toggle="sourceOpen = !sourceOpen">
+        <CollapseCol :open="sourceOpen" label="已知限制" note="以游戏内为准" @toggle="sourceOpen = !sourceOpen">
           <div class="src-body">
-            <p class="src-p"><strong>来源依据</strong>：武器肉伤 / 甲伤 / 射速以游民星空「树人」S1 全枪表与 TapTap《S5 烽火全枪表》为基线，S6-S11 新枪（MK47、RM277、MDR、AR-57、MCX LT、K437、汤姆逊、MK4、KC17 等）取各自赛季测评；RPM 经 Delta Force Fandom Wiki 全枪表交叉核验一致。减伤判定（0/50/75/100）、部位倍率、100 血模型与 TTK 公式来自 <a href="https://www.taptap.cn/moment/673910625788757239" target="_blank" rel="noopener">TapTap 官方攻略组·护甲系统全面解析</a>、<a href="https://sanjiaozhou.org/newcomers/delta-force-armor-system-guide" target="_blank" rel="noopener">sanjiaozhou.org 护甲机制解析</a>、日升软件等多来源一致的社区实测；弹药型号与穿透等级参考 The Delta Handbook 弹药表、deltagamehub 及 3DM / 游民星空图鉴。2026-10 全类别扩充（射手步枪 / 狙击枪 / 轻机枪 / 霰弹枪 / 手枪与 7 个新口径）以 orzice 数据站实时面板为主源，经 deltaforcedb、萌娘百科武器库、Delta Force Fandom Wiki 与各赛季官方公告 / 攻略交叉核验。</p>
-            <p class="src-p"><strong>已知限制</strong>：官方从未公布完整数值表，本页为社区口径的静态整理，可能与游戏内实际面板有出入；MK4（另有 23/32 一说）与 MK47（另有 30/48 一说）存在来源冲突，MCX LT 甲伤缺实测（取同口径 K437 参考值 35）；.300 BLK 超音速 / 超压弹、5.45 超压、12.7x55 等新弹型号与穿透等级未完全验证；S8-S11 对 SG552、PTR-32、KC17、M7、ASh-12 等有平衡性调整，数值请以游戏内当前面板为准。栓狙三把（R93 / M700 / SV-98）另有旧社区口径 61/58，本表取当前面板 55/53；AA-12 甲伤与弹匣、Marlin RN 弹等级、部分手枪上线赛季未验证；S9-S11 赛季限定功能弹（CT 修脚、5.8 +P 超压、PLY、AP ST、.45 Super 金弹）因穿透等级 / 系数未披露未收录。</p>
-            <p class="src-p"><strong>时效</strong>：整理于 2026-10。武器面板基线为 S5（2025-07）+ 赛季增补，减伤与部位倍率为国服现行口径。版本更新后请以游戏内训练场实测校准。</p>
+            <p class="src-p"><strong>已知限制</strong>：面板数值可能与游戏内当前值有出入，MCX LT 甲伤缺实测（取同口径 K437 参考值 35）；.300 BLK 超音速 / 超压弹、5.45 超压、12.7x55 等新弹型号与穿透等级未完全验证；S8-S11 对 SG552、PTR-32、KC17、M7、ASh-12 等有平衡性调整，数值请以游戏内当前面板为准。AA-12 甲伤与弹匣、Marlin RN 弹等级、部分手枪上线赛季未验证；S9-S11 赛季限定功能弹（CT 修脚、5.8 +P 超压、PLY、AP ST、.45 Super 金弹）因穿透等级 / 系数未披露未收录。版本更新后请以游戏内训练场实测校准。</p>
           </div>
         </CollapseCol>
       </div>
@@ -827,15 +827,17 @@ onBeforeUnmount(() => {
   color: var(--faint);
   white-space: nowrap;
 }
+/* 「武器 / 口径」表头跨缩略图+枪名两轨（与行内 8 轨对齐，见模板注释；820 断点同样生效） */
+.rk-head .span2 { grid-column: span 2; }
 .rk-head .num { text-align: right; }
 .rk-head .th-ta { text-align: right; }
 .rk-head .th-ta small {
   font-size: var(--fs-micro);
   letter-spacing: .08em;
   color: var(--faint);
-  opacity: .78;
   display: block;
 }
+/* 不再叠 opacity：--faint 在 --card2 上恰 4.63:1（AA 下限），再打折会跌破可读底线 */
 .rk-empty {
   padding: 28px 16px;
   text-align: center;
@@ -849,7 +851,7 @@ onBeforeUnmount(() => {
   width: 100%;
   border: 0;
   background: none;
-  padding: 12px 16px;
+  padding: var(--sp-3) var(--sp-4);
   font-family: var(--mono);
   font-size: var(--fs-xs);
   letter-spacing: .08em;
@@ -963,6 +965,9 @@ onBeforeUnmount(() => {
 @media (max-width: 680px) {
   .ctrl {
     padding: 11px 12px 9px;
+    /* 手机解除吸顶（同 AmmoMarketView .ctl-sticky 口径）：六组控件全宽堆叠后面板高近半屏，
+       常驻吸顶会长期遮挡排行内容；滚动回顶部即可改筛选 */
+    position: static;
   }
   .ctrl-rows { gap: 7px; }
   .ctrl-row { gap: var(--sp-2); }
@@ -972,5 +977,8 @@ onBeforeUnmount(() => {
     align-items: flex-start;
     gap: var(--sp-2);
   }
+  /* ≤680 行改两行式卡片（RankRow），列头与任何一轨都不再对应（先例：详情 .drow.capt 同断点隐藏）；
+     数字自带单位（发 / ms），表头退场比错位列头更诚实 */
+  .rk-head { display: none; }
 }
 </style>

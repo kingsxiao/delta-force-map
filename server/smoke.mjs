@@ -6,8 +6,7 @@
 //   node scripts/smoke.mjs                     # 默认 http://localhost:4173/，截图到 shots/vue-smoke/
 //   node scripts/smoke.mjs <baseUrl> <shotsDir>
 // 注意：src/router.js 用 createWebHashHistory（hash 路由，静态托管免 SPA fallback），
-//       四个 tab 的实际 URL 是 /#/、/#/tactics、/#/ttk、/#/ammo。
-// 路由是 hash 模式，因此“/tactics”这一 tab 对应 URL `/#/tactics`。
+//       当前五个入口：/#/ammo、/#/radar、/#/craft、/#/ttk、/#/account（'/' 重定向到 /#/ammo）。
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -35,36 +34,25 @@ if (typeof WebSocket === 'undefined') {
 // 每个 tab：路由路径（用于报告）、实际访问 URL、截图文件名、DOM 断言
 const ROUTES = [
   {
-    route: '/', file: 'home.png', expectActive: '地图',
+    // 特勤处制造（CraftView）：断言口径同雷达——离开 loading 到任一终态即可
+    // （.hero/.ctl-bar=ready、.state-card=empty/error），不设行数门槛。
+    route: '/craft', file: 'craft.png', expectActive: '特勤处制造',
     ready: `document.querySelectorAll('.site-topbar .tab').length === 5
-            && document.querySelectorAll('.map-section').length >= 1
-            && [...document.querySelectorAll('.fig-frame img')].some(i => i.complete && i.naturalWidth > 0)`,
+            && !!document.querySelector('.wrap.page .compact-head h1')
+            && (document.querySelectorAll('.page .hero').length >= 1 || document.querySelectorAll('.page .state-card').length >= 1)`,
     assert: `JSON.stringify({
       tabs: document.querySelectorAll('.site-topbar .tab').length,
       activeTab: (document.querySelector('.site-topbar .tab.active') || {textContent: null}).textContent?.trim() ?? null,
-      mapSections: document.querySelectorAll('.map-section').length,
-      figFrames: document.querySelectorAll('.fig-frame').length,
-      imgs: document.querySelectorAll('.fig-frame img').length,
-      imgsLoaded: [...document.querySelectorAll('.fig-frame img')].filter(i => i.complete && i.naturalWidth > 0).length
+      h1: (document.querySelector('.compact-head h1') || {textContent: null}).textContent?.trim() ?? null,
+      hero: document.querySelectorAll('.page .hero').length,
+      ctlBars: document.querySelectorAll('.page .ctl-bar').length,
+      tblRows: document.querySelectorAll('.page .tbl tbody tr').length,
+      stateCards: document.querySelectorAll('.page .state-card').length
     })`,
-    ok: s => s.tabs === 5 && s.activeTab === '地图' && s.mapSections >= 1 && s.imgs >= 1 && s.imgsLoaded >= 1,
+    ok: s => s.tabs === 5 && s.activeTab === '特勤处制造' && (s.h1 || '').includes('特勤处制造') && (s.hero >= 1 || s.stateCards >= 1),
   },
   {
-    route: '/tactics', file: 'tactics.png', expectActive: '打法',
-    ready: `document.querySelectorAll('.site-topbar .tab').length === 5
-            && document.querySelectorAll('.tactics-page').length === 1
-            && (document.querySelectorAll('.spawn-card').length >= 1 || document.querySelectorAll('.loot-table').length >= 1)`,
-    assert: `JSON.stringify({
-      tabs: document.querySelectorAll('.site-topbar .tab').length,
-      activeTab: (document.querySelector('.site-topbar .tab.active') || {textContent: null}).textContent?.trim() ?? null,
-      spawnCards: document.querySelectorAll('.spawn-card').length,
-      lootTables: document.querySelectorAll('.loot-table').length,
-      lootRows: document.querySelectorAll('.loot-table tbody tr').length
-    })`,
-    ok: s => s.tabs === 5 && s.activeTab === '打法' && (s.spawnCards >= 1 || s.lootTables >= 1),
-  },
-  {
-    route: '/ttk', file: 'ttk.png', expectActive: 'TTK排行',
+    route: '/ttk', file: 'ttk.png', expectActive: 'TTK 排行',
     ready: `document.querySelectorAll('.site-topbar .tab').length === 5
             && document.querySelectorAll('.ttk-page').length === 1
             && document.querySelectorAll('.rk-row').length >= 1
@@ -77,7 +65,24 @@ const ROUTES = [
       segBtns: document.querySelectorAll('.seg-btn').length,
       segOnBtns: document.querySelectorAll('.seg-btn.on').length
     })`,
-    ok: s => s.tabs === 5 && s.activeTab === 'TTK排行' && s.rankRows >= 1 && s.segBtns >= 1,
+    ok: s => s.tabs === 5 && s.activeTab === 'TTK 排行' && s.rankRows >= 1 && s.segBtns >= 1,
+  },
+  {
+    // 账号（AccountView）：未登录态显示登录/注册表单（.auth-stage/.auth-card），
+    // 已登录态显示账号面板——冒烟环境（preview/serve 未登录）预期走 auth-stage。
+    route: '/account', file: 'account.png', expectActive: '账号',
+    ready: `document.querySelectorAll('.site-topbar .tab').length === 5
+            && !!document.querySelector('.compact-head h1')
+            && (document.querySelectorAll('.auth-stage').length >= 1 || document.querySelectorAll('.auth-card').length >= 1)`,
+    assert: `JSON.stringify({
+      tabs: document.querySelectorAll('.site-topbar .tab').length,
+      activeTab: (document.querySelector('.site-topbar .tab.active') || {textContent: null}).textContent?.trim() ?? null,
+      h1: (document.querySelector('.compact-head h1') || {textContent: null}).textContent?.trim() ?? null,
+      authStage: document.querySelectorAll('.auth-stage').length,
+      authForm: document.querySelectorAll('.auth-card form').length,
+      submitBtn: document.querySelectorAll('.auth-card .submit').length
+    })`,
+    ok: s => s.tabs === 5 && (s.activeTab === '账号' || s.activeTab === '登录') && (s.h1 || '') === '账号' && s.authStage >= 1 && s.authForm >= 1,
   },
   {
     // 子弹行情：loadState 四态（loading/ready/empty/error，AmmoMarketView.vue），

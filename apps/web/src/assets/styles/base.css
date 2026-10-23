@@ -164,13 +164,9 @@ input { font-family: inherit; } /* 表单控件默认不吃 body 字阶，兜底
 /* ---- 通用布局 ---- */
 .wrap { max-width: var(--wrap); margin: 0 auto; padding: 0 28px; }
 
-/* ---- 页头公共（首页 hero 64/32；各视图 scoped 重复声明应删除，以本规则为准） ---- */
-.page-head,
-.site-head { padding: var(--sp-8) 0 var(--sp-6); }
-
 /* ---- 紧凑页头（子页单行式）：三段式页头（眉题/大标题/导语）在数据页首屏
    挤占竖向空间，收敛为「中标题 + 右侧元信息」一行；meta 过长时折到标题
-   下方右对齐。首页 hero 不用，仍走上面的 .site-head 三段式 ---- */
+   下方右对齐。首页 hero 不用 ---- */
 .compact-head {
   display: flex;
   align-items: baseline;
@@ -187,6 +183,22 @@ input { font-family: inherit; } /* 表单控件默认不吃 body 字阶，兜底
    后定义的 .compact-head 会盖掉 .wrap 的左右 28px，导致页头贴死屏幕左右缘——
    用组合选择器补回（仅命中双类同元素；radar/ammo 页 compact-head 是 wrap 子元素，不受影响） */
 .wrap.compact-head { padding-left: 28px; padding-right: 28px; }
+
+/* ---- 窄屏水槽（--bp-mobile 680px）：页缘留白 28 → 16px（--sp-4），
+   手机端内容列多出 24px 可用宽；必须带上 .wrap.compact-head 组合选择器，
+   否则 ttk 页同元素双类规则（28px）会反超单类 .wrap，跨页水槽不一致 ---- */
+@media (max-width: 680px) {
+  .wrap,
+  .wrap.compact-head { padding-left: var(--sp-4); padding-right: var(--sp-4); }
+}
+
+/* ---- iOS 聚焦缩放全局防护（--bp-mobile 680px）：iOS Safari 聚焦 font-size
+   <16px 的表单控件时会整页放大，窄屏给 input/textarea/select 设 16px 下限。
+   !important 是刻意的——组件 scoped 规则（如 .search 的 12px）特异性高于
+   元素选择器，普通全局规则会被逐一盖掉，只有 important 能保证下限成立 ---- */
+@media (max-width: 680px) {
+  input, textarea, select { font-size: 16px !important; }
+}
 
 /* ---- 吸顶面板（三页共用；弃 blur 改实底） ---- */
 .sticky-bar {
@@ -222,6 +234,7 @@ input { font-family: inherit; } /* 表单控件默认不吃 body 字阶，兜底
 .reveal-group.in > * { animation-play-state: running; }
 
 @media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; } /* 锚点/scrollIntoView 的 CSS 平滑滚动同样让位于减动效偏好 */
   .reveal { opacity: 1; transform: none; transition: none; }
   .reveal-group > * { animation: none; }
 }
@@ -239,29 +252,7 @@ input { font-family: inherit; } /* 表单控件默认不吃 body 字阶，兜底
 .bhline { flex: 1; height: 1px; background: var(--line2); }
 .bhc { font-family: var(--mono); font-size: var(--fs-2xs); color: var(--faint); white-space: nowrap; }
 
-/* ---- 页头通用（三页同构）：眉题 / 大标题 / 导语 / 数据说明 ---- */
-.kicker {
-  font-family: var(--mono);
-  font-size: var(--fs-2xs);
-  letter-spacing: .42em;
-  color: var(--accent);
-  margin-bottom: 18px;
-}
-.site-head h1,
-.page-head h1 {
-  font-size: clamp(var(--fs-2xl), 4vw, var(--fs-3xl));
-  font-weight: 700;
-  letter-spacing: .02em;
-  line-height: 1.25;
-  color: var(--tx-strong);
-}
-.lede {
-  margin-top: 14px;
-  max-width: 680px;
-  color: var(--dim);
-  font-size: var(--fs-lg);
-  line-height: 1.8;
-}
+/* ---- 页头/页脚元信息（compact-head 右侧数据说明等；mono 小字） ---- */
 .meta {
   margin-top: 14px;
   font-family: var(--mono);
@@ -296,7 +287,11 @@ input { font-family: inherit; } /* 表单控件默认不吃 body 字阶，兜底
   line-height: 1.65;
 }
 .tbl tbody tr { transition: background var(--t-fast); }
-.tbl tbody tr:nth-child(even) { background: var(--zebra); }
+/* 斑马纹契约：只数挂了 .data-row 的数据行的奇偶（Selectors 4 :nth-child(of S)），
+   展开行 / 空筛占位行插进 tbody 不再打断下方整片翻色。of 参数套 :where() 刻意
+   压平其特异性，整条规则与旧 nth-child(even) 同为 (0,2,2)：仍被下方 hover 的
+   源序覆盖，也不会盖过各视图 scoped 的 .row.open / .row:hover 重声明 */
+.tbl tbody tr:nth-child(even of :where(.data-row)) { background: var(--zebra); }
 .tbl tbody tr:hover { background: var(--row-hover); }
 .tbl tbody tr:last-child td { border-bottom: 0; }
 .tbl .mono { font-family: var(--mono); font-size: var(--fs-xs); color: var(--dim); font-variant-numeric: tabular-nums; }

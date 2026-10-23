@@ -64,6 +64,10 @@ public struct APIClient: Sendable {
         try await fetchJSON("market/radar.json")
     }
 
+    public func fetchCraft() async throws -> CraftSnapshot {
+        try await fetchJSON("craft/craft.json")
+    }
+
     /// 健康探测：短超时，取不到即视为实时服务不在线（与网页端 gate 一致）
     public func health(timeout: TimeInterval = 4) async throws -> HealthStatus {
         try await fetchJSON("health", timeout: timeout)

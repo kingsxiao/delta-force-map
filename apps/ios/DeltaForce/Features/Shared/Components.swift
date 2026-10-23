@@ -201,7 +201,7 @@ private struct FilterChipLabel: View {
                 .lineLimit(valueLineLimit)
                 .multilineTextAlignment(.leading)
             Image(systemName: "chevron.down")
-                .font(Theme.monoFont(.micro, weight: .semibold))
+                .font(Theme.font(.micro, weight: .semibold)) // SF Symbol 走默认 design（§6.1-3：monoFont 仅限纯 ASCII 文本）
                 .foregroundStyle(active ? Theme.accent : Theme.faint)
         }
     }
@@ -291,10 +291,15 @@ struct Sparkline: View {
 }
 
 /// 列表头：来源 / 版本 / 年龄 / 通道状态 / 过期提示（TimelineView 让年龄每 30s 自更）
+/// （行情 / 雷达专用；特勤处制造页用 CraftView 内的同构轻量版 CraftFeedHeader）
 struct FeedHeader: View {
-    let feed: FeedModel
+    let feed: FeedModel<MarketSnapshot>
     let channel: LiveChannel
     var subtitle: String?
+    /// 错误行开关（错误去重，默认 true）：无快照的首拉失败若由页内 RetryErrorRow 承担错误展示
+    /// （含重试出口），置 false 隐藏此处胶囊，避免同屏双份同一文案；有快照的后台刷新失败仍由此处提示。
+    /// 带默认值，既有调用点零改动
+    var showLoadError: Bool = true
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 30)) { ctx in
@@ -322,8 +327,9 @@ struct FeedHeader: View {
                 if let subtitle {
                     Text(subtitle).font(Theme.font(.xs)).foregroundStyle(Theme.faint)
                 }
-                if let err = feed.lastError {
-                    // C7：错误行升格为 danger 8% 底胶囊行，断网时在列表顶部一眼可见（原图标语义=警告）
+                if let err = feed.lastError, showLoadError {
+                    // C7：错误行升格为 danger 8% 底胶囊行，断网时在列表顶部一眼可见（原图标语义=警告）；
+                    // showLoadError=false 时由页内 RetryErrorRow 承担（无快照首拉失败场景，见参数注释）
                     Label(err, systemImage: "exclamationmark.triangle")
                         .font(Theme.font(.xs))
                         .foregroundStyle(Theme.danger)
@@ -411,6 +417,7 @@ struct RetryErrorRow: View {
                 }
             }
             .buttonStyle(.bordered)
+            .controlSize(.large) // §7-8 触控目标 ≥44pt：重试是错误态唯一出口，bordered 默认 ~34pt 偏小
             .disabled(busy)
         }
         .frame(maxWidth: .infinity)
@@ -465,7 +472,8 @@ struct ItemThumb: View {
                 Image(systemName: "shippingbox").foregroundStyle(Theme.faint)
             }
         }
-        .frame(width: size, height: size)        .background(Theme.card2, in: RoundedRectangle(cornerRadius: Theme.radiusTile))
+        .frame(width: size, height: size)
+        .background(Theme.card2, in: RoundedRectangle(cornerRadius: Theme.radiusTile))
         .accessibilityHidden(true)
     }
 }

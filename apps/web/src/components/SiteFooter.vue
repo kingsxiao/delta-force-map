@@ -1,5 +1,5 @@
 <script setup>
-// 全站页脚：数据来源与版权说明
+// 全站页脚：版权说明
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 
@@ -13,9 +13,6 @@ const showExtend = computed(() => route.path !== '/ttk')
   <footer class="site-foot">
     <div class="wrap">
       <p class="foot-brand">DELTA FORCE · FAN-MADE HUB</p>
-      <p class="foot-line foot-src">
-        数据整理自公开资料（2026-10 版本）：腾讯官网、3DM、游民星空、17173、NGA、TapTap、B 站等社区攻略，非官方数据，仅供参考。
-      </p>
       <p v-if="showExtend" class="foot-line">
         延伸内容：<router-link to="/ttk" class="foot-link">全枪械 TTK 排行</router-link>——弹药穿透等级 ×
         护甲减伤逐发模拟，附弹药库与判定矩阵。
@@ -47,11 +44,10 @@ const showExtend = computed(() => route.path !== '/ttk')
   max-width: 76ch;
   margin-bottom: var(--sp-2);
 }
-/* 层次：来源段降一档，延伸段保持 --dim */
-.foot-src { color: var(--faint); }
 .foot-link {
   color: var(--accent);
   text-decoration: none;
+  text-underline-offset: 3px; /* hover 出现下划线时与中文字形拉开距离，不再贴着笔画 */
 }
 .foot-link:hover { text-decoration: underline; }
 /* 按下态同 hover（加下划线）：触屏无 hover 时按压即时可见 */

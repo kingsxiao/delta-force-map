@@ -29,7 +29,10 @@ struct RadarView: View {
                 List {
                     Section {
                         VStack(alignment: .leading, spacing: Theme.Space.sm) {
-                            FeedHeader(feed: app.radar, channel: app.channel)
+                            // 错误去重（视觉复验修复）：无快照的首拉失败由下方 RetryErrorRow 承担
+                            // 错误展示 + 重试出口，FeedHeader 不再同屏重复同一文案；
+                            // 有快照（后台刷新失败）仍由 FeedHeader 提示——此时列表有数据可看、无 RetryErrorRow
+                            FeedHeader(feed: app.radar, channel: app.channel, showLoadError: app.radar.snapshot != nil)
                             // 市场态势行（§4.3-1）：本页唯一全局口径从 FeedHeader 第三行灰字
                             // 升格为语义胶囊组（C2 StatusChip）；特大字号 / 窄屏折两行（AX 韧性 §7-6）
                             if let s = app.radar.snapshot?.stats {
@@ -119,7 +122,7 @@ struct RadarView: View {
                         VStack(alignment: .leading, spacing: 6) {
                             // 含中文标题：默认 design + 等宽数字（mono 只留给纯 ASCII）
                             Text("口径").font(Theme.font(.xs, weight: .bold)).monospacedDigit().foregroundStyle(Theme.accent)
-                            Text("异动清单来自 kkrb「全物品价格变化曲线」涨幅榜 Top10；逐项补 moligod 全品类小时曲线 + 分钟级现价，用与子弹页完全相同的分位数回归出信号（非子弹无税后字段，税率兜底 15%）。同一物品两源曲线在重叠小时上的中位偏差 > 15% 判「双源异常」：信号强制观望、不通知。")
+                            Text("异动清单为全品类涨幅榜 Top10；逐项结合小时曲线与分钟级现价，用与子弹页完全相同的分位数回归出信号（非子弹无税后字段，税率兜底 15%）。同一物品两路独立曲线在重叠小时上的中位偏差 > 15% 判「双源异常」：信号强制观望、不通知。")
                                 .font(Theme.font(.xs)).foregroundStyle(Theme.dim)
                         }
                     }
@@ -177,13 +180,22 @@ struct RadarRow: View {
         return Theme.faint
     }
 
+    /// 迷你走势线（三档 ViewThatFits 共用）：异常态警示金 / 常规信号色
+    private var sparkline: some View {
+        Sparkline(curve: item.curve, color: item.isAnomaly ? Theme.warn : Theme.signal(item.signal))
+    }
+
     var body: some View {
         HStack(spacing: 10) {
             Mono(rankText, step: .sub, color: rankColor)
                 .frame(minWidth: rankMinWidth, alignment: .leading)
             ItemThumb(pic: item.pic, size: 36)
             VStack(alignment: .leading, spacing: Theme.Space.xs) {
+                // priority 落在名称行而非整个 VStack（同 AmmoRow 惯用法）：整列保护会把三枚徽标的
+                // 理想宽（常比名称还宽）一并锁死，下方徽标 ViewThatFits 降档永不触发，行宽压力全部
+                // 压进右列——现状截图 01-03 行「分位」标签被压成省略号、两个数值双双截断即此成因
                 Text(item.name).font(Theme.font(.md, weight: .semibold)).foregroundStyle(Theme.txStrong).lineLimit(1)
+                    .layoutPriority(1) // 名称行优先取宽：压力先由徽标降档 / 右列缩放承担，名称最后才截断
                 // 徽标行宽度不足时按「分类 → 等级」次序省略（信号徽标必须保留），绝不折行竖排
                 ViewThatFits(in: .horizontal) {
                     HStack(spacing: 6) {
@@ -198,15 +210,21 @@ struct RadarRow: View {
                     SignalChip(signal: item.signal, anomaly: item.isAnomaly)
                 }
             }
-            .layoutPriority(1) // 名称列优先取宽（radar-2）：溢出压力由右列缩放 / 徽标降档承担，不挤折名称
             Spacer(minLength: 4)
-            // 右列 + 走势线整体 ViewThatFits：行宽吃紧时先省略走势线（纯装饰、a11y 已隐藏），
-            // 保住名称列与价格数字都单行完整
+            // 右列 + 走势线 ViewThatFits 三档：全量 56×26 → 窄版 40×20 → 完全退场（仅右列）。
+            // 窄版档（视觉复验修复）：402pt 标准宽下原二档方案直接跳到退场、7 行走势线整列消失——
+            // 加 40×20 中间档（同数据点距压缩）保住 iPhone 标准宽的形态可读；iPad / 横屏仍取全量档。
+            // 行宽吃紧先降走势线尺寸再省略（纯装饰、a11y 隐藏语义不变），保住名称列与价格数字单行完整
             ViewThatFits(in: .horizontal) {
                 HStack(spacing: 10) {
                     trailing
-                    Sparkline(curve: item.curve, color: item.isAnomaly ? Theme.warn : Theme.signal(item.signal))
+                    sparkline
                         .frame(width: 56, height: 26) // 统一规格 56×26（§4.3-4 / C9 决议，与行情行对齐）
+                }
+                HStack(spacing: 10) {
+                    trailing
+                    sparkline
+                        .frame(width: 40, height: 20) // 窄版档：点距压缩，不下场
                 }
                 trailing
             }
@@ -223,11 +241,17 @@ struct RadarRow: View {
         VStack(alignment: .trailing, spacing: Theme.Space.xs) {
             Mono(Fmt.price(item.current), step: .lead)
             HStack(alignment: .firstTextBaseline, spacing: Theme.Space.xs) {
+                // 微标签 fixedSize（同徽标单行纪律）：宽度压力下 2 字标签永不压成「分…」，
+                // 截断让位给右侧数值（尾端省略号仍可读出「分位 42…」）
                 Text("分位").font(Theme.font(.micro)).foregroundStyle(Theme.faint)
+                    .fixedSize(horizontal: true, vertical: false)
                 Mono(Fmt.rankPercent(item.rank), step: .sub, color: Theme.dim)
                 if let dev = item.crossDev {
-                    // 偏差标签含中文用默认 design，数值纯 ASCII 走 Mono sub（异常态警示金）
+                    // 偏差标签含中文用默认 design，数值纯 ASCII 走 Mono sub（异常态警示金）；
+                    // leading +xs 把组间距拉到 8（组内 4）：读作「分位42% / 偏差1.6%」两组而非四个等距词元
                     Text("偏差").font(Theme.font(.micro)).foregroundStyle(Theme.faint)
+                        .fixedSize(horizontal: true, vertical: false)
+                        .padding(.leading, Theme.Space.xs)
                     Mono(Fmt.pct(dev).replacingOccurrences(of: "+", with: ""), step: .sub, color: item.isAnomaly ? Theme.warn : Theme.faint)
                 }
             }

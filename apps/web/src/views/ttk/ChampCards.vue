@@ -12,8 +12,10 @@ defineProps({
 </script>
 
 <template>
-  <!-- .champ 挂 --ri 供容器级级联错峰（§7.3） -->
-  <div class="champs">
+  <!-- .champ 挂 --ri 供容器级级联错峰（§7.3）；picks 为空（搜索/筛选无结果）时整组收起不留空隙。
+       用 display 折叠而非 v-if：useReveal 只在挂载时观察一次，v-if 卸载重挂的新节点
+       不会再被观察、会卡在入场前的 opacity:0；display 变化 IO 会正常补触发 -->
+  <div class="champs" :class="{ empty: !picks.length }">
     <div v-for="(p, i) in picks" :key="p.label" class="champ" :class="{ top: p.top }" :style="{ '--ri': i }">
       <div class="champ-label">{{ p.label }}</div>
       <div class="champ-gun">{{ p.c.gun.zh }}</div>
@@ -34,6 +36,7 @@ defineProps({
   gap: var(--sp-3);
   margin: var(--sp-3) 0 var(--sp-2);
 }
+.champs.empty { display: none; }
 .champ {
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
@@ -42,17 +45,12 @@ defineProps({
   padding: 15px 17px 13px;
   position: relative;
   overflow: hidden;
-  transition: border-color var(--t-med) var(--ease), box-shadow var(--t-med) var(--ease);
-}
-.champ:hover {
-  border-color: var(--line-hover);
-  box-shadow: var(--edge-hover);
 }
 .champ.top {
   border-color: var(--accent-dim);
   background: linear-gradient(135deg, var(--accent-bg), var(--card) 55%);
 }
-.champ.top:hover { border-color: var(--accent-soft); }
+/* 卡片本身不可点击（无 hover 提亮）：场景最快卡是纯展示卡 */
 .champ-label {
   font-family: var(--mono);
   font-size: var(--fs-xs);
@@ -98,8 +96,5 @@ defineProps({
 }
 @media (max-width: 680px) {
   .champs { grid-template-columns: 1fr; }
-}
-@media (prefers-reduced-motion: reduce) {
-  .champ { transition: none; }
 }
 </style>

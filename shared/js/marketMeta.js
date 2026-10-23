@@ -20,27 +20,28 @@ export function formatVersionLabel(v) {
 
 /**
  * 数据时效阈值（分钟）：moligod 分钟级——live 点 10min 变灰、30min 出过期
- * 提示；kkrb 小时级兜底——沿用原 60min / 360min。
+ * 提示；kkrb 小时级兜底——沿用原 60min / 360min。moligod-craft（特勤处
+ * 制造）同为分钟级源，同档。
  */
 export function staleness(source) {
-  return source === 'moligod'
+  return source === 'moligod' || source === 'moligod-craft'
     ? { staleDotMin: 10, staleTipMin: 30 }
     : { staleDotMin: 60, staleTipMin: 360 }
 }
 
-/** 页头/METHOD 的来源文案（按 market.json 顶层 source 动态） */
+/** 页头/METHOD 的更新粒度文案（按 market.json 顶层 source 动态；不对外提及具体站点） */
 export function sourceLabel(source) {
-  return source === 'moligod'
-    ? '三角洲攻略站 moligod（分钟级）'
+  return source === 'moligod' || source === 'moligod-craft'
+    ? '分钟级'
     : source === 'kkrb'
-      ? 'KK三角洲一图流 kkrb.net（约每小时，兜底）'
-      : '未知来源'
+      ? '小时级'
+      : '未知粒度'
 }
 
 export function methodDataLine(source) {
   return source === 'moligod'
-    ? '三角洲攻略站 moligod.com 交易行口径，分钟级更新；趋势为近 7 天每小时价格。'
-    : 'KK三角洲一图流（kkrb.net）交易行口径，约每小时更新一次；趋势为近 7 天每小时均价。'
+    ? '交易行口径，分钟级更新；趋势为近 7 天每小时价格。'
+    : '交易行口径，约每小时更新一次；趋势为近 7 天每小时均价。'
 }
 
 /** 实时通道端点判定（本地 8787 / 同源 /events / file 不可用）——实现在

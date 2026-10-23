@@ -51,6 +51,8 @@ const MAX_CHIPS = 7
   display: flex;
   align-items: baseline;
   gap: var(--sp-3);
+  /* 窄屏长注整体折行到标题下方，不在行内硬折 */
+  flex-wrap: wrap;
   margin-bottom: var(--sp-2);
 }
 .tb-title {
@@ -78,12 +80,8 @@ const MAX_CHIPS = 7
   background: var(--card);
   box-shadow: var(--edge-light);
   padding: 13px 15px 12px 20px;
-  transition: border-color var(--t-med) var(--ease), box-shadow var(--t-med) var(--ease);
 }
-.tb-card:hover {
-  border-color: var(--line-hover);
-  box-shadow: var(--edge-hover);
-}
+/* 卡片本身不可点击（无 hover 提亮）：可点的只有卡内枪名 chips（.tb-chip 自带 hover） */
 /* 左缘分档色条：分档身份色（T0 金 / T1 主色 / T2 蓝 / T3 灰） */
 .tb-card::before {
   content: "";
@@ -161,6 +159,6 @@ const MAX_CHIPS = 7
   .tb-card { padding: 12px 14px 11px 18px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .tb-card, .tb-chip { transition: none; }
+  .tb-chip { transition: none; }
 }
 </style>

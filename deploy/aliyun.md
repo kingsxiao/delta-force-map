@@ -17,7 +17,7 @@
 | Node | nvm 安装：`/root/.nvm/versions/node/v24.15.0/bin/node` |
 | 服务 | systemd：`delta-force-map.service`，监听 `0.0.0.0:8080` |
 | 静态产物 | `apps/web/dist/`（monorepo：web 端在 `apps/web/`，另有 `apps/ios/`） |
-| 数据写入 | 服务运行时持续刷新 `apps/web/public/ammo/market.json` 与 `apps/web/public/market/radar.json`（这两个文件的本地改动是正常现象，不要提交也不要还原后长时间搁置——还原后服务下一轮就会重写） |
+| 数据写入 | 服务运行时持续刷新 `apps/web/public/ammo/market.json`、`apps/web/public/market/radar.json` 与 `apps/web/public/craft/craft.json`（这些文件的本地改动是正常现象，不要提交也不要还原后长时间搁置——还原后服务下一轮就会重写） |
 | 健康检查 | `curl http://127.0.0.1:8080/health` → `{"ok":true,...}` |
 
 ## 一、准备 ECS（装机时一次性的）
@@ -101,7 +101,7 @@ nginx 配置已处理 SSE 关键点（`proxy_buffering off` + 长读超时；服
 ```
 
 注意：`git pull --ff-only` 可能被服务运行时刷新的数据文件挡住
-（`apps/web/public/ammo/market.json`、`apps/web/public/market/radar.json` 是被 git 跟踪的）。
+（`apps/web/public/ammo/market.json`、`apps/web/public/market/radar.json`、`apps/web/public/craft/craft.json` 是被 git 跟踪的）。
 真被挡住时先还原再重跑，数据由服务下一轮重新生成，不会丢：
 
 ```bash

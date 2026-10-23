@@ -16,6 +16,10 @@ struct ItemDetailView: View {
     @State private var calcQty = 100
     @State private var calcCost = 0.0 // 0 = 未初始化，onAppear 回填（台账已录价 ?? 现价）
     @State private var posTick = 0
+    @State private var calcTick = 0 // 试算 chip 选择（§5 筛选/菜单类交互：.selection 触感）
+    // 数字键盘（numberPad/decimalPad）无回车键，输入框宽度需随字阶同步放大才装得下特大号输入
+    @ScaledMetric(relativeTo: .footnote) private var qtyFieldWidth = 72
+    @ScaledMetric(relativeTo: .footnote) private var costFieldWidth = 90
 
     /// 解冻命中路径（§4.2-3）：年龄角标的数据源必须跟随——两路快照独立轮询、
     /// lastRefreshAt 各自不同，照单数「feed」必然出现雷达物品挂行情年龄的错配
@@ -57,6 +61,8 @@ struct ItemDetailView: View {
             .frame(maxWidth: .infinity)
         }
         .background(Theme.bg)
+        // 数字键盘没有回车键：滚动跟手收起，否则输入成本后键盘常驻、遮住试算结果下半区
+        .scrollDismissesKeyboard(.interactively)
         // TTK 联动兜底：从雷达页进详情时 ttk.json 可能尚未加载（行情页 onAppear 已加载则空转）；
         // 囤货试算成本回填也在此：台账已录价优先，无记录按现价（resolved 首帧已就绪）
         .onAppear {
@@ -82,6 +88,7 @@ struct ItemDetailView: View {
         .sensoryFeedback(.success, trigger: refreshOkTick)
         .sensoryFeedback(.error, trigger: refreshErrTick)
         .sensoryFeedback(.selection, trigger: posTick)
+        .sensoryFeedback(.selection, trigger: calcTick)
         .toolbar {
             Button {
                 app.favorites.toggle(it.name)
@@ -248,11 +255,14 @@ struct ItemDetailView: View {
             HStack(spacing: 6) {
                 Text("数量").font(Theme.font(.xs)).foregroundStyle(Theme.faint)
                 ForEach([100, 500, 1000], id: \.self) { n in
-                    CalcChip(label: "\(n)", on: qty == n) { calcQty = n }
+                    CalcChip(label: "\(n)", on: qty == n) {
+                        calcQty = n
+                        calcTick += 1 // 选择触感（§5）：chip 选中是菜单类交互，与筛选/排序同款 .selection
+                    }
                 }
                 TextField("自定义", value: $calcQty, format: .number.grouping(.never))
                     .keyboardType(.numberPad)
-                    .frame(width: 72)
+                    .frame(width: qtyFieldWidth) // ScaledMetric：字阶放大时输入框同步放宽（Dynamic Type）
                     .padding(.vertical, 4).padding(.horizontal, 9)
                     .background(Capsule().fill(Theme.card2))
                     .overlay(Capsule().strokeBorder(Theme.line, lineWidth: 1))
@@ -263,12 +273,15 @@ struct ItemDetailView: View {
                 Text("我的买入价").font(Theme.font(.xs)).foregroundStyle(Theme.faint)
                 TextField("成本 / 发", value: $calcCost, format: .number.grouping(.never))
                     .keyboardType(.decimalPad)
-                    .frame(width: 90)
+                    .frame(width: costFieldWidth) // 同上：宽度随字阶缩放
                     .padding(.vertical, 4).padding(.horizontal, 9)
                     .background(Capsule().fill(Theme.card2))
                     .overlay(Capsule().strokeBorder(Theme.line, lineWidth: 1))
                     .font(Theme.monoFont(.xs))
-                CalcChip(label: "现价", on: false) { calcCost = it.current ?? 0 }
+                CalcChip(label: "现价", on: false) {
+                    calcCost = it.current ?? 0
+                    calcTick += 1 // 同上：回填也是一次选择动作
+                }
                 Spacer(minLength: 0)
             }
             StatQuadRow(
@@ -363,10 +376,10 @@ struct ItemDetailView: View {
                 StatCell(label: "中位偏差", value: it.crossDev.map { Fmt.pct($0).replacingOccurrences(of: "+", with: "") } ?? "样本不足", color: it.isAnomaly ? Theme.warn : Theme.txStrong),
                 StatCell(label: "重叠小时", value: "\(it.crossOverlap ?? 0)"),
                 StatCell(label: "原始信号", value: it.rawSignal?.label ?? "—"),
-                StatCell(label: "曲线源", value: it.curveSource ?? "—")
+                StatCell(label: "涨幅榜位", value: it.hiRank.map { "#\($0)" } ?? "—")
             )
             Text(it.isAnomaly
-                 ? "kkrb 与 moligod 曲线在重叠小时上的中位偏差 > 15%：口径分歧时宁可漏报，信号强制观望、不通知。"
+                 ? "两路独立曲线在重叠小时上的中位偏差 > 15%：口径分歧时宁可漏报，信号强制观望、不通知。"
                  : "两源曲线偏差在 15% 以内，信号可信；重叠不足 24 小时不做结论。")
                 .font(Theme.font(.xs)).foregroundStyle(Theme.dim)
         }

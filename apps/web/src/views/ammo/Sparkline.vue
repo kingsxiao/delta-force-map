@@ -8,6 +8,8 @@ const props = defineProps({
   width: { type: Number, default: 120 },
   height: { type: Number, default: 30 },
   current: { type: Number, default: null },
+  // 末点圆语境色（如行内信号色）；默认不传走 --accent 现状（雷达页等调用点兼容）
+  endColor: { type: String, default: '' },
 })
 
 const geo = computed(() => {
@@ -39,15 +41,16 @@ const geo = computed(() => {
   >
     <polygon :points="geo.area" class="spark-fill" />
     <polyline :points="geo.line" class="spark-line" fill="none" />
-    <circle :cx="geo.last[0]" :cy="geo.last[1]" r="2" class="spark-dot" />
+    <circle :cx="geo.last[0]" :cy="geo.last[1]" r="2" class="spark-dot" :style="endColor ? { fill: endColor } : null" />
   </svg>
   <span v-else class="spark-empty">—</span>
 </template>
 
 <style scoped>
-/* 默认走 --accent；可被使用方局部覆盖（如信号卡内降为 --dim 中性纹理） */
+/* 默认走 --accent；可被使用方局部覆盖（如信号卡内整组降为 --dim 中性纹理）。
+   末点圆另有 endColor prop 供语境着色（inline style 优先于类默认填充） */
 .spark-line { stroke: var(--spark-line, var(--accent)); stroke-width: 1.4; }
 .spark-fill { fill: var(--spark-fill, var(--accent)); opacity: .1; }
-.spark-dot { fill: var(--accent); }
+.spark-dot { fill: var(--spark-dot, var(--accent)); }
 .spark-empty { color: var(--faint); }
 </style>

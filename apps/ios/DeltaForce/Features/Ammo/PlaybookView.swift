@@ -21,7 +21,7 @@ struct PlaybookView: View {
     }
 
     private let windows: [Window] = [
-        .init(time: "02:00–05:00", tag: "扫货", buy: true, note: "挂机党下线甩卖，全天低位（社区观察约低两成）"),
+        .init(time: "02:00–05:00", tag: "扫货", buy: true, note: "挂机党下线甩卖，全天低位（约低两成）"),
         .init(time: "07:00–09:00", tag: "囤货", buy: true, note: "工作日早间黄金期：上班族未上线，卖压轻"),
         .init(time: "12:00–14:00", tag: "上架", buy: false, note: "午休补弹潮，挂单可比凌晨高约 10%"),
         .init(time: "19:00–23:00", tag: "出货", buy: false, note: "晚间高峰；周日晚 20–23 点是全周最佳抛售窗口"),
@@ -40,7 +40,7 @@ struct PlaybookView: View {
         ]),
         .init(idx: "03", en: "WINDOW", title: "版本与赛季窗口（利润最厚）", warn: false, items: [
             ("更新前 3–7 天囤货：", "新赛季/大版本前囤热门口径（新枪配套弹、5.56 等主流弹）；赛季末物价低迷同样是囤货窗口。"),
-            ("开更后 3 天内出货：", "全服补弹需求暴增，是主要抛售窗口（社区案例：AP6.3 更新后涨至约 4.5 万/格）。"),
+            ("开更后 3 天内出货：", "全服补弹需求暴增，是主要抛售窗口（AP6.3 更新后涨至约 4.5 万/格）。"),
             ("活动公告驱动：", "新玩法、夜战等活动公布即囤对应消耗品；研发部门新配方、特勤处制作活动会拉动特定材料价格。"),
         ]),
         .init(idx: "04", en: "MAIL", title: "卡邮件：邮箱当临时仓库", warn: true, items: [
@@ -55,7 +55,7 @@ struct PlaybookView: View {
         ("倒卖本身合规：", "交易行是官方自由市场，低买高卖属正常玩法；但卡邮件漏洞法、多开搬砖属灰色操作，风险自负。"),
         ("变现红线：", "哈夫币不能直接交易；私下交易骗子多，比例明显偏离行情的基本是骗局；官方市集安全但手续费约 30%，出手前先算净所得。"),
         ("行情会跌：", "囤货可能不涨反跌，多人同时抛售会加速下跌；历史分位不代表未来走势，本站信号同理。"),
-        ("费率以游戏内为准：", "挂单 12 / 24 小时费率不同、成交后才扣除；利润按上游税后价实测税率（约 15%）逐弹计算，与部分攻略引用的基础费率（约 5%）口径不一。"),
+        ("费率以游戏内为准：", "挂单 12 / 24 小时费率不同、成交后才扣除；利润按实测税率（约 15%）逐弹计算。"),
     ]
 
     var body: some View {
@@ -67,7 +67,7 @@ struct PlaybookView: View {
                         MarketClockCard(clock: clock)
                     }
 
-                    Text("倒卖 = 低价囤消耗品 + 高位分批抛售。信号解决「哪种弹、什么价」，下面是社区攻略里验证过的「什么时间、怎么操作」——按 时段 → 买 → 卖 → 窗口 串成一条完整动线。")
+                    Text("倒卖 = 低价囤消耗品 + 高位分批抛售。信号解决「哪种弹、什么价」，下面是验证过的「什么时间、怎么操作」——按 时段 → 买 → 卖 → 窗口 串成一条完整动线。")
                         .font(Theme.font(.sm)).foregroundStyle(Theme.dim)
 
                     // 自适应列：iPhone 2 列，iPad / 横屏按可用宽度自动多列
@@ -113,8 +113,8 @@ struct PlaybookView: View {
                     }
                     .card()
 
-                    // 实义长文本（版权 / 来源声明）：footnote 而非 caption2
-                    Text("要点整理自社区公开攻略（2026-10）：挂单定价技巧 · 游民星空 / 卡邮件机制 · 游侠网 / 交易行系统篇 · TapTap / 搬砖全攻略 · TapTap。机制与数值随版本变动，以游戏内实际为准。")
+                    // 实义长文本（版权声明）：footnote 而非 caption2
+                    Text("机制与数值随版本变动，以游戏内实际为准。")
                         .font(Theme.font(.xs)).foregroundStyle(Theme.faint)
                 }
                 .padding(12)
@@ -188,7 +188,7 @@ private struct MarketClockCard: View {
                 Text("全市场日内节律 · \(clock.counted) 种弹聚合")
                     .font(Theme.font(.xs))
                     .foregroundStyle(Theme.dim)
-                    .lineLimit(1)
+                // 不限行：特大字号 / 窄屏时自然折行，优于截成「全市场日内节律 · 1…」（右侧 StatusChip fixedSize 不受挤）
                 Spacer(minLength: Theme.Space.xs)
                 if let v = clock.verdict { StatusChip(text: v.label, tint: verdictTint) }
             }

@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		0690C9450EF496789B1BB75D /* CraftDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B22FF6E187219BE97F19F47 /* CraftDetailView.swift */; };
 		1E834ACACD533AE24EE19FEE /* LiveChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3769C338D5496A81D026577 /* LiveChannel.swift */; };
 		2BB7979D18713B840D48DA6C /* AuthStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3276EA4A3B003A8842239A24 /* AuthStore.swift */; };
 		385460CD33B9F0A2D3E7A424 /* Stores.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01F3F12CE7FE2EDFEC91F8DF /* Stores.swift */; };
@@ -19,6 +20,7 @@
 		7A5A30712084B67419590129 /* TtkView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC8D10E9731ADC22E83384D3 /* TtkView.swift */; };
 		84F96291645A3D9B763C58DD /* AmmoView.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED71C9DB03C219B1B33C3C27 /* AmmoView.swift */; };
 		92FA59AF18AB3B67E49E6BB1 /* AccountView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5E4EB64CD51417C4B8BCA95 /* AccountView.swift */; };
+		99788D98626771A7267B3331 /* CraftView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF3AF31973246A4DEC474FDC /* CraftView.swift */; };
 		99A1EFA143562F914AF12644 /* DeltaForceCore in Frameworks */ = {isa = PBXBuildFile; productRef = 302FFB79FB6CE9AF8A5C6498 /* DeltaForceCore */; };
 		9ABB82E35A6AC6BF915205F3 /* ammo-alias.json in Resources */ = {isa = PBXBuildFile; fileRef = BFE1BE288FCA691A86E3AB1D /* ammo-alias.json */; };
 		A0FD561C3D4B85E83094E8D0 /* ItemDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5EE5CE2767BC3BA8EA46A50 /* ItemDetailView.swift */; };
@@ -43,6 +45,7 @@
 		64C5F5E25A909E4CE3A6BB7D /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		6EE2DFE84128EB5E93A15099 /* ttk.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = ttk.json; sourceTree = "<group>"; };
 		6F621475F07A595782A36D14 /* DeltaForceCore */ = {isa = PBXFileReference; lastKnownFileType = folder; name = DeltaForceCore; path = Packages/DeltaForceCore; sourceTree = SOURCE_ROOT; };
+		8B22FF6E187219BE97F19F47 /* CraftDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CraftDetailView.swift; sourceTree = "<group>"; };
 		912F43E1532064B3CA2BEAC7 /* RadarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RadarView.swift; sourceTree = "<group>"; };
 		A5EE5CE2767BC3BA8EA46A50 /* ItemDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ItemDetailView.swift; sourceTree = "<group>"; };
 		B9F69DCDA745EBFA7BC19C7B /* NotificationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationManager.swift; sourceTree = "<group>"; };
@@ -51,6 +54,7 @@
 		BFE1BE288FCA691A86E3AB1D /* ammo-alias.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "ammo-alias.json"; sourceTree = "<group>"; };
 		C61126AC7A531A3E1FD92208 /* Components.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Components.swift; sourceTree = "<group>"; };
 		CFF45918F5883AC55E7BF471 /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
+		DF3AF31973246A4DEC474FDC /* CraftView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CraftView.swift; sourceTree = "<group>"; };
 		E3769C338D5496A81D026577 /* LiveChannel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveChannel.swift; sourceTree = "<group>"; };
 		E5E4EB64CD51417C4B8BCA95 /* AccountView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountView.swift; sourceTree = "<group>"; };
 		EADF1A720B8868C432DB298E /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
@@ -120,12 +124,22 @@
 			children = (
 				EC129AF8A3700A50264CCA07 /* Account */,
 				B114843A1824A9B563950EAB /* Ammo */,
+				796634F4D6FD52D1A2B064E5 /* Craft */,
 				31B47ABDD5FA99D59ADCE3D0 /* Radar */,
 				3ABDE42DB11B775D4BA8351E /* Settings */,
 				D3753D1E54DD6370E62930A0 /* Shared */,
 				B6638AB74B08FB49211879E8 /* TTK */,
 			);
 			path = Features;
+			sourceTree = "<group>";
+		};
+		796634F4D6FD52D1A2B064E5 /* Craft */ = {
+			isa = PBXGroup;
+			children = (
+				8B22FF6E187219BE97F19F47 /* CraftDetailView.swift */,
+				DF3AF31973246A4DEC474FDC /* CraftView.swift */,
+			);
+			path = Craft;
 			sourceTree = "<group>";
 		};
 		87041686337EED102BE8105A /* App */ = {
@@ -300,6 +314,8 @@
 				F8147C75B503E2D35C661FAF /* AppModel.swift in Sources */,
 				2BB7979D18713B840D48DA6C /* AuthStore.swift in Sources */,
 				C06B02CF85E79528FF381EAB /* Components.swift in Sources */,
+				0690C9450EF496789B1BB75D /* CraftDetailView.swift in Sources */,
+				99788D98626771A7267B3331 /* CraftView.swift in Sources */,
 				578132D2454DDD30A949A5EA /* DeltaForceApp.swift in Sources */,
 				4A559BD153CF9EA01E3CB8B9 /* FeedModel.swift in Sources */,
 				A0FD561C3D4B85E83094E8D0 /* ItemDetailView.swift in Sources */,

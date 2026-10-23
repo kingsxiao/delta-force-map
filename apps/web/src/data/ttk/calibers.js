@@ -94,7 +94,7 @@ export const CAL = {
   "50bmg":{label:"12.7×99mm",         sub:".50 BMG 反器材", base:100, armor:20, est:true, ammo:[
     {n:"M903 SLAP", pen:7, note:"次口径脱壳穿甲，禁交易、禁入安全箱"},
     {n:"M10 RAZOR", pen:6, flesh:0.70, note:"创伤弹：命中后延缓用药（效果归属待核实）"},
-    {n:"M3 K-0",    pen:6, flesh:0.70, note:"失能弹：减速 + 视角晃动（效果归属待核实）"}], note:"M82 专用；另有来源记两款 6 级弹为 XM108 / XM107 命名"},
+    {n:"M3 K-0",    pen:6, flesh:0.70, note:"失能弹：减速 + 视角晃动（效果归属待核实）"}], note:"M82 专用"},
   "4570": {label:".45-70 Govt",       sub:"杠杆步枪弹", base:70, armor:25, est:true, ammo:[
     {n:"RN",  pen:1, flesh:1.50, est:true, note:"穿透等级未披露，按低级肉弹估"},
     {n:"FMJ", pen:4},

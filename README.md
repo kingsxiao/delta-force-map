@@ -1,6 +1,6 @@
 # 三角洲行动 · 高清地图与打法详解
 
-多端 monorepo：**网页端**（Vite + Vue 3，`apps/web`）+ **iOS 原生端**（Swift 6 + SwiftUI，`apps/ios`）+ **Node 后端**（`server/`，静态托管 + 行情抓取 + SSE）+ **跨端契约与共享逻辑**（`shared/`）。内容：烽火地带六张地图（零号大坝 / 长弓溪谷 / 巴克什 / 航天基地 / 潮汐监狱 / AZ3核电站）的高清标注大图 + 实战打法 + 物资爆率参考、**枪械 TTK 击杀时间排行**页（全枪械 7 兵种 × 各级弹药与护甲）、**子弹行情实时监控**页（交易行子弹的买卖点与税后利润，主源分钟级 + SSE 实时通道），以及**全品类异动雷达**页（子弹以外的钥匙 / 护甲 / 配件 / 物资涨幅榜 + 分位信号 + 双源交叉验证）。`legacy/` 旧单文件页已整体完成组件化迁移，仅作只读留档。
+多端 monorepo：**网页端**（Vite + Vue 3，`apps/web`）+ **iOS 原生端**（Swift 6 + SwiftUI，`apps/ios`）+ **Node 后端**（`server/`，静态托管 + 行情抓取 + SSE）+ **跨端契约与共享逻辑**（`shared/`）。内容：烽火地带六张地图（零号大坝 / 长弓溪谷 / 巴克什 / 航天基地 / 潮汐监狱 / AZ3核电站）的高清标注大图 + 实战打法 + 物资爆率参考、**枪械 TTK 击杀时间排行**页（全枪械 7 兵种 × 各级弹药与护甲）、**子弹行情实时监控**页（交易行子弹的买卖点与税后利润，主源分钟级 + SSE 实时通道）、**全品类异动雷达**页（子弹以外的钥匙 / 护甲 / 配件 / 物资涨幅榜 + 分位信号 + 双源交叉验证），以及**特勤处制造**页（工作台 / 防具台 / 技术中心 / 制药台全量配方的实时利润估算与时利最佳推荐）。`legacy/` 旧单文件页已整体完成组件化迁移，仅作只读留档。
 
 ## 多端架构
 
@@ -44,8 +44,9 @@ cd apps/ios && xcodegen generate                    # 改 project.yml 后重新�
 
 - **自托管实时服务（SSE 实时）**：`npm run build && npm run serve`（默认 `0.0.0.0:8080`，
   `PORT` / `HOST` 环境变量可改）。一个进程四件事：定时抓上游（弹药 fast/slow 双循环 +
-  雷达循环默认 10 分钟，均带 kkrb 兜底）→ 原子写快照 → 静态托管 `apps/web/dist` + `/events` SSE
-  推送（`market` / `radar` 两个事件，两个页面都实时），页面端到端延迟 = 源分钟粒度 +
+  雷达循环与特勤处制造循环默认各 10 分钟；弹药带 kkrb 兜底）→ 原子写快照 → 静态托管
+  `apps/web/dist` + `/events` SSE 推送（`market` / `radar` / `craft` 三个事件，页面实时），
+  页面端到端延迟 = 源分钟粒度 +
   60s 快轮询 + 5s。站点与 SSE 同源，https 反代（nginx / caddy）即可上线；系统通知默认
   关闭，`--notify` 开启；雷达节奏 `--radar-interval N` 可调。iOS 端连的也是这同一个服务。
   **云服务器部署**（阿里云 ECS 等）见 [deploy/aliyun.md](deploy/aliyun.md)：systemd 常驻 +
@@ -53,7 +54,7 @@ cd apps/ios && xcodegen generate                    # 改 project.yml 后重新�
   `deploy/update.sh` 即可完成本次 monorepo 迁移（脚本会自动同步 systemd 单元里的
   `ExecStart=node server/server.mjs` 并 daemon-reload）。
 
-- 路由为 **hash 模式**（`/#/`、`/#/tactics`、`/#/ttk`、`/#/ammo`、`/#/radar`），静态托管零配置；页内锚点一律 `scrollIntoView`，禁止向 hash 写入裸锚点。
+- 路由为 **hash 模式**（`/#/`、`/#/tactics`、`/#/ttk`、`/#/ammo`、`/#/radar`、`/#/craft`），静态托管零配置；页内锚点一律 `scrollIntoView`，禁止向 hash 写入裸锚点。
 - 旧单文件页（`index.html`、`ttk.html`、`shaders.iife.js`）已挪到 **`legacy/`** 留档（只读，不再维护）；特效库的运行时副本在 `apps/web/src/vendor/shaders.iife.js`，由特效组件动态 import。
 - 静态目录为默认的 **`apps/web/public/`**（dev 于 `/` 下访问、build 原样拷入 dist 根）；仓库根 `assets/` 原图为制作期留档，运行时不引用。
 
@@ -124,6 +125,19 @@ npm run radar:selftest  # 纯逻辑离线自测（不打外网）
 ```
 
 - **扩品类数据源（2026-10-14 实测验证）**：异动清单来自 kkrb `getHIPriceCurveData`（免登录免配额，自带 7 天小时曲线）；曲线主源 moligod `/api/market/history?lookup=name` **不限品类**（航天冷却剂 / 雷达侧门钥匙等均返回 168 点小时曲线，`interval=1m` 可拿到分钟级现价）。moligod 的全物品快照 `trade-house-snapshot` 为前端加密接口，未使用；kkrb 单物品曲线查询未登录配额为 0，同样未使用
+
+## 特勤处制造页（/#/craft）
+
+工作台 / 防具台 / 技术中心 / 制药台全量配方（当前 230 条）的实时利润估算：材料与产出按分钟级现价、上游算好「材料现价买入 → 产出按现价 × 数量挂卖 → 扣手续费」的预估成本 / 收入 / 净利润，服务端再派生**时利**（每小时利润）与**成本回报率**。页面给出「时利最佳」主推荐（价格完整的配方中时利最大——制造台同一时间只能跑一条，时利才是真实约束）+ 各台最佳速览 + 可排序 / 筛选 / 搜索的利润榜单（行展开看材料明细与利润拆解公式）。iOS 端为第五个 Tab「制造」（榜单 + 最佳卡 + 配方详情）。
+
+```bash
+npm run craft:fetch     # 单轮抓取 + 整形，落盘 apps/web/public/craft/craft.json
+npm run craft:monitor   # 常驻监控（默认 10 分钟一轮，--interval N 可调）
+npm run craft:selftest  # 纯逻辑离线自测（不打外网）
+```
+
+- 数据源：moligod 特勤处制造页同名接口 `/api/market/special-ops-snapshot`（2026-10-23 实测验证）。响应体为公开传输编码（非鉴权，密钥随每个响应头 `x-special-ops-key` 下发）：`0x01` + 12B IV + AES-256-GCM 密文（尾附 16B tag），密钥 = SHA-256(响应头)，AAD = `special-ops-snapshot-v1`，明文再套 gzip——`server/craft/snapshot.mjs` 内 Node 同构解码，上游若撤编码（明文 JSON 直出）零改动兼容
+- 利润口径为估算值：制造期间价格波动、挂单深度与实际成交均会造成偏差；今日 / 7 日最高利润为乐观参照，页面上如实标注
 - **双源交叉验证（真实性闸门）**：同一物品 kkrb 与 moligod 曲线在重叠小时上的**中位偏差** >15% 判「双源异常」——信号强制观望、不发通知（口径分歧时宁可漏报；实测曾抓到名称撞旧赛季数据、偏差 85% 的案例）。重叠不足 24 小时不做结论，如实标「样本 N」
 - **物品名以榜单为准**：moligod 按名查曲线，名称不精确会拿到旧赛季数据或空曲线（「D1钥匙」「重型突击背片」均有踩坑），一律从 kkrb 榜单/建议框取名
 - **请求量**：每轮 1 次 kkrb 榜单 + 每物品 2 次 moligod（1h + 1m）+ 400ms 间隔 ≈ 21 请求/轮，30 分钟一轮负载可忽略
@@ -139,11 +153,12 @@ npm run radar:selftest  # 纯逻辑离线自测（不打外网）
 ## 目录
 
 - `package.json` — 仓库根 Node 工程：网页端构建依赖 + 全部 npm 脚本（名字不变，内部指向 `apps/web` 与 `server/`）
-- `apps/web/` — 网页端：`index.html` / `vite.config.js`（`@shared` 别名指向仓库根 `shared/`）、`src/`（Vue 视图、组件、样式设计令牌与数据，自 `legacy/` 迁移完成）、`public/`（构建时原样拷入 dist 的静态资源：抽取出的图片、`ammo/market.json` 行情快照、`market/radar.json` 雷达快照、`guns/` 枪械图）；构建产物 `apps/web/dist/`
+- `apps/web/` — 网页端：`index.html` / `vite.config.js`（`@shared` 别名指向仓库根 `shared/`）、`src/`（Vue 视图、组件、样式设计令牌与数据，自 `legacy/` 迁移完成）、`public/`（构建时原样拷入 dist 的静态资源：抽取出的图片、`ammo/market.json` 行情快照、`market/radar.json` 雷达快照、`craft/craft.json` 特勤处制造快照、`guns/` 枪械图）；构建产物 `apps/web/dist/`
 - `apps/ios/` — iOS 原生端（Swift 6 + SwiftUI）：`project.yml`（xcodegen）、`DeltaForce/`（App 壳）、`Packages/DeltaForceCore/`（纯逻辑内核 + Swift Testing 单测）；说明见 [apps/ios/README.md](apps/ios/README.md)
 - `server/` — Node 后端（零 npm 依赖）：`server.mjs` 同源站点（静态托管 + 抓取循环 + SSE）、`refresh-data.mjs`、`export-ios-data.mjs`（跨端数据导出）、`verify-effects.mjs` / `smoke.mjs`（浏览器验证）、`extract-*.mjs`（一次性抽取留档）
   - `server/ammo/` — 子弹行情抓取 / 分析 / 监控：moligod-client（主源）/ kkrb-client（兜底源）/ analyze / notify / fetch-once / monitor / live（SSE 本地服务）/ selftest（离线自测）；通知去抖用 `shared/js/notify-policy.js`
   - `server/market/` — 全品类异动雷达：radar（kkrb 涨幅榜 + moligod 全品类曲线 + 双源交叉）/ selftest（离线自测）；复用 `server/ammo/` 的 analyze / moligod-client / kkrb-client，去抖同引 `shared/js/notify-policy.js`
+  - `server/craft/` — 特勤处制造：snapshot（moligod special-ops 快照解码 + 整形 + 时利派生 + 落盘）/ selftest（离线自测，含传输编码往返）
   - `server/auth/` — 账号与云同步：store（scrypt 密码 + HMAC 无状态令牌 + 原子落盘 `data/auth/`）/ api（`/api/auth/*`、`/api/account/data`，挂 server.mjs 同进程）/ selftest（离线自测）
 - `shared/` — 跨端共享层：`API.md` 接口契约、`schema/`（market / radar 快照与 SSE 事件的 JSON Schema）、`js/`（sellEta / marketMeta / liveChannel 纯函数，网页端与后端共用）、`data/ttk.json` 与 `fixtures/*.json`（`npm run export:ios` 产出，iOS 捆绑 + 单测样本）
 - `deploy/` — systemd 单元、nginx 示例、`update.sh` 一键更新（含单元文件自动同步）、阿里云部署文档

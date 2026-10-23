@@ -8,6 +8,9 @@ defineProps({
   items: { type: Array, required: true },
   modelValue: { type: [String, Number, Array], default: null },
   multiple: { type: Boolean, default: false },
+  // 组名（可选）：落到 role="group" 的 aria-label——可见的 .ctrl-label 是纯视觉 span，
+  // 与组内按钮无关联，读屏需要可辨识的组名
+  name: { type: String, default: '' },
 })
 
 const emit = defineEmits(['update:modelValue'])
@@ -29,7 +32,7 @@ function pick(it, modelValue, multiple) {
 </script>
 
 <template>
-  <div class="seg" role="group">
+  <div class="seg" role="group" :aria-label="name || undefined">
     <template v-for="(it, i) in items" :key="i">
       <span v-if="it.div" class="seg-div" aria-hidden="true"></span>
       <button
@@ -98,10 +101,8 @@ function pick(it, modelValue, multiple) {
 }
 @media (max-width: 680px) {
   .seg { flex-wrap: wrap; width: 100%; }
-  .seg-btn { flex: 1 1 auto; justify-content: center; padding: 5px 9px; }
-}
-@media (max-width: 680px) {
-  .seg-btn { padding: 4px 9px; font-size: var(--fs-2xs); }
+  /* 全宽堆叠下按钮均衡分摊行宽；字阶降一档与 .ctrl-label 的紧凑堆叠形态匹配 */
+  .seg-btn { flex: 1 1 auto; justify-content: center; padding: 4px 9px; font-size: var(--fs-2xs); }
 }
 @media (prefers-reduced-motion: reduce) {
   .seg-btn { transition: none; }

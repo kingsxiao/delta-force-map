@@ -8,6 +8,7 @@
      apps/web/src/data/ttk/ammo-market-alias.js     → shared/data/ammo-alias.json
      apps/web/public/ammo/market.json               → shared/fixtures/market-sample.json
      apps/web/public/market/radar.json              → shared/fixtures/radar-sample.json
+     apps/web/public/craft/craft.json               → shared/fixtures/craft-sample.json
    fixtures 是固定样本：iOS 单测断言口径移植（sellEta / marketMeta /
    NotifyPolicy）与「演示模式」离线数据都吃它；只在契约或 TTK 数据
    变化时重跑本脚本并一起提交。
@@ -79,6 +80,7 @@ console.log(`✓ shared/data/ammo-alias.json：${AMMO_MARKET_PAIRS.length} 对�
 for (const [from, to] of [
   ['public/ammo/market.json', 'market-sample.json'],
   ['public/market/radar.json', 'radar-sample.json'],
+  ['public/craft/craft.json', 'craft-sample.json'],
 ]) {
   const j = JSON.parse(await readFile(path.join(WEB, from), 'utf8'))
   await writeFile(path.join(SHARED, 'fixtures', to), JSON.stringify(j) + '\n')

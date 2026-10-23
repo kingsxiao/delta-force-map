@@ -2,23 +2,24 @@
 /* ============================================================
    AccountView — 账号与云同步（/account）
    ------------------------------------------------------------
-   三态：未登录（分栏登录 / 注册舞台） / 已登录（用户信息 + 云同步
-   状态 + 立即同步 + 退出登录）。同步对象是三项用户创作内容（契约
-   §6.3：自选星标并集 / 台账按名合并 / 买入价按键合并）；登录失败
+   四态：会话恢复中（ready 门控的短暂加载态，避免登录表单闪现）/
+   未登录（分栏登录 / 注册舞台） / 已登录（用户信息 + 云同步
+   状态 + 立即同步 + 退出登录·两步确认）。同步对象是三项用户创作内容
+   （契约 §6.3：自选星标并集 / 台账按名合并 / 买入价按键合并）；登录失败
    按 code 给可行动的中文提示。
    未登录态为「价值面板 + 表单卡」分栏舞台（≥820px 双栏，窄屏表单
    优先单栏）：左面板承接品牌叙事（为什么登录），右卡片只留表单本
    身；登录 / 注册切换走「底部文字链」而非分段控件——单一主操作 +
    上下文切换，是登录页的成熟范式。
    ============================================================ */
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { useAccount } from '../composables/useAccount'
 import { useStars } from '../composables/useStars'
 import { usePositions } from '../composables/usePositions'
 import { useReveal } from '../composables/useReveal'
 import { AuthApiError } from '../api/auth'
 
-const { user, syncState, syncError, lastSyncAt, login, register, logout, syncNow } = useAccount()
+const { user, syncState, syncError, lastSyncAt, ready, login, register, logout, syncNow } = useAccount()
 const { stars } = useStars()
 const { positions } = usePositions()
 
@@ -37,12 +38,17 @@ function mycostMap() {
 const rootEl = ref(null)
 const { observeRoot } = useReveal()
 onMounted(() => observeRoot(rootEl.value))
+/* observeRoot 只在挂载时查询一次节点；ready / user 翻转后 v-if/v-else 重建的
+   .reveal / .reveal-group 是新节点，若不重挂观察会永远停在 opacity:0
+   （登录成功 / 刷新恢复会话都会触发）——状态翻转后补一次观察。 */
+watch([ready, user], () => nextTick(() => observeRoot(rootEl.value)))
 
 /* ---------- 表单 ---------- */
 const mode = ref('login') // login | register
 const form = reactive({ username: '', password: '' })
 const submitting = ref(false)
 const formError = ref('')
+const formErrorTip = ref('') // NETWORK 错误的次要开发者提示（title 悬浮可见，不打扰线上用户）
 const syncing = ref(false)
 const showPw = ref(false) // 密码可见性
 const capsOn = ref(false) // 大写锁定提示（仅按键期间可探测）
@@ -72,6 +78,7 @@ function switchMode(m) {
   if (mode.value === m) return
   mode.value = m
   formError.value = ''
+  formErrorTip.value = ''
   touched.username = false
   touched.password = false
 }
@@ -84,14 +91,22 @@ function friendlyError(e) {
   if (e.code === 'INVALID_USERNAME') return '用户名需 2–16 个字符（字母 / 数字 / 下划线 / 中文）'
   if (e.code === 'INVALID_PASSWORD') return '密码需 8–64 个字符'
   if (e.code === 'RATE_LIMITED') return e.message
-  if (e.code === 'NETWORK') return '连不上服务器：本地需先 npm run serve（dev 由代理转发）'
+  // 主文案面向线上用户；本地部署排查提示（npm run serve）降级为 title 悬浮
+  if (e.code === 'NETWORK') {
+    formErrorTip.value = '开发者排查：本地需先 npm run serve（dev 由代理转发）'
+    return '连接服务器失败，请检查网络后重试'
+  }
   return e.message
 }
 
 async function submit() {
+  // 回车提交（按钮禁用挡不住 Enter）：先亮出字段错误再拦下，不静默吞掉
+  touched.username = true
+  touched.password = true
   if (!canSubmit.value) return
   submitting.value = true
   formError.value = ''
+  formErrorTip.value = ''
   try {
     if (mode.value === 'login') await login(form.username.trim(), form.password)
     else await register(form.username.trim(), form.password)
@@ -117,6 +132,27 @@ async function onSyncNow() {
   try { await syncNow() } finally { syncing.value = false }
 }
 
+/* ---------- 退出登录：两步确认（防误触） ----------
+   退出会让服务器吊销全部设备令牌（useAccount.logout），属高影响操作、
+   移动端易误触：首次点击只进入「确认」态（按钮变红改文案），3 秒内
+   再点才真正退出；超时 / 失焦 / Esc 自动回退到安全态。 */
+const confirmLogout = ref(false)
+let logoutTimer = null
+function onLogout() {
+  if (confirmLogout.value) {
+    resetLogout()
+    logout()
+    return
+  }
+  confirmLogout.value = true
+  clearTimeout(logoutTimer)
+  logoutTimer = setTimeout(() => { confirmLogout.value = false }, 3000)
+}
+function resetLogout() {
+  clearTimeout(logoutTimer)
+  confirmLogout.value = false
+}
+
 const syncStateText = computed(() => ({
   idle: user.value ? '待同步' : '未登录',
   syncing: '同步中…',
@@ -132,16 +168,22 @@ const lastSyncText = computed(() => {
 
 <template>
   <main ref="rootEl" class="wrap account-page">
-    <!-- 页头（紧凑单行，与 TTK 页同范式） -->
-    <div class="wrap compact-head">
-      <div class="head-row">
-        <h1 class="title">账号</h1>
-        <span class="sub">自选星标云同步 · 换设备不丢</span>
-      </div>
+    <!-- 页头（紧凑单行，直接走 base.css .compact-head：h1 + 右置 .meta，
+         与 TTK / 子弹 / 雷达同构；不再套 .wrap——外层 main 已是 .wrap，
+         嵌套会让分隔线比正文窄 56px） -->
+    <div class="compact-head">
+      <h1>账号</h1>
+      <p class="meta">自选星标云同步 · 换设备不丢</p>
     </div>
 
+    <!-- ============ 会话恢复中：短暂加载态（避免登录表单闪现后翻面） ============ -->
+    <section v-if="!ready" class="card pend" role="status" aria-label="正在恢复登录状态">
+      <span class="pend-spin" aria-hidden="true"></span>
+      正在恢复登录状态…
+    </section>
+
     <!-- ============ 未登录：价值面板 + 表单卡 的分栏舞台 ============ -->
-    <section v-if="!user" class="auth-stage reveal-group" aria-label="登录或注册">
+    <section v-else-if="!user" class="auth-stage reveal-group" aria-label="登录或注册">
       <!-- 左：品牌叙事（为什么登录） -->
       <aside class="auth-hero" style="--ri: 0">
         <p class="hero-kicker">Delta Force · Cloud Sync</p>
@@ -189,7 +231,7 @@ const lastSyncText = computed(() => {
           <div class="f-group">
             <div class="f-row">
               <label class="f-k" for="auth-user">用户名</label>
-              <span class="f-st" :class="userSt.cls">
+              <span id="user-st" class="f-st" :class="userSt.cls">
                 <svg v-if="userSt.cls === 'ok'" class="st-ic" viewBox="0 0 16 16" aria-hidden="true"><path d="m3 8.6 3.2 3.2L13 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>{{ userSt.text }}
               </span>
             </div>
@@ -198,7 +240,8 @@ const lastSyncText = computed(() => {
               :class="{ bad: touched.username && !usernameOk }"
               type="text" autocomplete="username" autocapitalize="off" spellcheck="false"
               placeholder="2–16 个字符，字母 / 数字 / 下划线 / 中文"
-              maxlength="16" required
+              maxlength="16" required aria-describedby="user-st"
+              :aria-invalid="touched.username && !usernameOk ? 'true' : undefined"
               @blur="touched.username = true"
             >
           </div>
@@ -206,7 +249,7 @@ const lastSyncText = computed(() => {
           <div class="f-group">
             <div class="f-row">
               <label class="f-k" for="auth-pass">密码</label>
-              <span class="f-st" :class="pwSt.cls">
+              <span id="pass-st" class="f-st" :class="pwSt.cls">
                 <svg v-if="pwSt.cls === 'ok'" class="st-ic" viewBox="0 0 16 16" aria-hidden="true"><path d="m3 8.6 3.2 3.2L13 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>{{ pwSt.text }}
               </span>
             </div>
@@ -217,6 +260,8 @@ const lastSyncText = computed(() => {
                 :type="showPw ? 'text' : 'password'"
                 :autocomplete="mode === 'login' ? 'current-password' : 'new-password'"
                 placeholder="至少 8 个字符" required minlength="8" maxlength="64"
+                :aria-describedby="capsOn ? 'pass-st caps-warn' : 'pass-st'"
+                :aria-invalid="touched.password && !passwordOk ? 'true' : undefined"
                 @blur="touched.password = true; capsOn = false"
                 @keydown="capsCheck" @keyup="capsCheck"
               >
@@ -230,7 +275,7 @@ const lastSyncText = computed(() => {
                 <svg v-else viewBox="0 0 20 20" aria-hidden="true"><path d="M2.7 2.7a.9.9 0 0 0 0 1.3l1.9 1.9C2.8 7.3 1.5 9 1 10c1.4 3.3 4.4 5.5 8 5.5 1.5 0 2.9-.4 4.2-1.1l2.5 2.6a.9.9 0 0 0 1.3-1.3L4 2.7a.9.9 0 0 0-1.3 0Zm5.5 2.8 4.9 4.9a3.7 3.7 0 0 1-4.9-4.9ZM10 4.5c-.6 0-1.2.1-1.8.2l1.5 1.5a2.1 2.1 0 0 1 2.5 2.5l3.5 3.5c1-.9 1.8-2 2.3-3.2-1.4-3.3-4.4-5.5-8-5.5Z" fill="currentColor"/></svg>
               </button>
             </div>
-            <p v-if="capsOn" class="caps-warn" aria-live="polite">
+            <p v-if="capsOn" id="caps-warn" class="caps-warn" aria-live="polite">
               <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.8 14.4 12H1.6L8 1.8Zm-.9 4v3.4h1.8V5.8H7.1Zm0 4.4v1.7h1.8v-1.7H7.1Z" fill="currentColor"/></svg>
               已开启大写锁定
             </p>
@@ -242,7 +287,7 @@ const lastSyncText = computed(() => {
           </button>
         </form>
 
-        <p v-if="formError" class="form-err" role="alert">
+        <p v-if="formError" class="form-err" role="alert" :title="formErrorTip || undefined">
           <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.5A6.5 6.5 0 1 0 8 14.5 6.5 6.5 0 0 0 8 1.5ZM7.3 4.5h1.4v5H7.3v-5Zm0 5.9h1.4v1.4H7.3v-1.4Z" fill="currentColor"/></svg>
           {{ formError }}
         </p>
@@ -264,11 +309,15 @@ const lastSyncText = computed(() => {
     <section v-else class="card logged-in reveal" aria-label="账号信息">
       <div class="who">
         <span class="avatar" aria-hidden="true">{{ user.username.slice(0, 1).toUpperCase() }}</span>
-        <div>
-          <p class="name">{{ user.username }}</p>
+        <div class="who-main">
+          <p class="name" :title="user.username">{{ user.username }}</p>
           <p class="meta">注册于 {{ new Date(user.createdAt).toLocaleDateString('zh-CN') }}</p>
         </div>
-        <button class="logout" @click="logout()">退出登录</button>
+        <button
+          class="logout" :class="{ arming: confirmLogout }"
+          :aria-pressed="String(confirmLogout)"
+          @click="onLogout" @blur="resetLogout" @keydown.esc="resetLogout"
+        >{{ confirmLogout ? '确认退出？' : '退出登录' }}</button>
       </div>
 
       <div class="sync-box" :class="syncState" role="status">
@@ -295,12 +344,7 @@ const lastSyncText = computed(() => {
 
 <style scoped>
 .account-page { padding-top: var(--sp-6); padding-bottom: var(--sp-8); }
-.head-row {
-  display: flex; align-items: baseline; gap: var(--sp-4);
-  padding-top: var(--sp-5); padding-bottom: var(--sp-4);
-}
-.title { font-family: var(--mono); font-size: var(--fs-xl); color: var(--tx-strong); letter-spacing: .06em; }
-.sub { color: var(--faint); font-size: var(--fs-sm); }
+/* 页头走 base.css .compact-head（单行式），无本地覆盖 */
 
 /* ============================================================
    未登录 · 分栏舞台：左价值面板（弹性）+ 右表单卡（定宽 400）
@@ -361,11 +405,12 @@ const lastSyncText = computed(() => {
   list-style: none;
 }
 .hero-feats li { display: flex; gap: var(--sp-3); align-items: flex-start; }
-/* 菱形锚点：与顶栏 brand-glyph 同一几何语言 */
+/* 菱形锚点：与顶栏 brand-glyph 同一几何语言（对齐 b 首行视觉中心：
+   fs-sm × lh 1.7 ≈ 22px 行框，中心 11px，8px 菱形取 margin-top 7px） */
 .feat-mark {
   flex: none;
   width: 8px; height: 8px;
-  margin-top: 5px;
+  margin-top: 7px;
   background: var(--accent);
   transform: rotate(45deg);
   box-shadow: 0 0 10px rgba(45, 212, 191, .35);
@@ -533,14 +578,30 @@ form { margin-top: var(--sp-5); display: flex; flex-direction: column; }
   box-shadow: var(--edge-light);
 }
 
+/* 会话恢复中（ready 门控）：居中一行暗调 spinner + 说明，替代闪现的登录表单 */
+.pend {
+  display: flex; align-items: center; justify-content: center; gap: var(--sp-2);
+  color: var(--dim); font-size: var(--fs-sm);
+}
+.pend-spin {
+  width: 14px; height: 14px; flex: none; border-radius: 50%;
+  border: 2px solid var(--line); border-top-color: var(--dim);
+  animation: spin .7s linear infinite;
+}
+
 .who { display: flex; align-items: center; gap: var(--sp-4); }
+/* 用户名最长 16 个中文（256px+），不收缩会把退出按钮挤出屏：允许收缩 + 省略号兜底 */
+.who-main { min-width: 0; }
 .avatar {
   display: inline-flex; align-items: center; justify-content: center;
   width: 48px; height: 48px; border-radius: var(--radius-pill);
   background: var(--accent-bg); border: 1px solid var(--accent-dim);
   color: var(--accent); font-family: var(--mono); font-size: var(--fs-lg); font-weight: 700;
 }
-.name { color: var(--tx-strong); font-size: var(--fs-lg); font-weight: 600; }
+.name {
+  color: var(--tx-strong); font-size: var(--fs-lg); font-weight: 600;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 .meta { color: var(--faint); font-size: var(--fs-xs); margin-top: 2px; }
 .logout {
   margin-left: auto;
@@ -549,6 +610,11 @@ form { margin-top: var(--sp-5); display: flex; flex-direction: column; }
   transition: color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
 }
 .logout:hover { color: var(--danger); border-color: var(--danger); }
+/* 两步确认的第一步：常驻危险色 + 微警示底，与 hover 态区分开（hover 是瞬态提示，arming 是持续状态） */
+.logout.arming {
+  color: var(--danger); border-color: var(--danger);
+  background: rgba(217, 106, 89, .08); /* --danger 派生，同 form-err 底 */
+}
 
 .sync-box {
   margin-top: var(--sp-5);
@@ -597,15 +663,24 @@ form { margin-top: var(--sp-5); display: flex; flex-direction: column; }
   .auth-stage { grid-template-columns: 1fr; max-width: 480px; gap: var(--sp-5); }
   .auth-card { order: -1; }
 }
+@media (max-width: 680px) {
+  /* iOS Safari 聚焦 <16px 输入框会强制放大页面；手机档升到 fs-lg(16px) 消除跳变 */
+  .f-in { font-size: var(--fs-lg); }
+  /* 长用户名 + 退出按钮：允许换行，按钮折到第二行靠右（margin-left:auto 仍生效） */
+  .who { flex-wrap: wrap; row-gap: var(--sp-3); }
+}
 @media (max-width: 480px) {
   .auth-hero { padding: var(--sp-5); }
   .hero-title { font-size: var(--fs-xl); }
+  /* kicker .42em 字距在窄卡内放不下会拦腰折行；按 --bp-mini「字距减半」约定收窄 */
+  .hero-kicker { letter-spacing: .21em; }
   .auth-card { padding: var(--sp-5); }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .form-err { animation: none; }
   .spinner { animation-duration: 1.4s; }
+  .pend-spin { animation-duration: 1.4s; }
   .sync-box.syncing .sync-dot { animation: none; }
 }
 </style>

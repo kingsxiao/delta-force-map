@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="3900" height="3900" viewBox="0 0 3900 3900" xmlns="http://www.w3.org/2000/svg">
+<path id="Capline-S" d="M 0 1023 L 3900 1023" stroke="#E4A33C" stroke-width="39" fill="none"/>
+<path id="Baseline-S" d="M 0 2877 L 3900 2877" stroke="#E4A33C" stroke-width="39" fill="none"/>
+<path id="Capline-M" d="M 0 1023 L 3900 1023" stroke="#E4A33C" stroke-width="39" fill="none"/>
+<path id="Baseline-M" d="M 0 2877 L 3900 2877" stroke="#E4A33C" stroke-width="39" fill="none"/>
+<path id="Capline-L" d="M 0 1023 L 3900 1023" stroke="#E4A33C" stroke-width="39" fill="none"/>
+<path id="Baseline-L" d="M 0 2877 L 3900 2877" stroke="#E4A33C" stroke-width="39" fill="none"/>
+  <g id="Regular-M">
+    <path fill="#000000" fill-rule="evenodd" d="M 1450,1150 H 2650 A 300,300 0 0 1 2650,1750 H 1450 A 300,300 0 0 1 1450,1150 Z M 1450,1390 H 2450 A 60,60 0 0 1 2450,1510 H 1450 A 60,60 0 0 1 1450,1390 Z"/>
+    <path fill="#000000" fill-rule="evenodd" d="M 1710,1990 V 2630 A 240,240 0 0 0 2190,2630 V 1990 A 240,240 0 0 0 1710,1990 Z M 1850,2130 V 2490 A 100,100 0 0 0 2050,2490 V 2130 A 100,100 0 0 0 1850,2130 Z"/>
+  </g>
+</svg>

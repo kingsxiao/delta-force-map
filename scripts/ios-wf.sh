@@ -38,7 +38,7 @@ shoot() {
   xcrun simctl bootstatus "$UDID" -b >/dev/null 2>&1 || true
   xcrun simctl install "$UDID" "$app" || { echo "ERROR 安装失败：$app"; exit 1; }
   mkdir -p "$out"
-  for tab in ammo radar ttk settings; do
+  for tab in ammo radar craft ttk settings; do
     f="$out/$tab.png"
     # 冷启动首拍渲染最慢，多等
     if ((first)); then
@@ -55,12 +55,19 @@ shoot() {
       fi
     fi
   done
-  n="$(ls "$out" | grep -c '\.png$')"
-  if [[ "$n" -ne 4 ]]; then
-    echo "ERROR 截图数量不对：$n/4（目录 $out）"
-    exit 1
-  fi
-  echo "OK $out 4张"
+  # 按名校验：每个 tab 的截图必须存在且非空；目录里允许有 account.png 等补拍件
+  # （此前「PNG 总数精确等于 N」的口径会被补拍/多余文件打破，且报错行的中文括号
+  # 在 set -u + C locale 下还会二次崩溃成 unbound variable——两处一并修掉）。
+  miss=0
+  for tab in ammo radar craft ttk settings; do
+    f="$out/$tab.png"
+    if [[ ! -s "$f" ]]; then
+      echo "ERROR 缺少截图 ${f}"
+      miss=1
+    fi
+  done
+  if ((miss)); then exit 1; fi
+  echo "OK $out 5张（按名校验通过）"
 }
 
 case "$CMD" in

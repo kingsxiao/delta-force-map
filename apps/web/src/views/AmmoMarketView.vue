@@ -41,7 +41,7 @@ import PenBadge from './ttk/PenBadge.vue'
 import { CAL } from '../data/ttk/calibers.js'
 import { marketNamePen } from '../data/ttk/ammo-market-alias.js'
 import {
-  formatVersionLabel, staleness, sourceLabel, methodDataLine,
+  formatVersionLabel, staleness, methodDataLine,
   liveChannelUrl, isLocalHttpHost, staleTipText, picThumb,
 } from '@shared/js/marketMeta.js'
 import { createLiveChannel } from '@shared/js/liveChannel.js'
@@ -159,9 +159,8 @@ const ageLabel = computed(() => {
 /* 数据版本：12 位分钟档（moligod）显示到 HH:mm，10 位小时档（kkrb）显示 HH:00 */
 const versionLabel = computed(() => formatVersionLabel(market.value?.version))
 
-/* ---------- 来源与时效（按 json.source 分档，纯函数在 ./ammo/marketMeta.js） ---------- */
+/* ---------- 时效与更新粒度（按 json.source 分档，纯函数在 @shared/js/marketMeta.js） ---------- */
 const thresholds = computed(() => staleness(market.value?.source))
-const srcLabel = computed(() => sourceLabel(market.value?.source))
 const dataLine = computed(() => methodDataLine(market.value?.source))
 const staleTipMsg = computed(() => staleTipText(market.value?.source, ageMin.value))
 
@@ -203,14 +202,14 @@ const liveText = computed(() => {
   if (liveChannel.value === 'connecting') return '实时推送连接中…'
   return '' // off：纯静态环境不显示，避免误导
 })
-/* 紧凑页头右列短语：来源/通道收成短标（完整来源、版本号与通道全文在悬浮
+/* 紧凑页头右列短语：更新粒度短标（完整版本号与通道全文在悬浮
    title；本地 live/monitor 工具说明移 METHOD，不再占页头） */
 const srcShort = computed(() => {
   const s = market.value?.source
-  return s === 'moligod' ? 'moligod · 分钟级' : s === 'kkrb' ? 'kkrb · 小时级' : ''
+  return s === 'moligod' ? '分钟级' : s === 'kkrb' ? '小时级' : ''
 })
 const headTip = computed(() =>
-  `数据版本 ${versionLabel.value} · 来源 ${srcLabel.value}${liveText.value ? ` · ${liveText.value}` : ''}`)
+  `数据版本 ${versionLabel.value}${liveText.value ? ` · ${liveText.value}` : ''}`)
 
 /* ---------- 浏览器通知（去抖口径与服务端同源：shared/js/notify-policy.js） ----------
    双重部署现实（如实降级，不糊弄）：
@@ -306,6 +305,9 @@ const SIGNAL_META = {
   SELL: { label: '卖出', cls: 'sell' },
   WAIT: { label: '观望', cls: 'wait' },
 }
+/* 迷你走势末点语境色（Sparkline endColor）：与信号徽章同语义——BUY ok /
+   SELL danger / WATCH info / WAIT（含数据不足行）faint */
+const SIG_COLOR = { BUY: 'var(--ok)', SELL: 'var(--danger)', WATCH: 'var(--info)', WAIT: 'var(--faint)' }
 const gradeVar = (g) => (g >= 2 && g <= 6 ? `var(--lv${g})` : 'var(--faint)')
 const reduceMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches
 // 表内行图标加载失败（CDN 抖动等）就地隐藏，不占位不报错
@@ -376,6 +378,24 @@ function upsertPosition(p) {
 function removePosition(name) {
   positions.value = positions.value.filter((p) => p.name !== name)
   savePositions()
+}
+/* 删除二次确认（防误触）：✕ 紧挨行内数字输入、触屏易点偏，一步即删不可恢复；
+   首点进入「确认」待定态（3 秒后自动解除），再点同一行才真正删除 */
+const posDelArm = ref(null)
+let posDelTimer = null
+function onPosDel(name) {
+  if (posDelArm.value === name) {
+    removePosition(name)
+    disarmPosDel()
+    return
+  }
+  posDelArm.value = name
+  if (posDelTimer) clearTimeout(posDelTimer)
+  posDelTimer = setTimeout(disarmPosDel, 3000)
+}
+function disarmPosDel() {
+  posDelArm.value = null
+  if (posDelTimer) { clearTimeout(posDelTimer); posDelTimer = null }
 }
 /* 行内编辑数量 / 成本（change 时写回；夹取规范值防 0 / 负数入库） */
 function setPosQty(r, ev) {
@@ -604,6 +624,7 @@ onUnmounted(() => {
   clearInterval(clockTimer)
   if (tipTimer) clearTimeout(tipTimer)
   if (notifyTipTimer) clearTimeout(notifyTipTimer)
+  if (posDelTimer) clearTimeout(posDelTimer)
   if (ctlRO) ctlRO.disconnect()
   if (live) live.stop()
   document.removeEventListener('visibilitychange', onVisibility)
@@ -720,7 +741,12 @@ onUnmounted(() => {
               <span class="pos-k">现价浮盈</span>
               <span class="mono pos-v" :class="r.gainNow == null ? '' : r.gainNow >= 0 ? 'pos-pos' : 'pos-neg'">{{ r.gainNow == null ? '—' : fmtSigned(r.gainNow) }}</span>
             </span>
-            <button class="pos-del" :aria-label="`删除 ${r.name} 的囤货记录`" title="删除这条囤货" @click="removePosition(r.name)">✕</button>
+            <button
+              class="pos-del" :class="{ arm: posDelArm === r.name }"
+              :aria-label="posDelArm === r.name ? `再点一次，确认删除 ${r.name} 的囤货记录` : `删除 ${r.name} 的囤货记录`"
+              :title="posDelArm === r.name ? '再点一次确认删除（3 秒后自动取消）' : '删除这条囤货'"
+              @click="onPosDel(r.name)"
+            >{{ posDelArm === r.name ? '确认' : '✕' }}</button>
           </li>
         </ul>
         <form class="pos-add" @submit.prevent="addPosition">
@@ -817,6 +843,9 @@ onUnmounted(() => {
                   v-for="s in SORTS" :key="s.v"
                   class="chip" :class="{ on: state.sort === s.v }"
                   :aria-pressed="state.sort === s.v"
+                  :title="state.sort === s.v && state.dir
+                    ? `当前${state.dir === 'desc' ? '降序' : '升序'}，再点切换方向`
+                    : null"
                   @click="onSort(s.v)"
                 >{{ s.label }}<svg v-if="state.sort === s.v && state.dir" class="dir" viewBox="0 0 16 16" aria-hidden="true"><path v-if="state.dir === 'desc'" d="M8 3.5v9M4.5 9 8 12.5 11.5 9" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path v-else d="M8 12.5v-9M4.5 7 8 3.5 11.5 7" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
               </div>
@@ -849,7 +878,7 @@ onUnmounted(() => {
               <tbody>
                 <template v-for="i in filtered" :key="i.name">
                   <tr
-                    class="row" :class="{ open: expanded === i.name }"
+                    class="row data-row" :class="{ open: expanded === i.name }"
                     tabindex="0"
                     :aria-expanded="expanded === i.name"
                     :aria-label="`${i.name}，展开 7 天价格大图`"
@@ -907,7 +936,7 @@ onUnmounted(() => {
                       </div>
                     </td>
                     <td class="mono dimtx num c-range">{{ fmt(i.weekLow) }} ~ {{ fmt(i.weekHigh) }}</td>
-                    <td><Sparkline :curve="i.curve" :width="130" :height="30" /></td>
+                    <td><Sparkline :curve="i.curve" :width="130" :height="30" :end-color="SIG_COLOR[i.signal] || 'var(--faint)'" /></td>
                   </tr>
                   <tr v-if="expanded === i.name" class="expander">
                     <td colspan="8">
@@ -951,7 +980,7 @@ onUnmounted(() => {
               <li><b>买入条件</b>：当前价处近 7 天价格曲线 ≤ 25% 分位，且按 P75 挂卖、扣除交易税后收益率 ≥ 8%。</li>
               <li><b>卖出条件</b>：当前价处 ≥ 80% 分位（贴近 7 天高位）。</li>
               <li><b>预计卖出</b>：统计近 7 天小时曲线——「从当前价位档涨到 P75 挂卖价」的完整上涨段给出中位/最快历时；同小时均价聚合给出日内高位时段。历史统计不代表未来。</li>
-              <li><b>能赚多少</b>：每发利润 = 目标挂卖价 × (1−税率) − 当前买入价；税率按上游税后价实测反推（约 15%，逐弹计算）。</li>
+              <li><b>能赚多少</b>：每发利润 = 目标挂卖价 × (1−税率) − 当前买入价；税率按税后价实测反推（约 15%，逐弹计算）。</li>
               <li><b>穿透</b>：来自 TTK 弹药数据（穿透等级决定对各级护甲的伤害通过率，判定矩阵见 TTK 页）。「—」= 无穿透数据（弓弩用弹 / 国服与通用命名差异 / 一名多弹无法确定对应），宁缺勿错。</li>
               <li><b>数据</b>：{{ dataLine }}</li>
               <li><b>提醒</b>：交易行价格受版本、活动与大盘供需影响，历史分位不代表未来走势；利润测算未计挂单时间成本。</li>
@@ -1011,9 +1040,7 @@ onUnmounted(() => {
   background: var(--card); border: 1px dashed var(--line2); border-radius: var(--radius);
   padding: var(--sp-6); color: var(--tx); margin: var(--sp-4) 0;
 }
-.state-card pre { background: var(--deep); padding: 10px 14px; border-radius: var(--radius-sm); overflow: auto; }
 .state-card .dim { color: var(--faint); font-size: var(--fs-sm); }
-.state-card code { font-family: var(--mono); color: var(--accent); }
 /* 主要按钮（重试/清筛选）：--accent-bg 底 + --accent-dim 边，hover 提底 --accent-soft，
    按下 scale(.98)，禁用降透明；键盘走全局 :focus-visible 外框 */
 .retry,
@@ -1142,6 +1169,19 @@ onUnmounted(() => {
   transition: color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
 }
 .pos-del:hover, .pos-del:active { color: var(--danger); border-color: var(--line-hover); }
+/* 二次确认待定态：danger 实感（真值 rgba 兜底，写法同 pos-badge） */
+.pos-del.arm {
+  color: var(--danger);
+  border-color: rgba(217, 106, 89, .55);
+  background: rgba(217, 106, 89, .14);
+  border-color: color-mix(in srgb, var(--danger) 55%, transparent);
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
+}
+/* iOS Safari 聚焦字号 <16px 的输入会整页自动放大（viewport 未锁 maximum-scale，
+   锁了伤无障碍）：移动端把本页输入临时升到 16px，桌面视觉不变 */
+@media (max-width: 680px) {
+  .search, .pos-in { font-size: var(--fs-lg); }
+}
 
 .pos-add { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: var(--sp-3); }
 .pos-add .pos-in { background: var(--card); }
@@ -1310,7 +1350,7 @@ onUnmounted(() => {
 .row.open .row-chev { transform: rotate(180deg); color: var(--accent); }
 
 .rank-cell { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
-.rb-num { font-family: var(--mono); font-size: var(--fs-2xs); color: var(--dim); }
+.rb-num { font-family: var(--mono); font-size: var(--fs-xs); color: var(--dim); }
 .rb-num.low { color: var(--ok); }
 .rb-num.high { color: var(--danger); }
 /* 分位条：两端阈值刻度（25% 买入线 / 80% 卖出线，与 METHOD 口径一致），
@@ -1364,11 +1404,16 @@ td.profit { color: var(--ok); font-weight: 600; }
 /* 当前价是表格主列：字号升一档并加粗（压过 .mono 的 fs-xs） */
 .tbl td.price-cell { font-size: var(--fs-md); color: var(--tx-strong); font-weight: 700; }
 
-.expander td { position: relative; background: var(--card2); border-top: 1px solid var(--accent-dim); }
+/* 顶部预留动作条带（按钮带约占 td 顶 10~37px）：图表「现在」标注挂在曲线右端，
+   现价贴近 7 天高点时会落到同一右上角，不预留就被不透明按钮盖住 */
+.expander td {
+  position: relative; background: var(--card2); border-top: 1px solid var(--accent-dim);
+  padding-top: 44px;
+}
 /* 右上动作组（收起 / 记入囤货）：定位由容器承担，按钮本体静态排列 */
 .exp-actions { position: absolute; top: 10px; right: 10px; display: flex; gap: 8px; }
 .exp-close {
-  font-family: var(--mono); font-size: var(--fs-2xs); color: var(--dim);
+  font-family: var(--mono); font-size: var(--fs-xs); color: var(--dim);
   background: var(--card); border: 1px solid var(--line); border-radius: var(--radius-pill);
   padding: 3px 12px; cursor: pointer;
   transition: color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
@@ -1401,7 +1446,6 @@ td.profit { color: var(--ok); font-weight: 600; }
 .method li { padding-left: 16px; position: relative; }
 .method li::before { content: "◆"; position: absolute; left: 0; color: var(--accent-dim); font-size: 8px; top: 7px; }
 .method b { color: var(--tx); }
-.method code { font-family: var(--mono); color: var(--accent); font-size: .92em; }
 
 /* 本页全部微交互过渡的 reduced-motion 关闭（live-dot 脉冲另有独立规则） */
 @media (prefers-reduced-motion: reduce) {

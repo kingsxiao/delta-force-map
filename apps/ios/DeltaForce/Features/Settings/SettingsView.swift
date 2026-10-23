@@ -69,7 +69,8 @@ struct SettingsView: View {
                         }
                     } label: {
                         HStack(spacing: Theme.Space.sm) {
-                            Label("立即刷新两路快照", systemImage: "arrow.clockwise")
+                            // 进行中文案与账号页主按钮（「登录中…」）同范式：动作状态文字可见，不只靠 spinner
+                            Label(refreshing ? "刷新中…" : "立即刷新两路快照", systemImage: "arrow.clockwise")
                                 .font(Theme.font(.md, weight: .semibold))
                                 // §5 刷新中图标微动效：DESIGN 标注的 .rotate 实为 iOS 18 API（RotateSymbolEffect），
                                 // iOS 17 目标下以 .repeating .pulse 等价表达「进行中」；Reduce Motion 跳过
@@ -141,8 +142,8 @@ struct SettingsView: View {
                     } label: {
                         rowTitle("版本")
                     }
-                    Text("数据来源：三角洲攻略站 moligod（分钟级）、KK三角洲一图流 kkrb.net（兜底 / 涨幅榜）。游戏素材版权归腾讯/天美所有，本 App 仅供个人学习参考。历史分位不代表未来走势，信号仅供参考。")
-                        .font(Theme.font(.xs)) // 版权/来源声明下限 footnote（原 11pt 固定字号不随系统字号设置）
+                    Text("游戏素材版权归腾讯/天美所有，本 App 仅供个人学习参考。历史分位不代表未来走势，信号仅供参考。")
+                        .font(Theme.font(.xs)) // 版权声明下限 footnote（原 11pt 固定字号不随系统字号设置）
                         .foregroundStyle(Theme.faint)
                 } header: {
                     sectionHeader("关于")
