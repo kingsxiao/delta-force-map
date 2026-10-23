@@ -149,13 +149,6 @@ const ageMin = computed(() => {
   const t = Date.parse(market.value?.fetchedAt)
   return Number.isFinite(t) ? (nowTs.value - t) / 60000 : null
 })
-const ageLabel = computed(() => {
-  if (ageMin.value == null) return ''
-  return ageMin.value < 60
-    ? `${Math.round(ageMin.value)} 分钟前`
-    : `${Math.round(ageMin.value / 60)} 小时前`
-})
-
 /* 数据版本：12 位分钟档（moligod）显示到 HH:mm，10 位小时档（kkrb）显示 HH:00 */
 const versionLabel = computed(() => formatVersionLabel(market.value?.version))
 
@@ -638,9 +631,7 @@ onUnmounted(() => {
     <!-- 页头（紧凑单行：标题降档 + 新鲜度/来源/通道短语右置，详情悬浮可见） -->
     <header class="compact-head">
       <h1>子弹价格监控<span class="live-dot" :class="{ stale: ageMin !== null && ageMin > thresholds.staleDotMin }" aria-hidden="true"></span></h1>
-      <p v-if="market" class="meta" :title="headTip">
-        <template v-if="ageLabel"><span :class="{ 'meta-stale': ageMin > thresholds.staleDotMin * 2 }">{{ ageLabel }}更新</span> · </template>{{ srcShort }}
-      </p>
+      <p v-if="market" class="meta" :title="headTip">{{ srcShort }}</p>
       <!-- 浏览器通知开关：非安全上下文（http 部署）无 Notification 对象，置灰如实降级 -->
       <button
         class="notify-btn" :class="{ on: notifyOn }" :disabled="!NOTIFY_SUPPORTED"

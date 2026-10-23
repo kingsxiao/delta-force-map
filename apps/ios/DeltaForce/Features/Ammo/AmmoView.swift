@@ -57,7 +57,16 @@ struct AmmoView: View {
             ScrollViewReader { proxy in
                 List {
                     Section {
-                        FeedHeader(feed: app.market, channel: app.channel)
+                        // 数据源错误横幅（有快照的后台刷新失败提示；正常态整行退场）。
+                        // 无快照的首拉失败由下方全表区的 RetryErrorRow 承担（带重试出口），不同屏双份
+                        FeedErrorBanner(message: app.market.snapshot != nil ? app.market.lastError : nil)
+                        // 筛选回顶锚点：零高度隐形行，常驻保证 scrollTo(ammo-top) 永远有目标
+                        Color.clear
+                            .frame(height: 0)
+                            .accessibilityHidden(true)
+                            .listRowInsets(EdgeInsets())
+                            .listRowSeparator(.hidden)
+                            .listRowBackground(Color.clear)
                             .id(Self.topAnchor)
                     }
                     .listRowBackground(Theme.card)

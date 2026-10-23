@@ -29,12 +29,11 @@ struct RadarView: View {
                 List {
                     Section {
                         VStack(alignment: .leading, spacing: Theme.Space.sm) {
-                            // 错误去重（视觉复验修复）：无快照的首拉失败由下方 RetryErrorRow 承担
-                            // 错误展示 + 重试出口，FeedHeader 不再同屏重复同一文案；
-                            // 有快照（后台刷新失败）仍由 FeedHeader 提示——此时列表有数据可看、无 RetryErrorRow
-                            FeedHeader(feed: app.radar, channel: app.channel, showLoadError: app.radar.snapshot != nil)
-                            // 市场态势行（§4.3-1）：本页唯一全局口径从 FeedHeader 第三行灰字
-                            // 升格为语义胶囊组（C2 StatusChip）；特大字号 / 窄屏折两行（AX 韧性 §7-6）
+                            // 数据源错误横幅：无快照的首拉失败由下方 RetryErrorRow 承担（含重试出口），
+                            // 有快照（后台刷新失败）仍由此处提示——此时列表有数据可看、无 RetryErrorRow
+                            FeedErrorBanner(message: app.radar.snapshot != nil ? app.radar.lastError : nil)
+                            // 市场态势行（§4.3-1）：本页唯一全局口径以语义胶囊组呈现（C2 StatusChip）；
+                            // 特大字号 / 窄屏折两行（AX 韧性 §7-6）
                             if let s = app.radar.snapshot?.stats {
                                 ViewThatFits(in: .horizontal) {
                                     HStack(spacing: 6) {
@@ -135,7 +134,7 @@ struct RadarView: View {
                 .refreshable {
                     await app.radar.refresh()
                     // 刷新反馈二分（§4.3-6 / §5）：按 lastError 分流 success / error 触感，
-                    // 替换原无条件 impact(light)；成功侧「数据年龄归零」由 FeedHeader 的 C6 id 重建承担
+                    // 替换原无条件 impact(light)；成功侧错误横幅（如有）随 lastError 清空自然退场
                     if app.radar.lastError != nil { refreshErrTick += 1 } else { refreshOkTick += 1 }
                 }
                 .sensoryFeedback(.success, trigger: favTick)

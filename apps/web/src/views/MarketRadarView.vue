@@ -222,7 +222,7 @@ onBeforeUnmount(() => {
     <header class="compact-head">
       <h1>全品类异动雷达 <span class="live-dot" :class="{ stale: ageMin !== null && ageMin > STALE_DOT_MIN }" aria-hidden="true"></span></h1>
       <p v-if="market" class="meta" :title="`数据版本 ${versionLabel}${liveTip ? ' · ' + liveTip : ''}`">
-        <template v-if="ageLabel"><span :class="{ 'meta-stale': ageMin > STALE_TIP_MIN }">{{ ageLabel }}更新</span> · </template>全品类涨幅榜 + 双源曲线交叉
+        全品类涨幅榜 + 双源曲线交叉
       </p>
     </header>
 

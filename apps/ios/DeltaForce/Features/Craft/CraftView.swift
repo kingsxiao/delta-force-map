@@ -49,26 +49,16 @@ struct CraftView: View {
             ScrollViewReader { proxy in
                 List {
                     Section {
-                        CraftFeedHeader(feed: feed, channel: app.channel)
-                        if let snap = feed.snapshot {
-                            // 态势计数（StatusChip 族）：配方 / 完整 / 可盈利
-                            ViewThatFits(in: .horizontal) {
-                                HStack(spacing: 6) {
-                                    StatusChip(text: "配方 \(snap.stats.total)", tint: Theme.dim)
-                                    StatusChip(text: "价格完整 \(snap.stats.complete)", tint: Theme.info)
-                                    StatusChip(text: "可盈利 \(snap.stats.profitable)", tint: Theme.ok)
-                                }
-                                VStack(alignment: .leading, spacing: Theme.Space.xs) {
-                                    HStack(spacing: 6) {
-                                        StatusChip(text: "配方 \(snap.stats.total)", tint: Theme.dim)
-                                        StatusChip(text: "价格完整 \(snap.stats.complete)", tint: Theme.info)
-                                    }
-                                    StatusChip(text: "可盈利 \(snap.stats.profitable)", tint: Theme.ok)
-                                }
+                        // 顶部只要筛选：制造台单选 chips 直选（不用下拉）+ 价格 / 排序两个次级菜单。
+                        // 错误横幅同行情 / 雷达口径：有快照的后台刷新失败才在此提示，首拉失败走列表区 RetryErrorRow
+                        VStack(alignment: .leading, spacing: Theme.Space.sm) {
+                            FeedErrorBanner(message: feed.snapshot != nil ? feed.lastError : nil)
+                            placeChipsRow
+                            HStack(spacing: Theme.Space.sm) {
+                                priceMenu
+                                sortMenu
                             }
-                            .accessibilityElement(children: .combine)
                         }
-                        filterRow
                     }
                     .listRowBackground(Theme.card)
                     .id(Self.topAnchor)
@@ -145,35 +135,54 @@ struct CraftView: View {
         }
     }
 
-    /// 筛选行：制造台 + 价格口径 + 排序（共享 FilterMenu，§4.3-2 三页筛选范式）。
-    /// 换用共享组件后 chip 自带 C8 降级（caption+value 单行放不下时 value 折 2 行），
-    /// 且制造台 chip 偏离「全部」时同样点亮 accent（原手拼 chip 漏了该态）；
-    /// 三枚并排放不下时折两行（与上方态势计数同款 ViewThatFits 降级，AX 韧性 §7-6）
-    private var filterRow: some View {
+    /// 制造台单选 chips：直选直切（比下拉少一跳）；一行放不下时退横向滚动
+    /// （ViewThatFits 降级，AX 韧性 §7-6；快照未到时用内置四台兜底，chips 不闪空）
+    private static let fallbackPlaces: [CraftPlace] = [
+        CraftPlace(id: "workbench", label: "工作台"),
+        CraftPlace(id: "armory", label: "防具台"),
+        CraftPlace(id: "tech", label: "技术中心"),
+        CraftPlace(id: "pharmacy", label: "制药台"),
+    ]
+
+    private var places: [CraftPlace] { feed.snapshot?.places ?? Self.fallbackPlaces }
+
+    private struct PlaceChip: Identifiable {
+        let scope: PlaceScope
+        let label: String
+        var id: String { label }
+    }
+
+    private var placeChips: [PlaceChip] {
+        [PlaceChip(scope: .all, label: "全部")] + places.map { PlaceChip(scope: .place($0.id), label: $0.label) }
+    }
+
+    private var placeChipsRow: some View {
         ViewThatFits(in: .horizontal) {
-            HStack(spacing: Theme.Space.sm) {
-                placeMenu
-                priceMenu
-                sortMenu
+            HStack(spacing: 6) { ForEach(placeChips) { placeChip($0) } }
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) { ForEach(placeChips) { placeChip($0) } }
             }
-            VStack(alignment: .leading, spacing: Theme.Space.xs) {
-                HStack(spacing: Theme.Space.sm) {
-                    placeMenu
-                    priceMenu
-                }
-                sortMenu
-            }
+            .padding(.vertical, 1)
         }
     }
 
-    private var placeMenu: some View {
-        FilterMenu(
-            caption: "制造台",
-            options: [FilterOption(id: PlaceScope.all, label: "全部")]
-                + (feed.snapshot?.places ?? []).map { FilterOption(id: PlaceScope.place($0.id), label: $0.label) },
-            selection: $place,
-            defaultId: .all
-        )
+    private func placeChip(_ c: PlaceChip) -> some View {
+        let on = place == c.scope
+        return Button {
+            guard place != c.scope else { return }
+            place = c.scope
+        } label: {
+            Text(c.label)
+                .font(Theme.font(.sm, weight: .semibold))
+                .foregroundStyle(on ? Theme.accent : Theme.dim)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 7)
+                .background(on ? Theme.accentBg : Theme.card2, in: Capsule())
+                .overlay(Capsule().strokeBorder(on ? Theme.accent.opacity(0.45) : Theme.line, lineWidth: 1))
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(on ? .isSelected : [])
     }
 
     private var priceMenu: some View {
@@ -237,51 +246,6 @@ struct CraftView: View {
         guard let snap = feed.snapshot else { return nil }
         if case .place(let p) = place { return snap.best(place: p) }
         return snap.best()
-    }
-}
-
-/// 制造页页头：连接点 / 版本 / 年龄 / 过期提示（FeedHeader 的同构轻量版，
-/// 快照形状为 CraftSnapshot）
-struct CraftFeedHeader: View {
-    let feed: FeedModel<CraftSnapshot>
-    let channel: LiveChannel
-
-    var body: some View {
-        TimelineView(.periodic(from: .now, by: 30)) { ctx in
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 8) {
-                    ConnectionDot(
-                        state: channel.state,
-                        error: feed.lastError != nil,
-                        stale: feed.isDotStale(now: ctx.date),
-                        showLabel: false
-                    )
-                    Spacer()
-                    if feed.isLoading { ProgressView().controlSize(.mini) }
-                    Mono(MarketMeta.formatVersionLabel(feed.snapshot?.version), step: .micro, color: Theme.dim)
-                }
-                if let snap = feed.snapshot {
-                    Text("\(MarketMeta.sourceLabel(snap.source)) · 数据 \(MarketMeta.fmtAge(minutes: feed.ageMinutes(now: ctx.date)))前")
-                        .font(Theme.font(.xs))
-                        .foregroundStyle(Theme.faint)
-                }
-                if let err = feed.lastError {
-                    Label(err, systemImage: "exclamationmark.triangle")
-                        .font(Theme.font(.xs))
-                        .foregroundStyle(Theme.danger)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(Theme.danger.opacity(0.08), in: Capsule())
-                }
-                if feed.isStale(now: ctx.date), let snap = feed.snapshot {
-                    Text(MarketMeta.staleTipText(source: snap.source, ageMin: feed.ageMinutes(now: ctx.date)))
-                        .font(Theme.font(.xs))
-                        .foregroundStyle(Theme.warn)
-                }
-            }
-        }
-        .id("\(feed.snapshot?.version ?? "-")-\(Int(feed.lastRefreshAt?.timeIntervalSince1970 ?? 0))")
     }
 }
 
