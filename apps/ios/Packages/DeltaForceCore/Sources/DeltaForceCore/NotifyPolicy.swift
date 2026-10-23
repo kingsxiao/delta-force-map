@@ -1,4 +1,4 @@
-// NotifyPolicy.swift — server/ammo/notify-policy.mjs 的同构移植（信号通知去抖）
+// NotifyPolicy.swift — shared/js/notify-policy.js 的同构移植（信号通知去抖）
 // 分钟级数据在 0.25 / 0.80 分位边界抖动会让信号来回翻转，规则：
 //   · 每轮全量记录每个物品的当前信号与 streak（同信号连续轮数）
 //   · 首次出现（无 prev）         → 立即通知

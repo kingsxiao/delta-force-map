@@ -1,9 +1,12 @@
 <script setup>
 import { useRoute } from 'vue-router'
+import { useAccount } from '../composables/useAccount'
 
 const route = useRoute()
+const { user } = useAccount()
 
-// 三个主 tab；active 高亮按 route.path 精确比对（'/' 不应匹配到所有路由）
+// 三个主 tab + 账号入口（登录态显示用户名）；active 高亮按 route.path
+// 精确比对（'/' 不应匹配到所有路由）
 const tabs = [
   { to: '/ammo', label: '子弹行情' },
   { to: '/radar', label: '异动雷达' },
@@ -29,6 +32,10 @@ const tabs = [
           :class="{ active: route.path === t.to }"
         >
           {{ t.label }}
+        </router-link>
+        <!-- 账号入口与主 tab 同样式：登录后显示用户名，未登录显示「登录」 -->
+        <router-link to="/account" class="tab" :class="{ active: route.path === '/account' }">
+          {{ user ? user.username : '登录' }}
         </router-link>
       </nav>
     </div>

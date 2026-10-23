@@ -23,6 +23,8 @@ extension EnvironmentValues {
 struct RootView: View {
     // UI 截图巡检钩子：`simctl launch` 传 -startTab <tab> 直达指定 Tab（生产无此参数，默认行情，行为不变）
     @State private var selection = RootView.launchStartTab()
+    // 通知点击深链：pendingDetailName 置位时切回行情 Tab（详情 push 由 AmmoView 消费同一状态完成）
+    @Environment(AppModel.self) private var app
 
     private static func launchStartTab() -> AppTab {
         let args = ProcessInfo.processInfo.arguments
@@ -56,5 +58,11 @@ struct RootView: View {
         // 四页统一纯净深底——web 端噪点 / 光晕背景明确不搬，列表页保持 Theme.bg
         .background(Theme.bg)
         .environment(\.tabSelection, $selection)
+        // 消费后置 nil 会再次触发本 onChange（值变 nil），guard 挡住不重复切；
+        // 通知点击时若停在别的 Tab，先切回行情，AmmoView 的 onAppear/onChange 再接手 push
+        .onChange(of: app.pendingDetailName) { _, name in
+            guard name != nil else { return }
+            selection = .ammo
+        }
     }
 }

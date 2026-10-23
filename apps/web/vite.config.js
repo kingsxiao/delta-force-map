@@ -15,4 +15,12 @@ export default defineConfig({
       '@shared': fileURLToPath(new URL('../../shared', import.meta.url)),
     },
   },
+  server: {
+    // 本地 dev 的账号 API 由 vite 代理转发到同源部署服务（npm run serve，
+    // 默认 8080）：/api/* 与部署形态一致走同源相对路径，生产构建不受影响。
+    // serve 没开时登录页如实报「连不上服务器」，行情等匿名功能照常。
+    proxy: {
+      '/api': 'http://127.0.0.1:8080',
+    },
+  },
 })

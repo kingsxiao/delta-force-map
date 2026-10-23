@@ -12,6 +12,10 @@ struct ItemDetailView: View {
     @State private var favTick = 0
     @State private var refreshOkTick = 0
     @State private var refreshErrTick = 0
+    // 囤货试算（交易测算组内）：数量档 + 我的成本；posTick = 记入/移出台账的账本操作触感
+    @State private var calcQty = 100
+    @State private var calcCost = 0.0 // 0 = 未初始化，onAppear 回填（台账已录价 ?? 现价）
+    @State private var posTick = 0
 
     /// 解冻命中路径（§4.2-3）：年龄角标的数据源必须跟随——两路快照独立轮询、
     /// lastRefreshAt 各自不同，照单数「feed」必然出现雷达物品挂行情年龄的错配
@@ -28,6 +32,12 @@ struct ItemDetailView: View {
         app.market.items.first { $0.name == item.name }
             ?? app.radar.items.first { $0.name == item.name }
             ?? item
+    }
+
+    /// TTK 联动：弹名 → 穿透等级（shared/data/ammo-alias.json 映射；nil = 无映射
+    /// 不显徽章——一对多歧义 / 国服命名差异 / 弓弩箭矢，宁缺勿错）
+    private var pen: Int? {
+        app.ammoAlias.pen(marketName: item.name, calibers: app.ttk.data?.calibers ?? [:])
     }
 
     var body: some View {
@@ -47,6 +57,14 @@ struct ItemDetailView: View {
             .frame(maxWidth: .infinity)
         }
         .background(Theme.bg)
+        // TTK 联动兜底：从雷达页进详情时 ttk.json 可能尚未加载（行情页 onAppear 已加载则空转）；
+        // 囤货试算成本回填也在此：台账已录价优先，无记录按现价（resolved 首帧已就绪）
+        .onAppear {
+            app.ttk.loadIfNeeded()
+            if calcCost == 0 {
+                calcCost = app.positions.position(of: item.name)?.cost ?? (resolved.current ?? 0)
+            }
+        }
         .navigationTitle(item.name)
         .navigationBarTitleDisplayMode(.inline)
         // 详情可下拉刷新（§4.2-4）：只是调用既有方法，与列表页手势心智一致；
@@ -63,6 +81,7 @@ struct ItemDetailView: View {
         .sensoryFeedback(.success, trigger: favTick)
         .sensoryFeedback(.success, trigger: refreshOkTick)
         .sensoryFeedback(.error, trigger: refreshErrTick)
+        .sensoryFeedback(.selection, trigger: posTick)
         .toolbar {
             Button {
                 app.favorites.toggle(it.name)
@@ -97,11 +116,13 @@ struct ItemDetailView: View {
                 ViewThatFits(in: .horizontal) {
                     HStack(spacing: 6) {
                         GradeBadge(grade: it.grade)
+                        if let pen { PenBadge(pen: pen) }
                         if let c = it.category { CategoryChip(text: c) }
                         if let r = it.hiRank { CategoryChip(text: "涨幅榜 #\(r)") }
                     }
                     HStack(spacing: 6) {
                         GradeBadge(grade: it.grade)
+                        if let pen { PenBadge(pen: pen) }
                         if let c = it.category { CategoryChip(text: c) }
                     }
                     HStack(spacing: 6) {
@@ -187,6 +208,8 @@ struct ItemDetailView: View {
                     StatCell(label: "预赚 / 发", value: Fmt.price(it.profitPerRound), color: (it.profitPerRound ?? 0) > 0 ? Theme.ok : Theme.faint),
                     StatCell(label: "收益率", value: Fmt.pct(it.profitPct), color: (it.profitPct ?? 0) > 0 ? Theme.ok : Theme.faint)
                 )
+                Divider().overlay(Theme.line2)
+                positionCalc(it)
             }
             RankBar(item: it)
             HStack {
@@ -206,6 +229,88 @@ struct ItemDetailView: View {
             Text(title).font(Theme.font(.micro)).foregroundStyle(Theme.faint)
             content()
         }
+    }
+
+    // MARK: - 囤货试算（交易测算组内，补齐数量试算 + 成本口径两档到手对比）
+
+    /// 按我的成本试算：数量档 100/500/1000/自定义 + 成本价输入（默认台账已录价，无记录按现价）。
+    /// 两档到手与台账 / 网页端同口径：现价直出 = current×(1−税率)，挂 P75 = netSell；
+    /// 「记入囤货」把当前数量与成本写进本机台账（同名即更新，行情页「我的囤货」区即时可见）
+    private func positionCalc(_ it: MarketItem) -> some View {
+        let qty = max(1, calcQty)
+        let qtyD = Double(qty)
+        let cost = calcCost > 0 ? calcCost : (it.current ?? 0)
+        let netNow = (it.current ?? 0) * (1 - it.taxRate)
+        let gainNow = (netNow - cost) * qtyD
+        let gainP75 = ((it.netSell ?? 0) - cost) * qtyD
+        let inBook = app.positions.contains(it.name)
+        return VStack(alignment: .leading, spacing: Theme.Space.sm) {
+            HStack(spacing: 6) {
+                Text("数量").font(Theme.font(.xs)).foregroundStyle(Theme.faint)
+                ForEach([100, 500, 1000], id: \.self) { n in
+                    CalcChip(label: "\(n)", on: qty == n) { calcQty = n }
+                }
+                TextField("自定义", value: $calcQty, format: .number.grouping(.never))
+                    .keyboardType(.numberPad)
+                    .frame(width: 72)
+                    .padding(.vertical, 4).padding(.horizontal, 9)
+                    .background(Capsule().fill(Theme.card2))
+                    .overlay(Capsule().strokeBorder(Theme.line, lineWidth: 1))
+                    .font(Theme.monoFont(.xs))
+                Spacer(minLength: 0)
+            }
+            HStack(spacing: 6) {
+                Text("我的买入价").font(Theme.font(.xs)).foregroundStyle(Theme.faint)
+                TextField("成本 / 发", value: $calcCost, format: .number.grouping(.never))
+                    .keyboardType(.decimalPad)
+                    .frame(width: 90)
+                    .padding(.vertical, 4).padding(.horizontal, 9)
+                    .background(Capsule().fill(Theme.card2))
+                    .overlay(Capsule().strokeBorder(Theme.line, lineWidth: 1))
+                    .font(Theme.monoFont(.xs))
+                CalcChip(label: "现价", on: false) { calcCost = it.current ?? 0 }
+                Spacer(minLength: 0)
+            }
+            StatQuadRow(
+                StatCell(label: "总投入", value: Fmt.price(cost * qtyD)),
+                StatCell(label: "现价直出到手", value: Fmt.price(netNow * qtyD)),
+                StatCell(label: "挂 P75 到手", value: Fmt.price((it.netSell ?? 0) * qtyD)),
+                StatCell(label: "到价利润", value: fmtSigned(gainP75), color: gainP75 >= 0 ? Theme.ok : Theme.danger)
+            )
+            // 直出档利润单独一行：四格放不下第五个数，且它是「急用钱立卖」的决策数
+            Text("现价直出利润 \(fmtSigned(gainNow))")
+                .font(Theme.font(.xs)).monospacedDigit()
+                .foregroundStyle(gainNow >= 0 ? Theme.ok : Theme.danger)
+            HStack(spacing: 8) {
+                Button {
+                    app.positions.upsert(AmmoPosition(name: it.name, qty: qty, cost: cost))
+                    posTick += 1
+                } label: {
+                    // 含中文：默认 design + 等宽数字
+                    Label(inBook ? "更新囤货" : "记入囤货", systemImage: "tray.and.arrow.down")
+                        .font(Theme.font(.xs, weight: .semibold))
+                }
+                .buttonStyle(.bordered)
+                if inBook {
+                    Button(role: .destructive) {
+                        app.positions.remove(it.name)
+                        posTick += 1
+                    } label: {
+                        Label("移出", systemImage: "trash")
+                            .font(Theme.font(.xs, weight: .semibold))
+                    }
+                    .buttonStyle(.bordered)
+                }
+                Spacer(minLength: 0)
+            }
+            Text("台账（数量 × 成本）仅存本机，不上传不同步；浮盈随行情快照实时计算。")
+                .font(Theme.font(.xs)).foregroundStyle(Theme.faint)
+        }
+    }
+
+    /// 带符号金额（利润可为负）：+12,345 / -1,024
+    private func fmtSigned(_ n: Double) -> String {
+        "\(n >= 0 ? "+" : "-")\(Fmt.price(abs(n)))"
     }
 
     // MARK: - 预计卖出
@@ -274,5 +379,26 @@ struct ItemDetailView: View {
         case .down: "近 6h ↘"
         case .flat: "近 6h →"
         }
+    }
+}
+
+/// 试算输入小 chip（数量档 / 现价回填）：card2 底 / line 描边，选中 accent
+/// （观感对齐 FilterChipLabel）；文案含中文混排，走默认 design + 等宽数字
+private struct CalcChip: View {
+    let label: String
+    let on: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text(label)
+                .font(Theme.font(.xs, weight: .semibold))
+                .monospacedDigit()
+                .foregroundStyle(on ? Theme.accent : Theme.dim)
+                .padding(.horizontal, 11).padding(.vertical, 5)
+                .background(Capsule().fill(on ? Theme.accent.opacity(0.12) : Theme.card2))
+                .overlay(Capsule().strokeBorder(on ? Theme.accent.opacity(0.45) : Theme.line, lineWidth: 1))
+        }
+        .buttonStyle(.plain)
     }
 }

@@ -21,20 +21,34 @@
    版本展示 / 阈值分档 / 通道门槛等纯逻辑在 ./ammo/marketMeta.js（自测共用）。
    页尾 PLAYBOOK 倒卖手册（./ammo/Playbook.vue，静态）：社区攻略整理的
    买卖时段 / 挂单定价 / 版本窗口 / 卡邮件要点与风险红线，与信号区互补。
+   TTK 联动：全表「穿透」列按弹名映射 TTK 穿透等级（PenBadge；映射与
+   「— = 无穿透数据」口径见 src/data/ttk/ammo-market-alias.js）；进入时
+   消费 /ammo?q=弹名 深链回填搜索框（TTK 页「现价」入口）。
    ============================================================ */
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref } from 'vue'
+import { useRoute } from 'vue-router'
 import { useReveal } from '../composables/useReveal'
+import { useStars } from '../composables/useStars'
+import { usePositions } from '../composables/usePositions'
+import { useAccount } from '../composables/useAccount'
 import SignalCard from './ammo/SignalCard.vue'
 import SellCard from './ammo/SellCard.vue'
 import Sparkline from './ammo/Sparkline.vue'
 import PriceChart from './ammo/PriceChart.vue'
 import Playbook from './ammo/Playbook.vue'
+import MarketClock from './ammo/MarketClock.vue'
+import PenBadge from './ttk/PenBadge.vue'
+import { CAL } from '../data/ttk/calibers.js'
+import { marketNamePen } from '../data/ttk/ammo-market-alias.js'
 import {
   formatVersionLabel, staleness, sourceLabel, methodDataLine,
   liveChannelUrl, isLocalHttpHost, staleTipText, picThumb,
 } from '@shared/js/marketMeta.js'
 import { createLiveChannel } from '@shared/js/liveChannel.js'
 import { predictSellEta, fmtHours, fmtPeak } from '@shared/js/sellEta.js'
+import { judgeSignals, sendNotifications } from '@shared/js/notify-policy.js'
+
+const route = useRoute()
 
 const { observeRoot } = useReveal()
 
@@ -73,6 +87,9 @@ async function load(opts = {}) {
     if (!json || !Array.isArray(json.items)) throw new Error('数据格式异常')
     market.value = json
     loadState.value = 'ready'
+    // 信号去抖 judge 挂在每次成功刷新上（含首次整页与静默轮询/SSE）：首轮只
+    // 建基线不弹，之后 diff 出的新 BUY/SELL 才投递浏览器通知（见通知块注释）
+    runNotifyJudge(json, { silent })
     if (silent) {
       // 自动轮询/SSE 触发的刷新只在版本真的前进时提示——纯静态环境快照永不
       // 变化，每分钟闪一次「已更新至 <旧版本>」是在误导；手动点击仍给反馈
@@ -192,14 +209,97 @@ const srcShort = computed(() => {
   const s = market.value?.source
   return s === 'moligod' ? 'moligod · 分钟级' : s === 'kkrb' ? 'kkrb · 小时级' : ''
 })
-const liveShort = computed(() =>
-  ({ on: '实时推送', down: '60s 自动刷新', connecting: '连接中…' }[liveChannel.value] || ''))
 const headTip = computed(() =>
   `数据版本 ${versionLabel.value} · 来源 ${srcLabel.value}${liveText.value ? ` · ${liveText.value}` : ''}`)
+
+/* ---------- 浏览器通知（去抖口径与服务端同源：shared/js/notify-policy.js） ----------
+   双重部署现实（如实降级，不糊弄）：
+     · 非安全上下文（线上 http://<IP> 形态）下 Chrome/Edge 无 Notification
+       对象——开关置灰并说明需 HTTPS 部署；https 就绪即插即用，代码不改。
+     · 后台标签页的更新源仅实时推送部署形态成立（SSE 落盘即拉；轮询只在
+       页面可见时拉取），纯静态托管退化为「页面可见时提醒」。
+   去抖 state 存 localStorage（与服务端 monitor-state.json 同构）：无论开关
+   都随每次成功刷新逐轮推进（关掉再开不会把存量信号一次性爆发）；首次
+   整页加载只建立基线不弹（信号卡就在眼前），静默刷新 diff 出的新 BUY/SELL
+   才弹（buyLine/sellLine 与服务端通知同款文案），点击通知 window.focus()。 */
+const NOTIFY_SUPPORTED = typeof window !== 'undefined' && window.isSecureContext && 'Notification' in window
+const NOTIFY_ON_KEY = 'ammo-notify-on'
+const NOTIFY_STATE_KEY = 'ammo-notify-state'
+const NOTIFY_SCOPE_TIP = '后台提醒需实时推送部署形态（页头显示实时推送），纯静态托管仅页面可见时提醒'
+const notifyOn = ref(false)
+const notifyTip = ref('')
+let notifyTipTimer = null
+
+function loadNotifyState() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(NOTIFY_STATE_KEY))
+    return raw && typeof raw === 'object' && typeof raw.items === 'object' && raw.items ? raw : { items: {} }
+  } catch {
+    return { items: {} }
+  }
+}
+const notifyJudgeState = loadNotifyState()
+try {
+  notifyOn.value = NOTIFY_SUPPORTED && localStorage.getItem(NOTIFY_ON_KEY) === '1'
+} catch { /* 读取失败按关处理 */ }
+
+function persistNotify(on) {
+  try {
+    if (on) localStorage.setItem(NOTIFY_ON_KEY, '1')
+    else localStorage.removeItem(NOTIFY_ON_KEY)
+  } catch { /* 隐私模式等写入失败时仅本次会话生效 */ }
+}
+function persistNotifyState() {
+  try {
+    localStorage.setItem(NOTIFY_STATE_KEY, JSON.stringify(notifyJudgeState))
+  } catch { /* 同上 */ }
+}
+function flashNotifyTip(msg) {
+  notifyTip.value = msg
+  if (notifyTipTimer) clearTimeout(notifyTipTimer)
+  notifyTipTimer = setTimeout(() => { notifyTip.value = '' }, 6000)
+}
+async function toggleNotify() {
+  if (!NOTIFY_SUPPORTED) return
+  if (notifyOn.value) {
+    notifyOn.value = false
+    persistNotify(false)
+    return
+  }
+  let perm = Notification.permission
+  if (perm === 'default') perm = await Notification.requestPermission()
+  if (perm !== 'granted') {
+    flashNotifyTip('浏览器通知权限未授予：请在地址栏权限设置中允许后重开')
+    return
+  }
+  notifyOn.value = true
+  persistNotify(true)
+  flashNotifyTip(NOTIFY_SCOPE_TIP)
+}
+/* load 成功回调：喂 judge 推进去抖 state（与服务端同口径，含 WAIT 全量记录）；
+   静默刷新且开关在开、权限已授予时才真正投递浏览器通知 */
+function runNotifyJudge(json, { silent }) {
+  try {
+    const { buys, sells } = judgeSignals(notifyJudgeState, json.items || [])
+    persistNotifyState()
+    if (!silent || !notifyOn.value || Notification.permission !== 'granted') return
+    if (!buys.length && !sells.length) return
+    sendNotifications(buys, sells, ({ title, body }) => {
+      try {
+        const n = new Notification(title, { body })
+        n.onclick = () => { window.focus(); n.close() }
+      } catch { /* 单条通知构造失败不影响其余链路 */ }
+    })
+  } catch { /* 通知链路任何异常都不影响行情展示 */ }
+}
+const notifyBtnTitle = computed(() =>
+  NOTIFY_SUPPORTED ? `BUY/SELL 新信号弹浏览器通知（与服务端通知同款文案与去抖口径）。${NOTIFY_SCOPE_TIP}` : '浏览器通知需 HTTPS 部署后可用')
 
 /* ---------- 展示工具 ---------- */
 const fmt = (n) => (Number.isFinite(n) ? Math.round(n).toLocaleString('zh-CN') : '—')
 const pct = (n) => (Number.isFinite(n) ? `${n >= 0 ? '+' : ''}${(n * 100).toFixed(1)}%` : '—')
+/* 带符号金额（囤货浮盈可为负）：+12,345 / -1,024 */
+const fmtSigned = (n) => (Number.isFinite(n) ? `${n >= 0 ? '+' : '-'}${Math.abs(Math.round(n)).toLocaleString('zh-CN')}` : '—')
 const SIGNAL_META = {
   BUY: { label: '买入', cls: 'buy' },
   WATCH: { label: '关注', cls: 'watch' },
@@ -211,6 +311,12 @@ const reduceMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matche
 // 表内行图标加载失败（CDN 抖动等）就地隐藏，不占位不报错
 const hideImg = (e) => { e.target.style.display = 'none' }
 
+/* ---------- TTK 联动：弹名 → 穿透等级（PenBadge 徽标，等级语义 0-7） ----------
+   映射与「宁缺勿错」口径见 src/data/ttk/ammo-market-alias.js：一对多歧义
+   （紫/蓝/金.300BLK）、国服命名无同型条目（DBP10 等）与弓弩箭矢返回 null，
+   穿透列显「—」（表尾 METHOD 注明），绝不猜等级。 */
+const penOf = (name) => marketNamePen(name, CAL)
+
 /* ---------- 行情脉搏：全市场信号分布（页头总览条） ---------- */
 const stats = computed(() => {
   const c = { BUY: 0, SELL: 0, WATCH: 0, WAIT: 0 }
@@ -218,27 +324,97 @@ const stats = computed(() => {
   return c
 })
 
-/* ---------- 自选星标（localStorage，key=ammo-stars，存弹名数组） ---------- */
-const STARS_KEY = 'ammo-stars'
-function loadStars() {
-  try {
-    const raw = JSON.parse(localStorage.getItem(STARS_KEY))
-    return new Set(Array.isArray(raw) ? raw.filter((n) => typeof n === 'string') : [])
-  } catch {
-    return new Set()
+/* ---------- 自选星标 + 囤货台账（useStars / usePositions 单例：localStorage
+   持久化 + 账号云同步挂钩，登录后由 useAccount 做两端合并，见 /account 页） ---------- */
+const { stars, toggleStar } = useStars()
+const { positions, save: savePositions } = usePositions()
+const { user: accountUser } = useAccount() // 仅用于台账区块的云同步状态标（同步逻辑全在 useAccount 单例内）
+
+/* 台账行 join 行情快照：弹名已不在当前快照（下架 / 改名）时 item=null，只展示记录本体 */
+const positionRows = computed(() =>
+  positions.value.map((p) => {
+    const item = items.value.find((i) => i.name === p.name) || null
+    const netSell = item?.netSell ?? null // 挂 P75 税后到手 / 发
+    const netNow = item && item.current != null && Number.isFinite(item.taxRate)
+      ? item.current * (1 - item.taxRate) : null // 现价直出税后 / 发
+    return {
+      ...p,
+      item,
+      netSell,
+      netNow,
+      /* 到价浮盈（挂 P75 口径）与现价浮盈（直出口径） */
+      gainNet: netSell != null ? (netSell - p.cost) * p.qty : null,
+      gainNow: netNow != null ? (netNow - p.cost) * p.qty : null,
+      atTarget: !!(item && item.current != null && item.targetSell != null && item.current >= item.targetSell),
+    }
+  })
+)
+const posTotals = computed(() => {
+  let invest = 0
+  let gainNet = 0
+  let gainNow = 0
+  for (const r of positionRows.value) {
+    invest += r.cost * r.qty
+    if (r.gainNet != null) gainNet += r.gainNet
+    if (r.gainNow != null) gainNow += r.gainNow
   }
+  return { invest, gainNet, gainNow, pct: invest > 0 ? gainNet / invest : null }
+})
+function upsertPosition(p) {
+  const first = positions.value.length === 0
+  // 只入账本事实三字段：调用方可能传台账行 join 行情后的展示对象（含 item/curve），
+  // 整体入库会污染 localStorage 与云端 ledger.ammo（多次编辑即超 64KB 上限）
+  const clean = { name: p.name, qty: p.qty, cost: p.cost }
+  const i = positions.value.findIndex((x) => x.name === clean.name)
+  if (i >= 0) positions.value[i] = clean
+  else positions.value.push(clean)
+  savePositions()
+  // 首条持仓让台账区块从无到有：区块带 .reveal（默认 opacity:0），中途出现的
+  // 元素不在 load 成功后的 observeRoot 批次里，这里补一次 observe 否则永远隐藏
+  if (first) nextTick(() => observeRoot(pageRef.value))
 }
-const stars = ref(loadStars())
-function toggleStar(name) {
-  const next = new Set(stars.value)
-  if (next.has(name)) next.delete(name)
-  else next.add(name)
-  stars.value = next
-  try {
-    localStorage.setItem(STARS_KEY, JSON.stringify([...next]))
-  } catch {
-    /* 隐私模式等写入失败时仅本次会话生效 */
-  }
+function removePosition(name) {
+  positions.value = positions.value.filter((p) => p.name !== name)
+  savePositions()
+}
+/* 行内编辑数量 / 成本（change 时写回；夹取规范值防 0 / 负数入库） */
+function setPosQty(r, ev) {
+  const n = Math.round(Number(ev.target.value))
+  upsertPosition({ ...r, qty: Number.isFinite(n) && n >= 1 ? n : r.qty })
+  ev.target.value = r.qty
+}
+function setPosCost(r, ev) {
+  const n = Number(ev.target.value)
+  upsertPosition({ ...r, cost: Number.isFinite(n) && n > 0 ? n : r.cost })
+  ev.target.value = r.cost
+}
+/* 添加表单（弹名从当前行情里选——datalist 联想；成本留空默认现价，方便信号位快速记入） */
+const posForm = reactive({ name: '', qty: 100, cost: '' })
+const posFormErr = ref('')
+function addPosition() {
+  const name = posForm.name.trim()
+  const item = items.value.find((i) => i.name === name)
+  if (!item) { posFormErr.value = '弹名需从当前行情中选择（输入框可联想补全）'; return }
+  const qty = Math.round(Number(posForm.qty))
+  if (!Number.isFinite(qty) || qty < 1) { posFormErr.value = '数量至少为 1 发'; return }
+  const cost = posForm.cost === '' ? item.current : Number(posForm.cost)
+  if (!Number.isFinite(cost) || cost <= 0) { posFormErr.value = '成本价需为正数（留空按现价记入）'; return }
+  upsertPosition({ name, qty, cost })
+  posForm.name = ''
+  posForm.qty = 100
+  posForm.cost = ''
+  posFormErr.value = ''
+}
+/* 全表行展开「记入囤货」：零持仓时的录入通道（区块本身有持仓才显示）——
+   预填现价 × 100 发，数量与成本再到台账行内改；已在台账不覆盖用户已录成本 */
+const posSecRef = ref(null)
+function quickAddPosition(i) {
+  if (positions.value.some((p) => p.name === i.name)) return
+  upsertPosition({ name: i.name, qty: 100, cost: i.current })
+  // 记入后滚到台账区：用户在全表中下部展开行，台账在页头之下，不滚可能根本注意不到
+  nextTick(() => {
+    posSecRef.value?.scrollIntoView({ block: 'center', behavior: reduceMotion() ? 'auto' : 'smooth' })
+  })
 }
 
 /* ---------- 筛选与排序 ---------- */
@@ -410,6 +586,10 @@ function onVisibility() {
 onMounted(() => {
   prevTitle = document.title
   document.title = '三角洲行动 · 子弹行情'
+  // 深链回填：/ammo?q=弹名（TTK 页「现价」入口跳转进来直接筛到该弹）。
+  // 只在进入时消费一次，之后的搜索词变化属用户本地状态，不回写 URL
+  const q = typeof route.query.q === 'string' ? route.query.q.trim().slice(0, 40) : ''
+  if (q) state.q = q
   load()
   connectLive() // 本地 live 服务在跑时走 SSE（≤5s）；不在 / 不适用则轮询兜底
   schedulePoll()
@@ -423,6 +603,7 @@ onUnmounted(() => {
   clearTimeout(pollTimer)
   clearInterval(clockTimer)
   if (tipTimer) clearTimeout(tipTimer)
+  if (notifyTipTimer) clearTimeout(notifyTipTimer)
   if (ctlRO) ctlRO.disconnect()
   if (live) live.stop()
   document.removeEventListener('visibilitychange', onVisibility)
@@ -437,9 +618,17 @@ onUnmounted(() => {
     <header class="compact-head">
       <h1>子弹价格监控<span class="live-dot" :class="{ stale: ageMin !== null && ageMin > thresholds.staleDotMin }" aria-hidden="true"></span></h1>
       <p v-if="market" class="meta" :title="headTip">
-        <template v-if="ageLabel"><span :class="{ 'meta-stale': ageMin > thresholds.staleDotMin * 2 }">{{ ageLabel }}更新</span> · </template>{{ srcShort }}<span v-if="liveShort"> · {{ liveShort }}</span>
+        <template v-if="ageLabel"><span :class="{ 'meta-stale': ageMin > thresholds.staleDotMin * 2 }">{{ ageLabel }}更新</span> · </template>{{ srcShort }}
       </p>
+      <!-- 浏览器通知开关：非安全上下文（http 部署）无 Notification 对象，置灰如实降级 -->
+      <button
+        class="notify-btn" :class="{ on: notifyOn }" :disabled="!NOTIFY_SUPPORTED"
+        :aria-pressed="notifyOn" :title="notifyBtnTitle"
+        @click="toggleNotify"
+      ><i class="nt-dot" aria-hidden="true"></i>信号通知{{ notifyOn ? ' · 开' : '' }}</button>
     </header>
+    <p v-if="!NOTIFY_SUPPORTED" class="notify-hint">浏览器通知需 HTTPS 部署后可用</p>
+    <p v-if="notifyTip" class="notify-hint" role="status">{{ notifyTip }}</p>
 
     <!-- 数据过期提醒（moligod 30min / kkrb 6h，文案如实注明静态快照边界）。
          「刷新数据」按钮在全表控制条（首屏外），提示最刺眼时就地给出口 -->
@@ -482,6 +671,71 @@ onUnmounted(() => {
           <span class="st-v">{{ items.length }}</span>
           <span class="st-s">交易行全部子弹 · 7 天曲线</span>
         </div>
+      </section>
+
+      <!-- 我的囤货台账：纯本地 localStorage（不上传不同步），有持仓才显示。
+           浮盈按「挂 P75 税后到手」口径；现价已达挂卖价的行高亮可出 -->
+      <section v-if="positions.length" ref="posSecRef" class="block reveal pos-block" aria-label="我的囤货台账">
+        <div class="block-h">
+          <span class="bht">MY POSITIONS</span><span class="bhline"></span>
+          <span class="bhc">{{ positions.length }} 条 · 本机记录{{ accountUser ? ' · 已随账号云同步' : '' }}</span>
+        </div>
+        <div class="pos-sum">
+          <span class="ps-item">总投入 <b>{{ fmt(posTotals.invest) }}</b></span>
+          <span class="ps-item">到价浮盈（挂 P75）<b :class="posTotals.gainNet >= 0 ? 'pos-pos' : 'pos-neg'">{{ fmtSigned(posTotals.gainNet) }}</b><template v-if="posTotals.pct != null">（{{ pct(posTotals.pct) }}）</template></span>
+          <span class="ps-item">现价直出浮盈 <b :class="posTotals.gainNow >= 0 ? 'pos-pos' : 'pos-neg'">{{ fmtSigned(posTotals.gainNow) }}</b></span>
+        </div>
+        <ul class="pos-list">
+          <li v-for="r in positionRows" :key="r.name" :class="{ hit: r.atTarget }">
+            <span class="pos-name">
+              <span class="a-icw" aria-hidden="true">
+                <img
+                  v-if="r.item?.pic" class="a-ic"
+                  :src="picThumb(r.item.pic, 96)" alt=""
+                  width="26" height="18" loading="lazy" decoding="async"
+                  @error="hideImg"
+                >
+              </span>
+              <span class="pos-title">{{ r.name }}</span>
+              <span v-if="r.atTarget" class="pos-badge">已到挂卖价</span>
+              <span v-else-if="!r.item" class="pos-badge gone">不在当前行情</span>
+            </span>
+            <label class="pos-field" :title="`数量（${r.qty} 发）`">
+              <span class="pos-k">数量</span>
+              <input class="pos-in" type="number" min="1" :value="r.qty" aria-label="数量" @change="setPosQty(r, $event)">
+            </label>
+            <label class="pos-field" :title="`成本 / 发（${fmt(r.cost)}）`">
+              <span class="pos-k">成本/发</span>
+              <input class="pos-in" type="number" min="1" step="any" :value="r.cost" aria-label="成本单价" @change="setPosCost(r, $event)">
+            </label>
+            <span class="pos-cell">
+              <span class="pos-k">现价</span>
+              <span class="mono pos-v">{{ r.item ? fmt(r.item.current) : '—' }}</span>
+            </span>
+            <span class="pos-cell">
+              <span class="pos-k">到价浮盈</span>
+              <span class="mono pos-v" :class="r.gainNet == null ? '' : r.gainNet >= 0 ? 'pos-pos' : 'pos-neg'">{{ r.gainNet == null ? '—' : fmtSigned(r.gainNet) }}</span>
+            </span>
+            <span class="pos-cell">
+              <span class="pos-k">现价浮盈</span>
+              <span class="mono pos-v" :class="r.gainNow == null ? '' : r.gainNow >= 0 ? 'pos-pos' : 'pos-neg'">{{ r.gainNow == null ? '—' : fmtSigned(r.gainNow) }}</span>
+            </span>
+            <button class="pos-del" :aria-label="`删除 ${r.name} 的囤货记录`" title="删除这条囤货" @click="removePosition(r.name)">✕</button>
+          </li>
+        </ul>
+        <form class="pos-add" @submit.prevent="addPosition">
+          <input
+            v-model.trim="posForm.name" class="pos-in pos-add-name" list="pos-name-list"
+            type="text" placeholder="弹名（可联想，如 M855A1）" aria-label="弹名"
+          >
+          <datalist id="pos-name-list">
+            <option v-for="i in items" :key="i.name" :value="i.name" />
+          </datalist>
+          <input v-model.number="posForm.qty" class="pos-in" type="number" min="1" placeholder="数量" aria-label="数量" required>
+          <input v-model.number="posForm.cost" class="pos-in" type="number" min="1" step="any" placeholder="成本/发（空=现价）" aria-label="成本单价，留空按现价记入">
+          <button class="pos-add-btn" type="submit">{{ positions.some((p) => p.name === posForm.name) ? '更新' : '记入囤货' }}</button>
+          <p v-if="posFormErr" class="pos-err" role="alert">{{ posFormErr }}</p>
+        </form>
       </section>
 
       <!-- 买入信号 -->
@@ -583,6 +837,7 @@ onUnmounted(() => {
               <thead>
                 <tr>
                   <th>弹种</th>
+                  <th class="c-pen">穿透</th>
                   <th class="num">当前价</th>
                   <th>信号</th>
                   <th class="num">税后预赚·发</th>
@@ -621,6 +876,11 @@ onUnmounted(() => {
                       <span class="a-name">{{ i.name }}</span>
                       <i class="row-chev" aria-hidden="true"><svg viewBox="0 0 16 16"><path d="M4 6.2 8 10.2 12 6.2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></i>
                     </td>
+                    <!-- 穿透（TTK 联动）：无映射显「—」，等级语义与判定矩阵见 TTK 页 -->
+                    <td class="c-pen">
+                      <PenBadge v-if="penOf(i.name) != null" :p="penOf(i.name)" />
+                      <template v-else>—</template>
+                    </td>
                     <td class="mono strong num price-cell">{{ fmt(i.current) }}</td>
                     <td>
                       <span v-if="i.rank == null" class="sig wait">数据不足</span>
@@ -650,8 +910,20 @@ onUnmounted(() => {
                     <td><Sparkline :curve="i.curve" :width="130" :height="30" /></td>
                   </tr>
                   <tr v-if="expanded === i.name" class="expander">
-                    <td colspan="7">
-                      <button class="exp-close" @click="expanded = null">收起</button>
+                    <td colspan="8">
+                      <div class="exp-actions">
+                        <!-- 记入囤货（零持仓时的录入通道）：预填现价 × 100 发，数量成本再到台账行内改 -->
+                        <button
+                          class="exp-close exp-pos"
+                          :class="{ on: positions.some((p) => p.name === i.name) }"
+                          :disabled="positions.some((p) => p.name === i.name)"
+                          :title="positions.some((p) => p.name === i.name)
+                            ? '已在囤货台账：数量与成本到页面顶部台账行内修改'
+                            : `按现价 ${fmt(i.current)} × 100 发记入囤货台账，数量与成本可再修改`"
+                          @click="quickAddPosition(i)"
+                        >{{ positions.some((p) => p.name === i.name) ? '已记入囤货 ✓' : '记入囤货' }}</button>
+                        <button class="exp-close" @click="expanded = null">收起</button>
+                      </div>
                       <PriceChart :curve="i.curve" :p25="i.p25" :p75="i.p75" :current="i.current" />
                       <p class="exp-note">
                         口径：买入参考 {{ fmt(i.p25) }}（P25）/ 目标挂卖 {{ fmt(i.targetSell) }}（P75，税后到手 {{ fmt(i.netSell) }}）/
@@ -664,7 +936,7 @@ onUnmounted(() => {
                   </tr>
                 </template>
                 <tr v-if="!filtered.length">
-                  <td colspan="7" class="empty-cell">
+                  <td colspan="8" class="empty-cell">
                     没有符合当前筛选的弹种　<button class="empty-clear" @click="clearFilters">清除全部筛选</button>
                   </td>
                 </tr>
@@ -680,12 +952,17 @@ onUnmounted(() => {
               <li><b>卖出条件</b>：当前价处 ≥ 80% 分位（贴近 7 天高位）。</li>
               <li><b>预计卖出</b>：统计近 7 天小时曲线——「从当前价位档涨到 P75 挂卖价」的完整上涨段给出中位/最快历时；同小时均价聚合给出日内高位时段。历史统计不代表未来。</li>
               <li><b>能赚多少</b>：每发利润 = 目标挂卖价 × (1−税率) − 当前买入价；税率按上游税后价实测反推（约 15%，逐弹计算）。</li>
+              <li><b>穿透</b>：来自 TTK 弹药数据（穿透等级决定对各级护甲的伤害通过率，判定矩阵见 TTK 页）。「—」= 无穿透数据（弓弩用弹 / 国服与通用命名差异 / 一名多弹无法确定对应），宁缺勿错。</li>
               <li><b>数据</b>：{{ dataLine }}</li>
               <li><b>提醒</b>：交易行价格受版本、活动与大盘供需影响，历史分位不代表未来走势；利润测算未计挂单时间成本。</li>
             </ul>
           </section>
         </div>
       </section>
+
+      <!-- 全市场日内节律（数据驱动的「现在几点该买该卖」，插在倒卖手册之上：
+           静态 WINDOWS 给共识时段，这里给当前快照的实时水位判读，两者互补） -->
+      <MarketClock :items="items" />
 
       <!-- 倒卖手册：社区攻略整理的实操动线（买/卖/版本窗口/卡邮件 + 风险红线）。
            放在 .tbl-zone 之外：不影响表容器 sticky 的包含块余量 -->
@@ -710,6 +987,22 @@ onUnmounted(() => {
 @media (prefers-reduced-motion: reduce) { .live-dot { animation: none; } }
 .meta-stale { color: var(--warn); }
 
+/* ---------- 浏览器通知开关（页头）：非安全上下文置灰；开=accent 点亮 ---------- */
+.notify-btn {
+  display: inline-flex; align-items: center; gap: 7px;
+  background: none; color: var(--dim);
+  border: 1px solid var(--line2); border-radius: var(--radius);
+  padding: 4px 12px; font-size: var(--fs-xs); white-space: nowrap;
+  cursor: pointer; align-self: center;
+  transition: color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
+}
+.notify-btn:hover:not(:disabled) { color: var(--tx); border-color: var(--line); }
+.notify-btn.on { color: var(--accent); border-color: var(--accent-dim); }
+.nt-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); }
+.notify-btn.on .nt-dot { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
+.notify-btn:disabled { opacity: .45; cursor: default; }
+.notify-hint { color: var(--faint); font-size: var(--fs-2xs); margin: 6px 0 0; }
+
 .state-tip { color: var(--dim); font-size: var(--fs-md); padding: var(--sp-6) 0; }
 .stale-tip { color: var(--warn); }
 /* 过期提示内嵌的「立即刷新」：主按钮 .retry 的小一号内联变体 */
@@ -724,17 +1017,21 @@ onUnmounted(() => {
 /* 主要按钮（重试/清筛选）：--accent-bg 底 + --accent-dim 边，hover 提底 --accent-soft，
    按下 scale(.98)，禁用降透明；键盘走全局 :focus-visible 外框 */
 .retry,
-.empty-clear {
+.empty-clear,
+.pos-add-btn {
   background: var(--accent-bg); color: var(--accent); border: 1px solid var(--accent-dim);
   border-radius: var(--radius); padding: 6px 18px; cursor: pointer; font-size: var(--fs-sm);
   transition: background-color var(--t-med) var(--ease), transform var(--t-fast) var(--ease);
 }
 .retry:hover,
-.empty-clear:hover { background: var(--accent-soft); }
+.empty-clear:hover,
+.pos-add-btn:hover { background: var(--accent-soft); }
 .retry:active,
-.empty-clear:active { transform: scale(.98); }
+.empty-clear:active,
+.pos-add-btn:active { transform: scale(.98); }
 .retry:disabled,
-.empty-clear:disabled { opacity: .45; cursor: default; }
+.empty-clear:disabled,
+.pos-add-btn:disabled { opacity: .45; cursor: default; }
 .empty-cell { text-align: center; color: var(--dim); padding: var(--sp-6) 0; }
 
 /* ---------- 行情脉搏总览条：单面板四格，hairline 分隔（移动端 2×2 换分隔轴向） ---------- */
@@ -778,6 +1075,78 @@ onUnmounted(() => {
   .stat:nth-child(n+3) { border-top: 1px solid var(--line2); }
   .st-s { white-space: normal; }
 }
+
+/* ---------- 我的囤货台账（纯本地记录）：汇总条 + 行内可编辑列表 + 录入表单 ---------- */
+.pos-sum {
+  display: flex; flex-wrap: wrap; gap: 6px 26px;
+  padding: 10px 14px; margin-bottom: var(--sp-3);
+  background: linear-gradient(90deg, rgba(45, 212, 191, .08), rgba(45, 212, 191, .01) 70%);
+  background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 8%, transparent), color-mix(in srgb, var(--accent) 1%, transparent) 70%);
+  border-left: 2px solid var(--accent-dim); border-radius: var(--radius-sm);
+  font-size: var(--fs-xs); color: var(--dim);
+}
+.pos-sum b {
+  font-family: var(--mono); color: var(--tx-strong);
+  font-variant-numeric: tabular-nums;
+}
+.pos-pos { color: var(--ok); }
+.pos-neg { color: var(--danger); }
+
+.pos-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.pos-list li {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 6px 16px;
+  background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 8px 12px;
+}
+/* 现价已达挂卖价（targetSell）：accent 边条 + 微底，提示可出 */
+.pos-list li.hit {
+  border-color: var(--accent-dim);
+  background: var(--accent-bg);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+.pos-name { display: inline-flex; align-items: center; gap: 8px; min-width: 0; flex: 1 1 150px; }
+.pos-title { color: var(--tx-strong); font-size: var(--fs-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pos-badge {
+  flex: none;
+  font-family: var(--mono); font-size: var(--fs-2xs);
+  color: var(--danger);
+  border: 1px solid rgba(217, 106, 89, .4); background: rgba(217, 106, 89, .1);
+  border-color: color-mix(in srgb, var(--danger) 40%, transparent);
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+  border-radius: var(--radius-pill); padding: 1px 8px;
+}
+.pos-badge.gone {
+  color: var(--faint); border-color: var(--line2); background: none;
+}
+.pos-k {
+  display: block;
+  font-family: var(--mono); font-size: var(--fs-2xs); color: var(--faint); letter-spacing: .08em;
+}
+.pos-field { display: inline-flex; flex-direction: column; gap: 2px; }
+.pos-in {
+  width: 96px; background: var(--deep); border: 1px solid var(--line); border-radius: var(--radius);
+  color: var(--tx); font-family: var(--mono); font-size: var(--fs-xs); padding: 3px 8px;
+  transition: border-color var(--t-fast) var(--ease);
+}
+/* 键盘可达走全局 :focus-visible 外框；:focus 只做边框提亮 */
+.pos-in:focus { border-color: var(--accent-dim); }
+/* number 输入的步进箭头占宽且挤不进窄列：隐藏（键盘直输 / 滚轮仍可调） */
+.pos-in::-webkit-outer-spin-button, .pos-in::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.pos-in[type="number"] { -moz-appearance: textfield; appearance: textfield; }
+.pos-cell { display: inline-flex; flex-direction: column; gap: 2px; }
+.pos-v { font-size: var(--fs-xs); color: var(--tx); font-variant-numeric: tabular-nums; }
+.pos-del {
+  flex: none; margin-left: auto;
+  background: none; border: 1px solid transparent; border-radius: var(--radius-sm);
+  color: var(--faint); font-size: var(--fs-2xs); padding: 3px 8px; cursor: pointer;
+  transition: color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
+}
+.pos-del:hover, .pos-del:active { color: var(--danger); border-color: var(--line-hover); }
+
+.pos-add { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: var(--sp-3); }
+.pos-add .pos-in { background: var(--card); }
+.pos-add-name { flex: 1 1 170px; width: auto; }
+.pos-err { width: 100%; margin: 0; color: var(--warn); font-size: var(--fs-xs); }
 
 .sig-grid {
   display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: var(--sp-4);
@@ -962,6 +1331,8 @@ onUnmounted(() => {
 }
 @media (max-width: 680px) {
   .c-range { display: none; }
+  /* 穿透列与 7 天区间列同法降级：移动端窄屏隐藏（穿透徽标仍可见于 TTK 页与详情） */
+  .c-pen { display: none; }
 }
 
 /* 信号徽章：彩色文字 + 同色系淡底（color-mix 派生，rgba 真值兜底，写法同 ttk PenMatrix），
@@ -994,8 +1365,9 @@ td.profit { color: var(--ok); font-weight: 600; }
 .tbl td.price-cell { font-size: var(--fs-md); color: var(--tx-strong); font-weight: 700; }
 
 .expander td { position: relative; background: var(--card2); border-top: 1px solid var(--accent-dim); }
+/* 右上动作组（收起 / 记入囤货）：定位由容器承担，按钮本体静态排列 */
+.exp-actions { position: absolute; top: 10px; right: 10px; display: flex; gap: 8px; }
 .exp-close {
-  position: absolute; top: 10px; right: 10px;
   font-family: var(--mono); font-size: var(--fs-2xs); color: var(--dim);
   background: var(--card); border: 1px solid var(--line); border-radius: var(--radius-pill);
   padding: 3px 12px; cursor: pointer;
@@ -1003,6 +1375,14 @@ td.profit { color: var(--ok); font-weight: 600; }
 }
 .exp-close:hover,
 .exp-close:active { color: var(--tx); border-color: var(--line-hover); }
+/* 「记入囤货」：与收起同规格；已记入态转 ok 并禁用（不覆盖已录成本） */
+.exp-close.exp-pos:disabled { opacity: .7; cursor: default; }
+.exp-close.exp-pos.on {
+  color: var(--ok);
+  border-color: rgba(133, 181, 120, .4); background: rgba(133, 181, 120, .1);
+  border-color: color-mix(in srgb, var(--ok) 40%, transparent);
+  background: color-mix(in srgb, var(--ok) 10%, transparent);
+}
 .exp-note { color: var(--faint); font-size: var(--fs-xs); margin: 10px 2px 2px; line-height: 1.8; }
 .exp-note b { color: var(--dim); }
 /* 预计卖出脚注：--accent 预测语义左边条（真值 rgba 兜底，accent = rgb(45,212,191)） */
@@ -1026,7 +1406,7 @@ td.profit { color: var(--ok); font-weight: 600; }
 /* 本页全部微交互过渡的 reduced-motion 关闭（live-dot 脉冲另有独立规则） */
 @media (prefers-reduced-motion: reduce) {
   .chip, .search, .search-clear, .sell-more, .exp-close, .star, .row-chev,
-  .retry, .empty-clear { transition: none; }
-  .retry:active, .empty-clear:active { transform: none; }
+  .retry, .empty-clear, .pos-add-btn, .pos-in, .pos-del { transition: none; }
+  .retry:active, .empty-clear:active, .pos-add-btn:active { transform: none; }
 }
 </style>

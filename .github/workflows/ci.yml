@@ -36,9 +36,10 @@ jobs:
 
       - run: npm ci
 
-      - name: 离线自测（子弹行情 + 异动雷达）
+      - name: 离线自测（子弹行情 + 异动雷达 + 账号）
         run: |
           node server/ammo/selftest.mjs
           node server/market/selftest.mjs
+          node server/auth/selftest.mjs
 
       - run: npm run build

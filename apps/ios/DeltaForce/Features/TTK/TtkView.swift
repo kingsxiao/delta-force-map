@@ -125,7 +125,8 @@ struct TtkView: View {
                     if ranking.isEmpty { emptyState }
                     ForEach(Array(ranking.enumerated()), id: \.element.id) { idx, combo in
                         NavigationLink(value: combo.gun) {
-                            RankRow(index: idx + 1, combo: combo)
+                            let link = app.marketItem(cal: combo.gun.cal, ammo: combo.ammo.n)
+                            RankRow(index: idx + 1, combo: combo, market: link.item, marketReady: link.snapshotReady)
                         }
                     }
                 }
@@ -205,6 +206,12 @@ struct TtkView: View {
 struct RankRow: View {
     let index: Int
     let combo: ComboResult
+    /// 行情联动（弹名对齐见 AmmoAliasStore）：marketReady=false（快照未拉到 / 离线）
+    /// 整列退场，market=nil 且 ready 时显「未上架」（未映射 / 禁交易弹）
+    var market: MarketItem? = nil
+    var marketReady: Bool = false
+    /// 点现价切到行情 Tab（RootView 经 environment 暴露的选中 Binding）
+    @Environment(\.tabSelection) private var tabSelection
     /// 序号列宽随 Dynamic Type 缩放（锚与名次 sub 档同步走 subheadline）
     @ScaledMetric(relativeTo: .subheadline) private var indexWidth: CGFloat = 24
 
@@ -224,6 +231,7 @@ struct RankRow: View {
                     // 弹药名可中可英（「亚音速」「龙息弹」）：默认 design + 等宽数字
                     Text(combo.ammo.n).font(Theme.font(.xs)).monospacedDigit().foregroundStyle(Theme.dim)
                     PenBadge(pen: combo.ammo.pen)
+                    priceChip
                     Text("\(Int(combo.gun.rpm)) RPM").font(Theme.monoFont(.micro)).foregroundStyle(Theme.faint)
                 }
             }
@@ -239,14 +247,48 @@ struct RankRow: View {
             }
         }
         .padding(.vertical, 2)
-        // VoiceOver：整行合并为单一元素并成句转述
+        // VoiceOver：整行合并为单一元素并成句转述（现价并入转述文本；
+        // 行内现价按钮的动作经合并让位于整行导航，行情 Tab 仍可从 Tab 栏直达）
         .accessibilityElement(children: .combine)
         .accessibilityLabel(a11yLabel)
     }
 
-    /// 成句转述：名次 / 枪 / 弹药 / TTK / 击杀与碎甲发数 / 射速
+    /// 现价文本（点击切行情 Tab）：borderless 让 List 行内的按钮自成触达区、
+    /// 不与整行 NavigationLink 抢整行点击；「现价 …」中文混排走 design + 等宽数字
+    @ViewBuilder
+    private var priceChip: some View {
+        if marketReady {
+            if let market {
+                Button {
+                    tabSelection.wrappedValue = .ammo
+                } label: {
+                    HStack(spacing: 3) {
+                        Text("现价 \(Fmt.price(market.current))")
+                        if market.rank != nil {
+                            Text("· \(Fmt.rankPercent(market.rank))")
+                        }
+                    }
+                    .font(Theme.font(.xs))
+                    .monospacedDigit()
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .foregroundStyle(Theme.accent)
+                }
+                .buttonStyle(.borderless)
+            } else {
+                Text("未上架").font(Theme.font(.xs)).monospacedDigit().foregroundStyle(Theme.faint)
+            }
+        }
+    }
+
+    /// 成句转述：名次 / 枪 / 弹药 / 现价 / TTK / 击杀与碎甲发数 / 射速
     private var a11yLabel: String {
-        "第 \(index) 名 · \(combo.gun.zh) · \(combo.ammo.n) · TTK \(Int(combo.ttk.rounded())) ms · \(combo.btk) 发碎甲 \(combo.sim.broke) · RPM \(Int(combo.gun.rpm))"
+        var s = "第 \(index) 名 · \(combo.gun.zh) · \(combo.ammo.n)"
+        if marketReady {
+            if let market { s += " · 现价 \(Fmt.price(market.current))" } else { s += " · 未上架" }
+        }
+        s += " · TTK \(Int(combo.ttk.rounded())) ms · \(combo.btk) 发碎甲 \(combo.sim.broke) · RPM \(Int(combo.gun.rpm))"
+        return s
     }
 }
 
@@ -255,6 +297,9 @@ struct GunDetailView: View {
     let data: TtkData
     let partId: String
     let armor: Int
+    @Environment(AppModel.self) private var app
+    /// 点现价切到行情 Tab（RootView 经 environment 暴露的选中 Binding）
+    @Environment(\.tabSelection) private var tabSelection
 
     var body: some View {
         let combos = TtkEngine.combos(data: data, gun: gun, partId: partId, armorLevel: armor)
@@ -283,11 +328,13 @@ struct GunDetailView: View {
 
             Section("全部弹药 · \(data.part(partId)?.label ?? "") · \(armor == 0 ? "无甲" : "\(armor) 级甲")") {
                 ForEach(combos) { c in
+                    let link = app.marketItem(cal: gun.cal, ammo: c.ammo.n)
                     HStack(spacing: Theme.Space.sm) {
                         PenBadge(pen: c.ammo.pen)
                         VStack(alignment: .leading, spacing: Theme.Space.xs) {
                             Text(c.ammo.n).font(Theme.font(.md, weight: .semibold)).foregroundStyle(Theme.txStrong)
                             if let note = c.ammo.note { Text(note).font(Theme.font(.xs)).foregroundStyle(Theme.faint).lineLimit(2) }
+                            priceChip(link)
                         }
                         Spacer()
                         VStack(alignment: .trailing, spacing: Theme.Space.xs) {
@@ -306,6 +353,34 @@ struct GunDetailView: View {
         .listStyle(.insetGrouped)
         .navigationTitle(gun.zh)
         .navigationBarTitleDisplayMode(.inline)
+    }
+
+    /// 现价文本（点击切行情 Tab）：本 Section 行无整行导航，按钮自成触达区；
+    /// 快照未就绪整列退场、有快照无此弹显「未上架」（与排行行同口径）
+    @ViewBuilder
+    private func priceChip(_ link: (item: MarketItem?, snapshotReady: Bool)) -> some View {
+        if link.snapshotReady {
+            if let item = link.item {
+                Button {
+                    tabSelection.wrappedValue = .ammo
+                } label: {
+                    HStack(spacing: 3) {
+                        Text("现价 \(Fmt.price(item.current))")
+                        if item.rank != nil {
+                            Text("· \(Fmt.rankPercent(item.rank))")
+                        }
+                    }
+                    .font(Theme.font(.xs))
+                    .monospacedDigit()
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .foregroundStyle(Theme.accent)
+                }
+                .buttonStyle(.borderless)
+            } else {
+                Text("未上架").font(Theme.font(.xs)).monospacedDigit().foregroundStyle(Theme.faint)
+            }
+        }
     }
 }
 

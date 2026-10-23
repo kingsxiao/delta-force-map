@@ -9,7 +9,7 @@ delta-force-map/
 ├── apps/
 │   ├── web/        网页端：Vite + Vue 3（index.html / vite.config.js / src / public）
 │   └── ios/        iOS 端：SwiftUI App + 本地 Swift Package（DeltaForceCore）+ xcodegen 工程
-├── server/         Node 后端（零 npm 依赖）：server.mjs 同源站点 + ammo/ market/ 抓取分析 + 自测 + 导出脚本
+├── server/         Node 后端（零 npm 依赖）：server.mjs 同源站点 + ammo/ market/ 抓取分析 + auth/ 账号云同步 + 自测 + 导出脚本
 ├── shared/         跨端共享：API.md 接口契约、schema/ JSON Schema、js/ 纯函数域逻辑（网页端 @shared 别名 /
 │                   后端相对引用）、data/ fixtures/（导出给 iOS 捆绑与单测的数据与固定样本）
 ├── deploy/         systemd 单元 / nginx 示例 / 一键更新脚本
@@ -76,6 +76,7 @@ verify 依赖的 DOM 契约（页面迁移时必须保持；`.hs`/`.map-section`
 
 ## 功能
 
+- **账号与云同步**（两端，`/#/account` / iOS 设置 → 账号）：注册 / 登录 / 登出（token 存网页 localStorage、iOS Keychain），**自选星标 + 囤货台账云同步**——登录后云端与本地合并（星标并集 / 台账按弹名并集·同名本地优先），任何一端的数据都不丢，登录期间改动自动上云（防抖 2s）。口径见 [shared/API.md](shared/API.md) §6：账号数据是不透明 K/V 文档（≤64KB，服务端只存不解析，落 `data/auth/`），密码 scrypt 哈希、令牌 HMAC 签名 30 天有效、登出 = 全设备下线；按 IP 限速防爆破。云端只存「用户创作内容」（自选、台账这类丢了会心疼的），不存设备偏好（通知开关等每台设备自己的）。
 - **页内交互地图查看器**：拖拽平移、滚轮以光标为中心缩放（1–7x）、双击放大、+/−/复位按钮、触屏单指拖动与双指捏合、键盘操作
 - **166 个可点击标注**：出生点 / 撤离点 / Boss / 高价值物资点，四类分层可开关，点击弹出要点信息卡
 - **逐出生点打法卡**：每个出生点四块——打法思路 / 需要注意 / 能抽过点的位置 / 哪里要封烟
@@ -98,6 +99,7 @@ npm run ammo:live       # 本地 live 服务（推荐与 npm run dev 同跑）�
 npm run ammo:fetch      # 单次抓取 + 分析，落盘 apps/web/public/ammo/market.json（--source kkrb|--no-fallback|--no-dist）
 npm run ammo:monitor    # 纯通知器循环（不开 SSE；默认 10 分钟一次，--interval N 可调，--no-notify 仅停通知、去抖 state 仍逐轮记录）
 npm run ammo:selftest   # 刷新链路离线自测（不打外网，上游全用注入桩；--online 追加真实源检查）
+npm run auth:selftest   # 账号体系离线自测（注册 / 登录 / 令牌 / 云数据 / 限速 / 站点挂载）
 ```
 
 - **数据链路**：主源 moligod.com（分钟级，无鉴权）→ 本机 live / monitor / 手动 fetch 抓取并**原子落盘** `apps/web/public/ammo/market.json`（`apps/web/dist/ammo/` 存在时联动，vite preview 同样吃新数据）→ dev 实时读盘 / SSE 广播 → 页面。主源故障自动回落 kkrb.net（小时级，88 种兜底），页面来源标签如实切换
@@ -140,8 +142,9 @@ npm run radar:selftest  # 纯逻辑离线自测（不打外网）
 - `apps/web/` — 网页端：`index.html` / `vite.config.js`（`@shared` 别名指向仓库根 `shared/`）、`src/`（Vue 视图、组件、样式设计令牌与数据，自 `legacy/` 迁移完成）、`public/`（构建时原样拷入 dist 的静态资源：抽取出的图片、`ammo/market.json` 行情快照、`market/radar.json` 雷达快照、`guns/` 枪械图）；构建产物 `apps/web/dist/`
 - `apps/ios/` — iOS 原生端（Swift 6 + SwiftUI）：`project.yml`（xcodegen）、`DeltaForce/`（App 壳）、`Packages/DeltaForceCore/`（纯逻辑内核 + Swift Testing 单测）；说明见 [apps/ios/README.md](apps/ios/README.md)
 - `server/` — Node 后端（零 npm 依赖）：`server.mjs` 同源站点（静态托管 + 抓取循环 + SSE）、`refresh-data.mjs`、`export-ios-data.mjs`（跨端数据导出）、`verify-effects.mjs` / `smoke.mjs`（浏览器验证）、`extract-*.mjs`（一次性抽取留档）
-  - `server/ammo/` — 子弹行情抓取 / 分析 / 监控：moligod-client（主源）/ kkrb-client（兜底源）/ analyze / notify / notify-policy / fetch-once / monitor / live（SSE 本地服务）/ selftest（离线自测）
-  - `server/market/` — 全品类异动雷达：radar（kkrb 涨幅榜 + moligod 全品类曲线 + 双源交叉）/ selftest（离线自测）；复用 `server/ammo/` 的 analyze / notify-policy / moligod-client / kkrb-client
+  - `server/ammo/` — 子弹行情抓取 / 分析 / 监控：moligod-client（主源）/ kkrb-client（兜底源）/ analyze / notify / fetch-once / monitor / live（SSE 本地服务）/ selftest（离线自测）；通知去抖用 `shared/js/notify-policy.js`
+  - `server/market/` — 全品类异动雷达：radar（kkrb 涨幅榜 + moligod 全品类曲线 + 双源交叉）/ selftest（离线自测）；复用 `server/ammo/` 的 analyze / moligod-client / kkrb-client，去抖同引 `shared/js/notify-policy.js`
+  - `server/auth/` — 账号与云同步：store（scrypt 密码 + HMAC 无状态令牌 + 原子落盘 `data/auth/`）/ api（`/api/auth/*`、`/api/account/data`，挂 server.mjs 同进程）/ selftest（离线自测）
 - `shared/` — 跨端共享层：`API.md` 接口契约、`schema/`（market / radar 快照与 SSE 事件的 JSON Schema）、`js/`（sellEta / marketMeta / liveChannel 纯函数，网页端与后端共用）、`data/ttk.json` 与 `fixtures/*.json`（`npm run export:ios` 产出，iOS 捆绑 + 单测样本）
 - `deploy/` — systemd 单元、nginx 示例、`update.sh` 一键更新（含单元文件自动同步）、阿里云部署文档
 - `legacy/` — 旧单文件页留档：`index.html`（含全部数据与图片）、`ttk.html`（TTK 排行）、`shaders.iife.js`（WebGPU 特效库；只读，运行时以 `apps/web/src/vendor/` 副本为准）

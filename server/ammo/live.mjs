@@ -31,7 +31,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { fetchOnce, writeJsonAtomic } from './fetch-once.mjs'
 import { primeCurveCache } from './moligod-client.mjs'
-import { judgeSignals, sendNotifications, emptyState } from './notify-policy.mjs'
+import { judgeSignals, sendNotifications, emptyState } from '../../shared/js/notify-policy.js'
 import { notify } from './notify.mjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')

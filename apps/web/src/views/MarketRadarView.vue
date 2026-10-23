@@ -154,9 +154,6 @@ const stats = computed(() => {
 const LIVE_SSE_URL = liveChannelUrl(location)
 const liveChannel = ref('off') // off(环境不适用) | connecting | on | down
 let live = null
-const liveShort = computed(
-  () => ({ on: '实时推送', down: '60s 自动刷新', connecting: '连接中…' }[liveChannel.value] || '')
-)
 const liveTip = computed(
   () => ({
     on: '实时推送已连接，异动自动送达',
@@ -208,7 +205,7 @@ onBeforeUnmount(() => {
     <header class="compact-head">
       <h1>全品类异动雷达 <span class="live-dot" :class="{ stale: ageMin !== null && ageMin > STALE_DOT_MIN }" aria-hidden="true"></span></h1>
       <p v-if="market" class="meta" :title="`数据版本 ${versionLabel}${liveTip ? ' · ' + liveTip : ''}`">
-        <template v-if="ageLabel"><span :class="{ 'meta-stale': ageMin > STALE_TIP_MIN }">{{ ageLabel }}更新</span> · </template>kkrb 涨幅榜 + moligod 曲线<span v-if="liveShort"> · {{ liveShort }}</span>
+        <template v-if="ageLabel"><span :class="{ 'meta-stale': ageMin > STALE_TIP_MIN }">{{ ageLabel }}更新</span> · </template>kkrb 涨幅榜 + moligod 曲线
       </p>
     </header>
 

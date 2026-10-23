@@ -118,6 +118,12 @@ git checkout -- apps/web/public/
 - 日志：`journalctl -u delta-force-map -f`（弹药 `[moligod]` / 雷达 `[radar]` 两路）；
   状态：`/health` 的 `consecutiveFailures` 持续 >0 说明上游或网络有问题。
 - 磁盘占用极小：站点几 MB + `data/ammo/` 留档（超 7 天 / 1000 份自动清理）。
+- 账号接口限速按 IP 计：nginx 反代形态下 X-Forwarded-For 才可信，需在服务启动参数加
+  `--trust-proxy`（systemd 单元 `ExecStart=node server/server.mjs --trust-proxy`，改后
+  `systemctl daemon-reload && systemctl restart delta-force-map`）；不加则按直连地址计，
+  全部请求会算在 127.0.0.1 一个桶里（对单管理员自用影响小，但注册/登录配额会被共享）。
+- **`data/auth/` 是账号数据**（账号表 + 各用户云同步文档 + 令牌密钥，均 gitignore）：迁移 / 备份服务器时
+  必须带上这个目录；误删 = 所有用户账号与云同步数据丢失（站点本身仍能跑，会从空账号表开始）。
 - 内存占用：单进程 ~100MB 内；本机同时还跑宝塔/1Panel/云监控等，内存紧张属正常，
   serve 进程带 OOM 防护，被杀会自动拉起。
 - 服务重启会中断几秒，且重启后第一轮抓取需要一点时间重新预热曲线。

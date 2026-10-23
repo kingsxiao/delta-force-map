@@ -5,6 +5,7 @@
    JS，于是把它们确定性地导出成 JSON 放进 shared/，由 apps/ios 的工程
    文件（project.yml）直接引用——不在 git 里复制第二份：
      apps/web/src/data/ttk/{guns,calibers,armor}.js → shared/data/ttk.json
+     apps/web/src/data/ttk/ammo-market-alias.js     → shared/data/ammo-alias.json
      apps/web/public/ammo/market.json               → shared/fixtures/market-sample.json
      apps/web/public/market/radar.json              → shared/fixtures/radar-sample.json
    fixtures 是固定样本：iOS 单测断言口径移植（sellEta / marketMeta /
@@ -26,6 +27,7 @@ const SHARED = path.join(ROOT, 'shared')
 const { GUNS } = await import(path.join(WEB, 'src/data/ttk/guns.js'))
 const { CAL } = await import(path.join(WEB, 'src/data/ttk/calibers.js'))
 const { DUR, HEAD_DUR, ARMOR_META, PARTS } = await import(path.join(WEB, 'src/data/ttk/armor.js'))
+const { AMMO_MARKET_PAIRS, AMMO_MARKET_UNMAPPED } = await import(path.join(WEB, 'src/data/ttk/ammo-market-alias.js'))
 
 /** 兵种标签（与 TtkView 页面分段控件一致） */
 const CLASSES = [
@@ -64,6 +66,15 @@ await mkdir(path.join(SHARED, 'data'), { recursive: true })
 await mkdir(path.join(SHARED, 'fixtures'), { recursive: true })
 await writeFile(path.join(SHARED, 'data', 'ttk.json'), JSON.stringify(ttk, null, 1) + '\n')
 console.log(`✓ shared/data/ttk.json：${GUNS.length} 枪 · ${Object.keys(CAL).length} 口径 · ${Object.values(CAL).reduce((n, c) => n + c.ammo.length, 0)} 弹药`)
+
+// TTK 弹药 ↔ 行情弹名 映射（TTK 页标现价 / 行情页标穿透共用；映射口径见源文件头注释）
+const alias = {
+  generatedFrom: 'apps/web/src/data/ttk/ammo-market-alias.js (npm run export:ios)',
+  pairs: AMMO_MARKET_PAIRS,
+  unmapped: AMMO_MARKET_UNMAPPED,
+}
+await writeFile(path.join(SHARED, 'data', 'ammo-alias.json'), JSON.stringify(alias, null, 1) + '\n')
+console.log(`✓ shared/data/ammo-alias.json：${AMMO_MARKET_PAIRS.length} 对映射 · ${AMMO_MARKET_UNMAPPED.length} 条显式不映射`)
 
 for (const [from, to] of [
   ['public/ammo/market.json', 'market-sample.json'],

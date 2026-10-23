@@ -23,6 +23,56 @@ const safeQty = computed(() => {
 })
 function clampQty() { qty.value = safeQty.value }
 
+/* ---------- 我的买入价（localStorage，key=ammo-mycost，{弹名:成本}） ----------
+   默认回填优先级：用户记过的价 → 囤货台账（ammo-positions）里该弹的成本 → 现价；
+   改动按弹名持久化（隐私模式写失败仅本次会话生效）。台账只读不写——在卡片上
+   改价不会覆盖台账里已录的成本。 */
+const MYCOST_KEY = 'ammo-mycost'
+function readStoredCost(name) {
+  for (const key of [MYCOST_KEY, 'ammo-positions']) {
+    try {
+      const raw = JSON.parse(localStorage.getItem(key))
+      if (!raw) continue
+      if (Array.isArray(raw)) {
+        const hit = raw.find((p) => p && p.name === name && Number.isFinite(+p.cost))
+        if (hit) return +hit.cost
+      } else if (typeof raw === 'object' && Number.isFinite(+raw[name])) {
+        return +raw[name]
+      }
+    } catch { /* 存储不可读时按现价兜底 */ }
+  }
+  return null
+}
+const myCost = ref(readStoredCost(props.item.name) ?? props.item.current)
+const safeCost = computed(() => {
+  const n = Number(myCost.value)
+  return Number.isFinite(n) && n > 0 ? n : props.item.current
+})
+function saveMyCost() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(MYCOST_KEY)) || {}
+    if (Number.isFinite(+myCost.value) && +myCost.value > 0) raw[props.item.name] = +myCost.value
+    else delete raw[props.item.name]
+    localStorage.setItem(MYCOST_KEY, JSON.stringify(raw))
+  } catch { /* 隐私模式等写入失败时仅本次会话生效 */ }
+}
+/* 输入 0 / 清空时按现价兜底展示，失焦落回规范值再持久化（口径同 qty 夹取） */
+function clampCost() {
+  myCost.value = safeCost.value
+  saveMyCost()
+}
+function resetCost() {
+  myCost.value = props.item.current
+  saveMyCost()
+}
+
+/* 按成本价重算的两档口径（与囤货台账一致）：
+   现价直出 = current×(1−税率)；挂 P75 到手 = netSell（契约字段） */
+const netNow = computed(() => props.item.current * (1 - props.item.taxRate))
+const gainNow = computed(() => netNow.value - safeCost.value)
+const gainP75 = computed(() => props.item.netSell - safeCost.value)
+const costPct = computed(() => gainP75.value / safeCost.value)
+
 /* 预计卖出时间（历史到达历时 + 日内节律，纯函数在 ./sellEta.js） */
 const eta = computed(() => predictSellEta(props.item))
 const etaPeak = computed(() => {
@@ -42,7 +92,10 @@ const etaTip = computed(() => {
 const etaReady = computed(() => !!eta.value && eta.value.medianH != null && eta.value.episodes >= 2)
 
 const fmt = (n) => (Number.isFinite(n) ? Math.round(n).toLocaleString('zh-CN') : '—')
-const pct = (n) => (Number.isFinite(n) ? `+${(n * 100).toFixed(1)}%` : '—')
+/* 收益率带符号（按成本重算后可能为负）：+8.2% / -3.1% */
+const pct = (n) => (Number.isFinite(n) ? `${n >= 0 ? '+' : ''}${(n * 100).toFixed(1)}%` : '—')
+/* 带符号金额（利润可能为负）：+12,345 / -1,024 */
+const fmtSigned = (n) => (Number.isFinite(n) ? `${n >= 0 ? '+' : '-'}${Math.abs(Math.round(n)).toLocaleString('zh-CN')}` : '—')
 // 品级色沿用 base.css --lv* 语义变量（2 绿 ~ 6 红）
 const gradeVar = (g) => (g >= 2 && g <= 6 ? `var(--lv${g})` : 'var(--faint)')
 const rankPct = (r) => (Number.isFinite(r) ? Math.round(r * 100) : null)
@@ -127,10 +180,22 @@ const hideImg = (e) => { e.target.style.display = 'none' }
       >{{ n }}</button>
       <input v-model.number="qty" class="qty-in" type="number" min="1" aria-label="自定义数量" @blur="clampQty" />
     </div>
+    <!-- 我的买入价：默认回填现价，按弹名记住（见 script 口径）；「现价」一键回切 -->
+    <div class="sc-cost">
+      <span class="sc-k">我的买入价</span>
+      <input v-model.number="myCost" class="qty-in cost-in" type="number" min="1" step="any" aria-label="我的买入价（默认现价）" @change="saveMyCost" @blur="clampCost" />
+      <button class="cost-reset" type="button" :title="`回填现价 ${fmt(item.current)}`" @click="resetCost">现价</button>
+      <span class="cost-hint">按弹名记住 · 本机存储</span>
+    </div>
+    <!-- 试算按成本价重算：总投入 / 挂 P75 利润（收益率 = 到价利润 ÷ 成本） -->
     <div class="sc-totals">
-      <span>总投入 <b>{{ fmt(item.current * safeQty) }}</b></span>
-      <span>税后到手 <b>{{ fmt(item.netSell * safeQty) }}</b></span>
-      <span class="tot-profit">总利润 +{{ fmt(item.profitPerRound * safeQty) }}（{{ pct(item.profitPct) }}）</span>
+      <span>总投入 <b>{{ fmt(safeCost * safeQty) }}</b></span>
+      <span class="tot-profit" :class="{ neg: gainP75 < 0 }">挂 P75 利润 {{ fmtSigned(gainP75 * safeQty) }}（{{ pct(costPct) }}）</span>
+    </div>
+    <!-- 两档到手对比：现价直出（急用钱立卖）vs 挂 P75 等到价，利润均按「我的买入价」口径 -->
+    <div class="sc-exit">
+      <span>现价直出 <b>{{ fmt(netNow * safeQty) }}</b><i :class="gainNow >= 0 ? 'pos' : 'neg'">（利润 {{ fmtSigned(gainNow * safeQty) }}）</i></span>
+      <span>挂 P75 到手 <b>{{ fmt(item.netSell * safeQty) }}</b><i :class="gainP75 >= 0 ? 'pos' : 'neg'">（利润 {{ fmtSigned(gainP75 * safeQty) }}）</i></span>
     </div>
 
     <footer class="sc-foot">
@@ -345,6 +410,37 @@ const hideImg = (e) => { e.target.style.display = 'none' }
 }
 .sc-totals b { font-family: var(--mono); color: var(--tx-strong); }
 .tot-profit { color: var(--ok); font-family: var(--mono); }
+.tot-profit.neg { color: var(--danger); }
+
+/* ---------- 我的买入价行（与数量行同构；「现价」一键回切 + 本机存储提示） ---------- */
+.sc-cost { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.cost-in { width: 92px; }
+.cost-reset {
+  background: var(--card); border: 1px solid var(--line); border-radius: var(--radius-pill);
+  color: var(--dim); font-family: var(--mono); font-size: var(--fs-2xs);
+  padding: 2px 10px; cursor: pointer;
+  transition: color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
+}
+/* 按下同 hover（chip 规格） */
+.cost-reset:hover,
+.cost-reset:active { color: var(--tx); border-color: var(--line-hover); }
+.cost-hint { font-size: var(--fs-2xs); color: var(--faint); }
+
+/* ---------- 两档到手对比：现价直出 vs 挂 P75（同成本口径，双列 hairline 分隔） ---------- */
+.sc-exit {
+  display: grid; grid-template-columns: 1fr 1fr;
+  border-top: 1px dashed var(--line2); padding-top: 8px;
+  font-size: var(--fs-xs); color: var(--dim);
+}
+.sc-exit > span { min-width: 0; padding: 0 var(--sp-2); }
+.sc-exit > span + span { border-left: 1px solid var(--line2); }
+.sc-exit b {
+  font-family: var(--mono); color: var(--tx-strong);
+  font-variant-numeric: tabular-nums; display: block;
+}
+.sc-exit i { font-style: normal; font-family: var(--mono); font-size: var(--fs-2xs); }
+.sc-exit i.pos { color: var(--ok); }
+.sc-exit i.neg { color: var(--danger); }
 
 .sc-foot {
   font-size: var(--fs-xs);
@@ -357,7 +453,7 @@ const hideImg = (e) => { e.target.style.display = 'none' }
 
 /* 本卡微交互过渡的 reduced-motion 关闭（hover 上浮降级为仅描边/高光变化） */
 @media (prefers-reduced-motion: reduce) {
-  .sig-card, .sig-card::before, .sig-card::after, .qty-chip, .qty-in { transition: none; }
+  .sig-card, .sig-card::before, .sig-card::after, .qty-chip, .qty-in, .cost-reset { transition: none; }
   .sig-card:hover { transform: none; }
 }
 </style>
