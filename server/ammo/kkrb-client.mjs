@@ -132,7 +132,15 @@ export async function fetchAmmoMarket({ retries = 2 } = {}) {
       if (json.code !== 1 || !Array.isArray(json.data)) {
         throw new Error(`getAmmoPLData 业务失败 code=${json.code} msg=${json.msg || ''}`)
       }
-      return { code: 1, version: json.version, data: json.data, fetchedAt: new Date().toISOString() }
+      // version 会被拼进留档文件路径（fetch-once: data/ammo/history/<version>.json），
+      // 只放行纯数字串（上游实为 YYYYMMDDHH 共 10 位；moligod 侧同性质校验 12 位；
+      // 数字类型的十进制表示同样接受）。不合规即拒收本轮快照——防上游被攻破后
+      // 用 '../../../x' 类值穿越写任意路径
+      const version = typeof json.version === 'number' ? String(json.version) : json.version
+      if (typeof version !== 'string' || !/^\d{8,14}$/.test(version)) {
+        throw new Error(`getAmmoPLData version 不合规: ${JSON.stringify(json.version)}`)
+      }
+      return { code: 1, version, data: json.data, fetchedAt: new Date().toISOString() }
     } catch (e) {
       lastErr = e
       jar = {}

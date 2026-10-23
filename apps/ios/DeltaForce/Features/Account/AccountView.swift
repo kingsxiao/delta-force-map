@@ -31,8 +31,10 @@ struct AccountView: View {
 
     private enum Field { case username, password }
 
-    /// 与服务端同口径的客户端预检（server/auth/store.mjs）：2–16 位字母 / 数字 / 下划线 / 中文
-    private static let usernameRegex = /^[A-Za-z0-9_\p{Han}]{2,16}$/
+    /// 与服务端同口径的客户端预检（server/auth/store.mjs 的 /^\p{L}\p{N}_$/u）：
+    /// 2–16 位任意 Unicode 字母 / 数字 / 下划线（中文、假名、谚文、西里尔、带重音
+    /// 拉丁等均合法）——预检不得比服务端窄，否则此类账号在本端永远无法登录
+    private static let usernameRegex = /^[\p{L}\p{N}_]{2,16}$/
 
     private var usernameOk: Bool {
         (try? Self.usernameRegex.wholeMatch(in: username.trimmingCharacters(in: .whitespaces))) != nil
@@ -312,7 +314,7 @@ struct AccountView: View {
             switch code {
             case "USERNAME_TAKEN": return "这个用户名已被注册，换一个试试"
             case "AUTH_FAILED": return "用户名或密码不对，请检查后重试"
-            case "INVALID_USERNAME": return "用户名需 2–16 个字符（字母 / 数字 / 下划线 / 中文）"
+            case "INVALID_USERNAME": return "用户名需 2–16 个字符（字母 / 数字 / 下划线，各类文字均可）"
             case "INVALID_PASSWORD": return "密码需 8–64 个字符"
             case "RATE_LIMITED", "NETWORK": return message
             default: return message

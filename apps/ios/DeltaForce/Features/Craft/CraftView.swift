@@ -373,7 +373,9 @@ struct CraftRow: View {
 
     private var trailing: some View {
         VStack(alignment: .trailing, spacing: Theme.Space.xs) {
-            if let p = item.profitPerHour {
+            // 缺价配方的服务端字段是 0 而非 null（契约 §1.3 降级展示）：
+            // 一律以 hasEstimate 为显示门槛，「+0」绿色时利是估算可用的假象
+            if item.hasEstimate, let p = item.profitPerHour {
                 Mono(p >= 0 ? "+\(Fmt.price(p))" : Fmt.price(p), step: .lead, color: p >= 0 ? Theme.ok : Theme.danger, minScale: 0.75)
             } else {
                 Mono("—", step: .lead, color: Theme.faint)
@@ -381,7 +383,7 @@ struct CraftRow: View {
             HStack(alignment: .firstTextBaseline, spacing: Theme.Space.xs) {
                 Text("利润").font(Theme.font(.micro)).foregroundStyle(Theme.faint)
                     .fixedSize(horizontal: true, vertical: false)
-                Mono(Fmt.price(item.profit), step: .sub, color: Theme.dim)
+                Mono(item.hasEstimate ? Fmt.price(item.profit) : "—", step: .sub, color: Theme.dim)
             }
         }
         .lineLimit(1)
@@ -391,8 +393,10 @@ struct CraftRow: View {
     private var a11yLabel: String {
         var parts = ["第 \(rank) 名", placeLabel, item.output.name]
         if !item.isComplete { parts.append("价格缺失") }
-        if let p = item.profitPerHour { parts.append("每小时利润 \(Fmt.price(p))") }
-        if let profit = item.profit { parts.append("单次利润 \(Fmt.price(profit))") }
+        if item.hasEstimate {
+            if let p = item.profitPerHour { parts.append("每小时利润 \(Fmt.price(p))") }
+            if let profit = item.profit { parts.append("单次利润 \(Fmt.price(profit))") }
+        }
         if let period = item.periodLabel { parts.append("耗时 \(period)") }
         return parts.joined(separator: "，")
     }

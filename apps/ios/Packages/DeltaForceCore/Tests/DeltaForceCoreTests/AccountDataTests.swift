@@ -9,6 +9,9 @@ import Testing
     #expect(mergeStars(local: [], remote: []) == [])
     #expect(mergeStars(local: ["a"], remote: []) == ["a"])
     #expect(mergeStars(local: ["弹A", "弹B"], remote: ["弹B", "弹C"]) == ["弹B", "弹C", "弹A"].sorted())
+    // 空串剔除（与 JS mergeStars 输入清洗同口径）
+    #expect(mergeStars(local: ["弹A", ""], remote: ["弹B"]) == ["弹A", "弹B"])
+    #expect(mergeStars(local: [""], remote: [""]) == [])
 }
 
 @Test func stringArray_剔除非字符串与空串() {
@@ -91,4 +94,18 @@ import Testing
     #expect(list?[0].name == "弹A" && list?[0].qty == 3) // 2.6 → 四舍五入 3
     #expect(list?[1].name == "弹C" && list?[1].qty == 1 && list?[1].cost == 0)
     #expect(AccountValue.string("x").ledgerArray == nil)
+}
+
+@Test func ledgerArray_超大有限qty不崩_退哨兵() {
+    // 1e300 isFinite=true 可从云端解出，Int() 强转会 trap 崩 App（web 侧
+    // loadSanitized 无上限即可落盘；Int(exactly:) 落空退哨兵，同 TtkEngine 手法）
+    let value = AccountValue.array([
+        .object(["name": .string("弹A"), "qty": .number(1e300), "cost": .number(300)]),
+        .object(["name": .string("弹B"), "qty": .number(-1e300), "cost": .number(1)]), // 负向溢出同理
+        .object(["name": .string("弹C"), "qty": .number(.infinity), "cost": .number(1)]), // 非有限仍剔除
+    ])
+    let list = value.ledgerArray
+    #expect(list?.count == 2)
+    #expect(list?[0].name == "弹A" && list?[0].qty == Int.max) // 溢出退哨兵而非 trap
+    #expect(list?[1].name == "弹B" && list?[1].qty == 1) // max(1, …) 钳位兜住负向哨兵
 }

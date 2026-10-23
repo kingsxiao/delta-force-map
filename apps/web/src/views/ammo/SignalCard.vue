@@ -5,7 +5,7 @@
    → 数量试算 → 卖出时机脚注。
    视觉锚点：HUD 对角括线（::before/::after）+ 卡面纵向渐变 + 顶缘高光；
    官方弹药图标走 picThumb CDN 缩略（原图最大 1.2MB，不可直连）。 */
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import Sparkline from './Sparkline.vue'
 import { picThumb } from '@shared/js/marketMeta.js'
 import { predictSellEta, fmtHours, fmtPeak } from '@shared/js/sellEta.js'
@@ -44,11 +44,24 @@ function readStoredCost(name) {
   return null
 }
 const myCost = ref(readStoredCost(props.item.name) ?? props.item.current)
+/* 未记过价的卡片跟随现价：buyList 按 :key=name 复用组件实例，SSE / 轮询静默
+   刷新后 item.current 已变而 ref 只在创建时求值一次，会停在陈旧现价；用户
+   记过价（本机存档或本会话手动改过，隐私模式存不进也由 manualCost 兜住）
+   则保持用户口径不跟随 */
+let manualCost = false
+watch(
+  () => props.item.current,
+  (cur) => {
+    if (manualCost || readStoredCost(props.item.name) != null) return
+    if (Number.isFinite(cur) && cur > 0) myCost.value = cur
+  },
+)
 const safeCost = computed(() => {
   const n = Number(myCost.value)
   return Number.isFinite(n) && n > 0 ? n : props.item.current
 })
 function saveMyCost() {
+  manualCost = true // 本会话手动记过价：现价再变也不夺走用户口径
   try {
     const raw = JSON.parse(localStorage.getItem(MYCOST_KEY)) || {}
     if (Number.isFinite(+myCost.value) && +myCost.value > 0) raw[props.item.name] = +myCost.value

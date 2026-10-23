@@ -54,7 +54,9 @@ const showPw = ref(false) // 密码可见性
 const capsOn = ref(false) // 大写锁定提示（仅按键期间可探测）
 const touched = reactive({ username: false, password: false }) // 失焦后才亮红，避免边打边报错
 
-const USER_RE = /^[A-Za-z0-9_\u4e00-\u9fa5]{2,16}$/
+/* 与服务端同口径（server/auth/store.mjs 的 /^\p{L}\p{N}_$/u）：2–16 位任意
+   Unicode 字母 / 数字 / 下划线——预检不得比服务端窄，否则此类账号在本端永远无法登录 */
+const USER_RE = /^[\p{L}\p{N}_]{2,16}$/u
 const usernameOk = computed(() => USER_RE.test(form.username))
 const passwordOk = computed(() => form.password.length >= 8)
 
@@ -65,7 +67,7 @@ const canSubmit = computed(
 /* 字段状态行：空 → 中性提示；失焦且不合规 → 红；合规 → 绿勾（只此三态） */
 const userSt = computed(() => {
   if (usernameOk.value) return { cls: 'ok', text: '' }
-  if (touched.username) return { cls: 'bad', text: '2–16 位字母 / 数字 / 下划线 / 中文' }
+  if (touched.username) return { cls: 'bad', text: '2–16 位字母 / 数字 / 下划线，各类文字均可' }
   return { cls: '', text: '2–16 字符' }
 })
 const pwSt = computed(() => {
@@ -88,7 +90,7 @@ function friendlyError(e) {
   if (!(e instanceof AuthApiError)) return e?.message || '操作失败，请稍后再试'
   if (e.code === 'USERNAME_TAKEN') return '这个用户名已被注册，换一个试试'
   if (e.code === 'AUTH_FAILED') return '用户名或密码不对，请检查后重试'
-  if (e.code === 'INVALID_USERNAME') return '用户名需 2–16 个字符（字母 / 数字 / 下划线 / 中文）'
+  if (e.code === 'INVALID_USERNAME') return '用户名需 2–16 个字符（字母 / 数字 / 下划线，各类文字均可）'
   if (e.code === 'INVALID_PASSWORD') return '密码需 8–64 个字符'
   if (e.code === 'RATE_LIMITED') return e.message
   // 主文案面向线上用户；本地部署排查提示（npm run serve）降级为 title 悬浮
@@ -239,7 +241,7 @@ const lastSyncText = computed(() => {
               id="auth-user" v-model.trim="form.username" class="f-in"
               :class="{ bad: touched.username && !usernameOk }"
               type="text" autocomplete="username" autocapitalize="off" spellcheck="false"
-              placeholder="2–16 个字符，字母 / 数字 / 下划线 / 中文"
+              placeholder="2–16 个字符，字母 / 数字 / 下划线，各类文字均可"
               maxlength="16" required aria-describedby="user-st"
               :aria-invalid="touched.username && !usernameOk ? 'true' : undefined"
               @blur="touched.username = true"

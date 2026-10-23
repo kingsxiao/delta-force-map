@@ -31,10 +31,12 @@ struct MarketMetaTests {
         #expect(!MarketMeta.staleTipText(source: "kkrb", ageMin: 60).contains("历史快照"))
     }
 
-    @Test("图标缩略：imageMogr2 拼接，已带查询串原样返回")
+    @Test("图标缩略：imageMogr2 拼接，已带查询串原样返回；http 升 https 防 ATS 拦截")
     func thumb() {
         #expect(MarketMeta.picThumb("https://x/a.png")?.absoluteString == "https://x/a.png?imageMogr2/thumbnail/96x")
         #expect(MarketMeta.picThumb("https://x/a.png?w=1", width: 200)?.absoluteString == "https://x/a.png?w=1")
+        #expect(MarketMeta.picThumb("http://playerhub.df.qq.com/a.png")?.absoluteString == "https://playerhub.df.qq.com/a.png?imageMogr2/thumbnail/96x")
+        #expect(MarketMeta.picThumb("http://playerhub.df.qq.com/a.png?w=1")?.absoluteString == "https://playerhub.df.qq.com/a.png?w=1")
         #expect(MarketMeta.picThumb(nil) == nil)
         #expect(MarketMeta.picThumb("") == nil)
     }

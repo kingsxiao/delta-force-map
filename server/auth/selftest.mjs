@@ -15,7 +15,7 @@
    全部通过 exit 0；任何失败把原因写 stderr 后 exit 1。
    用法：node server/auth/selftest.mjs
    ============================================================ */
-import { mkdtemp, rm, readFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, rm, readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { Readable } from 'node:stream'
@@ -315,8 +315,11 @@ check('⑥ 站点集成：register/login/me/logout 走真实 HTTP', async () => 
   }
 })
 
-/* ---------- XFF 采信开关（直连默认不采信，--trust-proxy 才取首段） ---------- */
-check('⑤ 限速 IP：默认不采信 XFF，trustProxy 才按首段计', async () => {
+/* ---------- XFF 采信开关（直连默认不采信，--trust-proxy 才采信；采信时按
+   信任跳数取——单层反代 = 末段，--trust-proxy=N 从右数第 N 跳。
+   $proxy_add_x_forwarded_for 追加模式下末段才是反代眼见的真实对端，
+   首段是客户端可自带的伪造值） ---------- */
+check('⑤ 限速 IP：默认不采信 XFF，trustProxy 按信任跳数计（伪造首段不绕过）', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'df-xff-'))
   try {
     let seq = 0
@@ -334,13 +337,43 @@ check('⑤ 限速 IP：默认不采信 XFF，trustProxy 才按首段计', async 
       last1 = await callRaw(api1, mk(`9.9.9.${i}`))
     }
     assert(last1.status === 429, `默认形态伪造 XFF 不应绕过限速，实际 ${last1.status}`)
-    // trustProxy：不同 XFF 各自计数 → 11 个不同 IP 不触发 429
+    // trustProxy：不同 XFF 末段各自计数 → 11 个不同末段不触发 429
     const api2 = createAuthApi({ rootDir: root, trustProxy: true })
     let last2 = null
     for (let i = 0; i < 11; i++) {
       last2 = await callRaw(api2, mk(`8.8.8.${i}`))
     }
-    assert(last2.status === 201, `trustProxy 下不同 XFF 应各计各的，实际 ${last2.status}`)
+    assert(last2.status === 201, `trustProxy 下不同 XFF 末段应各计各的，实际 ${last2.status}`)
+    // trustProxy + nginx 追加模式（伪造首段, 真实IP）：同一真实末段必须聚合限速
+    const api3 = createAuthApi({ rootDir: root, trustProxy: true })
+    let last3 = null
+    for (let i = 0; i < 11; i++) {
+      last3 = await callRaw(api3, mk(`spoof-${i}.evil.example, 7.7.7.7`))
+    }
+    assert(last3.status === 429 && last3.json.code === 'RATE_LIMITED',
+      `伪造首段换末段不变应仍被限（取末段），实际 ${last3.status}`)
+    // trustProxy: 2（两级反代 client→边缘→本机nginx→node，XFF 追加后为
+    // 「伪造首段, 客户端, 上级代理」）：取倒数第 2 段（真实客户端），
+    // 不同客户端各自计数不触发 429；仅上级代理段变化仍聚合限速
+    const api4 = createAuthApi({ rootDir: root, trustProxy: 2 })
+    let last4 = null
+    for (let i = 0; i < 11; i++) {
+      last4 = await callRaw(api4, mk(`spoof-${i}.evil.example, 6.6.6.${i}, 10.0.0.5`))
+    }
+    assert(last4.status === 201, `两级反代下不同真实客户端（倒数第 2 段）应各计各的，实际 ${last4.status}`)
+    const api5 = createAuthApi({ rootDir: root, trustProxy: 2 })
+    let last5 = null
+    for (let i = 0; i < 11; i++) {
+      last5 = await callRaw(api5, mk(`spoof-${i}.evil.example, 6.6.6.6, 10.0.0.${i}`))
+    }
+    assert(last5.status === 429, `两级反代下同一真实客户端（上级代理段变化）应聚合限速，实际 ${last5.status}`)
+    // 声明跳数多于 XFF 实际段数 = 链路与配置不符 → 保守退回 socket 直连地址
+    const api6 = createAuthApi({ rootDir: root, trustProxy: 5 })
+    let last6 = null
+    for (let i = 0; i < 11; i++) {
+      last6 = await callRaw(api6, mk(`spoof-${i}.evil.example, 10.0.0.5, 6.6.6.6`))
+    }
+    assert(last6.status === 429, `跳数超 XFF 段数应退回 socket 地址全员一桶，实际 ${last6.status}`)
     // 密钥 / 账号文件权限 0600（多用户主机安全底线）
     const { stat } = await import('node:fs/promises')
     for (const f of ['data/auth/secret.key', 'data/auth/accounts.json']) {
@@ -360,6 +393,117 @@ check('⑤ 限速器：窗口内计数 / 窗口翻转', async () => {
   assert(limiter.take('b'), '不同 key 互不影响')
   await new Promise((r) => setTimeout(r, 60))
   assert(limiter.take('a'), '窗口翻转后放行')
+})
+
+/* ---------- 键超限：伪造超量键不得解禁已限速 IP（不整窗重置 / 不清旧键） ---------- */
+check('⑤ 限速器：键数超 MAX_KEYS 不重置已限速键（伪造洪水不解禁）', () => {
+  const limiter = createRateLimiter(3, 60_000)
+  assert(limiter.take('1.2.3.4') && limiter.take('1.2.3.4') && limiter.take('1.2.3.4'), '前 3 次放行')
+  assert(!limiter.take('1.2.3.4'), '第 4 次拒绝')
+  for (let i = 0; i < 4200; i++) limiter.take(`forged-${i}`) // 超量键灌满表
+  assert(!limiter.take('1.2.3.4'), '洪水后 1.2.3.4 仍被限（已计数键不受表满影响）')
+})
+
+/* ---------- 损坏留档：坏 accounts.json 先 rename 再按空表初始化 ---------- */
+check('② 损坏留档：accounts.json 损坏 → .corrupt-<时间戳> 留档 + 空表自愈', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'df-corrupt-'))
+  try {
+    const { writeFile, readdir } = await import('node:fs/promises')
+    const dir = path.join(root, 'data', 'auth')
+    await mkdir(path.join(dir), { recursive: true })
+    await writeFile(path.join(dir, 'accounts.json'), '{oops 不是 JSON', { mode: 0o600 })
+    const store = openAuthStore({ rootDir: root })
+    const reg = await store.register({ username: '灾后用户', password: 'password123' })
+    assert(reg.user.username === '灾后用户', '空表初始化后可注册')
+    const kept = (await readdir(dir)).filter((f) => f.startsWith('accounts.json.corrupt-'))
+    assert(kept.length === 1, `坏文件应留档为 .corrupt-<时间戳>，实际 ${JSON.stringify(await readdir(dir))}`)
+    // 云数据同构：坏 <uid>.json → getData 留档 + 空文档，且不抛错
+    const dataDir = path.join(dir, 'account-data')
+    await mkdir(dataDir, { recursive: true })
+    const uid = reg.user.uid
+    await writeFile(path.join(dataDir, `${uid}.json`), 'not json at all', { mode: 0o600 })
+    const got = await store.getData(uid)
+    assert(got.savedAt === null && Object.keys(got.data).length === 0, '坏云文档按空返回')
+    // JSON 合法但 data 形状非法（数组 / 键名非法 / 超 64KB）：同口径留档——
+    // 静默按空且透传 savedAt 会让客户端误判有数据并整文档 PUT 覆盖坏文件
+    const uid2 = 'ffffffffffffffff'
+    await writeFile(
+      path.join(dataDir, `${uid2}.json`),
+      JSON.stringify({ savedAt: '2026-01-01T00:00:00Z', data: ['不是对象'] }),
+      { mode: 0o600 }
+    )
+    const got2 = await store.getData(uid2)
+    assert(got2.savedAt === null && Object.keys(got2.data).length === 0, '形状非法云文档按空返回且不透传 savedAt')
+    // 合法文档（含空 data）不留档：先记当前留档数，正常读写后不应新增
+    const corruptBefore = (await readdir(dataDir)).filter((f) => f.includes('.corrupt-')).length
+    await store.putData(uid2, {})
+    assert((await store.getData(uid2)).savedAt !== null, '合法空文档正常往返')
+    const corruptAfter = (await readdir(dataDir)).filter((f) => f.includes('.corrupt-')).length
+    assert(corruptAfter === corruptBefore, `合法文档不得新增留档，实际 ${corruptBefore} → ${corruptAfter}`)
+    const keptData = (await readdir(dataDir)).filter((f) => f.includes('.corrupt-'))
+    assert(keptData.length === 2, `两种坏云文档应各留档一份，实际 ${JSON.stringify(await readdir(dataDir))}`)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+/* ---------- 队列毒化：logout 失败不得影响紧随其后的注册/登录 ---------- */
+check('② 队列健康：logout 抛错后紧随的 register 照常执行', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'df-poison-'))
+  try {
+    const store = openAuthStore({ rootDir: root })
+    await store.register({ username: '先来者', password: 'password123' })
+    let err = null
+    try { await store.logout('ffffffffffffffff') } catch (e) { err = e } // run 抛 BAD_TOKEN
+    assert(err && err.code === 'BAD_TOKEN', '登出不存在用户应抛错')
+    const reg = await store.register({ username: '后到者', password: 'password123' })
+    assert(reg.user.username === '后到者', '紧随的注册必须真实执行（不得收到上次 logout 的错误）')
+    const login = await store.login({ username: '后到者', password: 'password123' })
+    assert(login.token.startsWith('v1.'), '紧随的登录照常')
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+/* ---------- 请求体超限：mock 层仍应产出 413 BODY_TOO_LARGE（真实 HTTP 见 ⑥） ---------- */
+check('⑤ 请求体超限：413 BODY_TOO_LARGE（readBody 先回写再断连）', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'df-toolarge-'))
+  try {
+    const api = createAuthApi({ rootDir: root })
+    const reg = await call(api, 'POST', '/api/auth/register', { body: { username: 'big', password: 'password123' } })
+    const big = Buffer.alloc(200 * 1024, 0x61)
+    const res = await new Promise((resolve) => {
+      const req = Readable.from([big])
+      req.method = 'PUT'; req.url = '/api/account/data'
+      req.headers = { authorization: `Bearer ${reg.json.token}` }
+      req.socket = { remoteAddress: '127.0.0.1' }
+      req.destroy = () => {} // mock：无真 socket，跳过掐断只验应答
+      const r = mockRes()
+      api.handle(req, r, new URL('http://localhost/api/account/data')).then(() => r.done?.())
+      r.finished.then(() => resolve(r))
+    })
+    assert(res.status === 413, `应 413，实际 ${res.status}`)
+    assert(JSON.parse(res.body).code === 'BODY_TOO_LARGE', `code 应 BODY_TOO_LARGE，实际 ${res.body}`)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+/* ---------- 账号数据接口限速：每 IP 每分钟 30 次 ---------- */
+check('⑤ 账号数据限速：PUT/GET 合计 30 次/分钟，超限 429', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'df-datalimit-'))
+  try {
+    const api = createAuthApi({ rootDir: root })
+    const reg = await call(api, 'POST', '/api/auth/register', { body: { username: 'saver', password: 'password123' } })
+    const token = reg.json.token
+    let last = null
+    for (let i = 0; i < 31; i++) {
+      last = await call(api, 'GET', '/api/account/data', { token })
+    }
+    assert(last.status === 429 && last.json.code === 'RATE_LIMITED', `第 31 次 GET 应 429，实际 ${last.status}`)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
 })
 
 /* ---------- 跑测 ---------- */

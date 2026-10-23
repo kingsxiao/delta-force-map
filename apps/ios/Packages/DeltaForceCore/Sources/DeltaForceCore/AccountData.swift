@@ -109,9 +109,12 @@ public func normalizeAccountDoc(_ doc: [String: AccountValue]) -> [String: Accou
     return doc
 }
 
-/// 合并两端自选星标：并集、去重、按名排序（首次登录 / 多端合并，不丢任何一端数据）
+/// 合并两端自选星标：并集、去重、剔除空串、按名排序（首次登录 / 多端合并，不丢任何一端数据）。
+/// 空串过滤与 JS mergeStars 的输入清洗（typeof n === 'string' && n）同口径
 public func mergeStars(local: [String], remote: [String]) -> [String] {
-    Array(Set(local).union(remote)).sorted()
+    Set(local.filter { !$0.isEmpty })
+        .union(remote.filter { !$0.isEmpty })
+        .sorted()
 }
 
 // MARK: - 囤货台账（键 ledger.ammo 的合并口径，与 shared/js/accountData.js 同构）
@@ -140,7 +143,11 @@ extension AccountValue {
         let cost: Double
         if case .number(let c) = o["cost"] ?? .null { cost = c } else { return nil }
         guard qty.isFinite, cost.isFinite else { return nil }
-        return LedgerEntry(name: name, qty: max(1, Int(qty.rounded())), cost: max(0, cost))
+        // qty 是有限但超出 Int64 范围的值（如 1e300，web 侧 loadSanitized 无上限
+        // 即可落盘）时 Int() 强转会 trap 崩 App——Int(exactly:) 落空按方向退哨兵
+        // （正向 Int.max / 负向 1，max(1,·) 本就把一切 ≤1 钳到 1），同 TtkEngine
+        // 的防崩手法
+        return LedgerEntry(name: name, qty: max(1, Int(exactly: qty.rounded()) ?? (qty > 0 ? Int.max : 1)), cost: max(0, cost))
     }
 
     /// 台账数组视图（ledger.ammo 取值用）：剔除非法条目

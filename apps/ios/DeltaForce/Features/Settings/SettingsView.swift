@@ -8,11 +8,11 @@ struct SettingsView: View {
     @Environment(AppModel.self) private var app
     // §7-9 Reduce Motion：为 true 时跳过 symbolEffect（触感不属动效，保留）
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var refreshing = false // 两路快照刷新进行中（防连点）
+    @State private var refreshing = false // 三路快照刷新进行中（防连点）
     // UI 巡检：-openAccount 启动参数直达账号页（见 onAppear 处注释）
     @State private var showAccount = false
     // 触觉反馈 tick：全部为本页局部状态、操作后自增（禁绑 Store 派生值）。
-    // §4.5-3 刷新反馈二分：两路 lastError 任一非空 → .error，否则 → .success（原固定 .success）
+    // §4.5-3 刷新反馈二分：三路 lastError 任一非空 → .error，否则 → .success
     @State private var refreshOkTick = 0
     @State private var refreshErrTick = 0
     @State private var notifyTick = 0
@@ -57,11 +57,14 @@ struct SettingsView: View {
                         guard !refreshing else { return }
                         refreshing = true
                         Task {
+                            // 三路快照同刷（与 handleScenePhase(.active) 同口径）：
+                            // 制造页首拉失败后也能从这里补拉
                             await app.market.refresh()
                             await app.radar.refresh()
+                            await app.craft.refresh()
                             refreshing = false
-                            // 成功侧 refresh 会清掉自身 lastError，完成后判两路即成败二分
-                            if app.market.lastError != nil || app.radar.lastError != nil {
+                            // 成功侧 refresh 会清掉自身 lastError，完成后判三路即成败二分
+                            if app.market.lastError != nil || app.radar.lastError != nil || app.craft.lastError != nil {
                                 refreshErrTick += 1
                             } else {
                                 refreshOkTick += 1
@@ -70,7 +73,7 @@ struct SettingsView: View {
                     } label: {
                         HStack(spacing: Theme.Space.sm) {
                             // 进行中文案与账号页主按钮（「登录中…」）同范式：动作状态文字可见，不只靠 spinner
-                            Label(refreshing ? "刷新中…" : "立即刷新两路快照", systemImage: "arrow.clockwise")
+                            Label(refreshing ? "刷新中…" : "立即刷新全部快照", systemImage: "arrow.clockwise")
                                 .font(Theme.font(.md, weight: .semibold))
                                 // §5 刷新中图标微动效：DESIGN 标注的 .rotate 实为 iOS 18 API（RotateSymbolEffect），
                                 // iOS 17 目标下以 .repeating .pulse 等价表达「进行中」；Reduce Motion 跳过
@@ -165,7 +168,7 @@ struct SettingsView: View {
                 Task { await app.notifications.refreshAuthorization() }
             }
             // §4.5-3 二分触感：成功 / 失败各自 tick，分别挂不同 sensoryFeedback
-            .sensoryFeedback(.success, trigger: refreshOkTick) // 两路快照刷新成功
+            .sensoryFeedback(.success, trigger: refreshOkTick) // 全部快照刷新成功
             .sensoryFeedback(.error, trigger: refreshErrTick) // 任一路刷新失败
             .sensoryFeedback(.success, trigger: notifyTick) // 通知开关
         }

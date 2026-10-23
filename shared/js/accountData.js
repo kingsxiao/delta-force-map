@@ -7,8 +7,14 @@
    保留不消费）；单测与网页端 / 后端共用同一套口径。
    ============================================================ */
 
-/** 文档序列化后的大小上限（字节）：服务端 PUT 侧与客户端预检共用 */
+/** 文档序列化后的大小上限（UTF-8 字节）：服务端 PUT 侧与客户端预检共用。
+    与 iOS AccountData.swift 同口径（JSONEncoder 输出的 UTF-8 字节数）——
+    若按 string.length（UTF-16 code unit）计长，中文内容会被低估约 3 倍，
+    出现「服务端收下、iOS 拒收」的分裂区间，进而触发 iOS 空基座覆盖。 */
 export const ACCOUNT_DOC_MAX_BYTES = 64 * 1024
+
+/** 字符串 → UTF-8 字节数（浏览器 / Node ≥ 11 均内建 TextEncoder） */
+const utf8 = new TextEncoder()
 
 /** K/V 键名规则：字母/数字/点/下划线/短横线，1–64 字符（点分命名空间，如 stars.ammo） */
 const KEY_RE = /^[A-Za-z0-9._-]{1,64}$/
@@ -25,7 +31,8 @@ export function normalizeAccountDoc(raw) {
     if (!KEY_RE.test(k)) return null
     const part = JSON.stringify(v)
     if (part === undefined) return null // 函数 / undefined 等不可序列化值
-    size += k.length + part.length + 4
+    // 键名被 KEY_RE 限定为纯 ASCII，k.length 即其 UTF-8 字节数
+    size += k.length + utf8.encode(part).length + 4
     if (size > ACCOUNT_DOC_MAX_BYTES) return null
   }
   return JSON.parse(JSON.stringify(raw))
@@ -49,16 +56,18 @@ export function mergeStars(local, remote) {
 /**
  * 清洗单条囤货台账记录（口径对齐 AmmoMarketView.loadPositions / PositionsStore：
  * name 非空字符串、qty ≥1 取整、cost ≥0 有限数）。非法返回 null。
+ * qty / cost 只认 JSON number：字符串数字（'3'）不隐式转换——与 iOS
+ * AccountData.swift ledgerEntry 的解码口径一致（JSONDecoder 只认 number），
+ * 否则同一云文档两端清洗后条目数不同。
  * @param {unknown} p
  * @returns {{name:string, qty:number, cost:number}|null}
  */
 export function normalizePosition(p) {
   if (p === null || typeof p !== 'object' || Array.isArray(p)) return null
   if (typeof p.name !== 'string' || !p.name) return null
-  const qty = +p.qty
-  const cost = +p.cost
-  if (!Number.isFinite(qty) || !Number.isFinite(cost)) return null
-  return { name: p.name, qty: Math.max(1, Math.round(qty)), cost: Math.max(0, cost) }
+  if (typeof p.qty !== 'number' || typeof p.cost !== 'number') return null
+  if (!Number.isFinite(p.qty) || !Number.isFinite(p.cost)) return null
+  return { name: p.name, qty: Math.max(1, Math.round(p.qty)), cost: Math.max(0, p.cost) }
 }
 
 /**

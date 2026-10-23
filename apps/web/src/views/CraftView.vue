@@ -17,17 +17,25 @@ const refreshing = ref(false)
 const refreshTip = ref('')
 const expanded = ref(null)
 
-const DATA_URL = '/craft/craft.json'
+/* BASE_URL 前缀：子路径静态托管（BASE_URL 非 "/"）下不 404（同子弹页口径） */
+const DATA_URL = `${import.meta.env.BASE_URL}craft/craft.json`
 const POLL_MS = 60 * 1000
 let pollTimer = null
 let prevTitle = ''
 
+/* 请求序号：SSE 事件 / 轮询 / 手动刷新并发打同一 URL 时只认最新一次的响应，
+   先发慢到的旧快照不覆盖新快照（fetch 不取消、响应落地即丢弃） */
+let loadSeq = 0
+
 async function load({ silent = false } = {}) {
+  const seq = ++loadSeq
   if (silent) refreshing.value = true
   try {
     const res = await fetch(DATA_URL, { cache: 'no-store' })
+    if (seq !== loadSeq) return
     if (res.ok) {
       const j = await res.json()
+      if (seq !== loadSeq) return
       if (Array.isArray(j.items) && j.items.length) {
         market.value = j
         loadState.value = 'ready'
@@ -40,6 +48,7 @@ async function load({ silent = false } = {}) {
       loadState.value = 'error'
     }
   } catch (e) {
+    if (seq !== loadSeq) return
     if (silent) {
       refreshTip.value = '刷新失败，仍显示之前的数据'
     } else {
@@ -47,7 +56,7 @@ async function load({ silent = false } = {}) {
       loadState.value = 'error'
     }
   } finally {
-    refreshing.value = false
+    if (seq === loadSeq) refreshing.value = false
   }
 }
 
@@ -394,9 +403,11 @@ onBeforeUnmount(() => {
                 <td class="mono num profit-cell" :class="{ pos: i.profit > 0, neg: i.profit < 0 }">{{ i.missingPriceCount ? '—' : fmtProfit(i.profit) }}</td>
                 <td class="num">
                   <div class="hourly-cell">
-                    <span v-if="i.profitPerHour != null" class="mono hourly-num" :class="{ pos: i.profitPerHour > 0, neg: i.profitPerHour < 0 }">{{ fmt(i.profitPerHour) }}</span>
+                    <!-- 缺价配方的服务端字段是 0 而非 null（契约 §1.3 降级展示）：
+                         与成本 / 利润列同款以 missingPriceCount 为门槛，不显示假「0」 -->
+                    <span v-if="i.profitPerHour != null && !i.missingPriceCount" class="mono hourly-num" :class="{ pos: i.profitPerHour > 0, neg: i.profitPerHour < 0 }">{{ fmt(i.profitPerHour) }}</span>
                     <span v-else class="mono dimtx">—</span>
-                    <div v-if="i.profitPerHour" class="hourly-bar" aria-hidden="true">
+                    <div v-if="i.profitPerHour && !i.missingPriceCount" class="hourly-bar" aria-hidden="true">
                       <i
                         class="hb-fill"
                         :class="{ neg: i.profitPerHour < 0 }"

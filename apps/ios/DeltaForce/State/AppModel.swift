@@ -68,9 +68,17 @@ final class AppModel {
             guard let self, let name, !name.isEmpty else { return }
             self.pendingDetailName = name
         }
+        // 上推途中若云端缓存尚未加载，AuthStore 会退化为一次拉取合并：结果经此
+        // 落回本地（与 syncUserData 同口径，防止后续上推用未合并的本地集覆盖云端）
+        auth.onMerged = { [weak self] merged in
+            guard let self else { return }
+            if let stars = merged.stars { favorites.replaceAll(stars) }
+            if let positions = merged.positions { self.positions.replaceAll(positions) }
+        }
         Task { await notifications.refreshAuthorization() }
-        // 恢复会话后立即拉一次云端：填充 cloudDoc 缓存（否则此后首次推送
-        // 会以空缓存整文档覆盖，误删云端其他键）+ 顺带做两端合并
+        // 恢复会话后立即拉一次云端：填充 cloudDoc 缓存 + 顺带做两端合并。
+        // 首拉失败时 cloudDoc 保持未加载，此后的上推会被 AuthStore 门禁拦下
+        // （先补拉合并，拉不到不上推），不会以空缓存覆盖云端
         Task {
             await auth.restore()
             await syncUserData()
@@ -105,6 +113,11 @@ final class AppModel {
             guard started else { return }
             if !channel.state.isLive { channel.start(client: settings.client) }
             Task {
+                // 离线冷启动时 restore 未验证（user 来自缓存或为空）：补拉 /me，
+                // 验证成功顺带补一次冷启动漏掉的云端合并
+                if await auth.retryRestoreIfNeeded() {
+                    await syncUserData()
+                }
                 await market.refresh()
                 await radar.refresh()
                 await craft.refresh()

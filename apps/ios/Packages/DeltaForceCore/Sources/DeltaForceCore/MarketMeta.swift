@@ -46,11 +46,15 @@ public enum MarketMeta {
             : "交易行口径，约每小时更新一次；趋势为近 7 天每小时均价。"
     }
 
-    /// 官方弹药图标 → CDN 缩略图（腾讯云 imageMogr2 按宽缩放；已带查询串的 URL 原样返回）
+    /// 官方弹药图标 → CDN 缩略图（腾讯云 imageMogr2 按宽缩放；已带查询串的 URL 原样返回）。
+    /// iOS 在 shared/js 口径上加一道协议归一：http:// 一律升 https://（Info.plist 已删 ATS 明文例外，
+    /// pic 来自上游透传，若回传 http 会被 ATS 静默拦截，web 端 <img> 无此约束形成双端分叉）。
+    /// https 输入的输出与 marketMeta.js 逐字一致（对账样本不变）。
     public static func picThumb(_ pic: String?, width: Int = 96) -> URL? {
         guard let pic, !pic.isEmpty else { return nil }
-        if pic.contains("?") { return URL(string: pic) }
-        return URL(string: "\(pic)?imageMogr2/thumbnail/\(width)x")
+        let https = pic.hasPrefix("http://") ? "https://" + pic.dropFirst("http://".count) : pic
+        if https.contains("?") { return URL(string: https) }
+        return URL(string: "\(https)?imageMogr2/thumbnail/\(width)x")
     }
 
     /// 数据年龄可读化：<60min 用分钟、<24h 用小时、更长用天

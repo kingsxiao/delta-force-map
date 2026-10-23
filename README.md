@@ -58,22 +58,15 @@ cd apps/ios && xcodegen generate                    # 改 project.yml 后重新�
 - 旧单文件页（`index.html`、`ttk.html`、`shaders.iife.js`）已挪到 **`legacy/`** 留档（只读，不再维护）；特效库的运行时副本在 `apps/web/src/vendor/shaders.iife.js`，由特效组件动态 import。
 - 静态目录为默认的 **`apps/web/public/`**（dev 于 `/` 下访问、build 原样拷入 dist 根）；仓库根 `assets/` 原图为制作期留档，运行时不引用。
 
-## 特效层验证
+## 构建产物冒烟验证
 
-`server/verify-effects.mjs` 自包含、零 npm 依赖，只 spawn headless Chrome，**不拉起 dev server**。使用流程：
+`server/smoke.mjs` 自包含、零 npm 依赖，只 spawn headless Chrome，**不拉起 preview server**（先 `npm run build`，再另开终端 `npm run preview -- --port 4173 --strictPort`）：
 
 ```bash
-npm run dev                                                # 终端 1
-node server/verify-effects.mjs http://localhost:5173/ shots   # 终端 2（reduced 模式加 --reduced）
+node server/smoke.mjs http://localhost:4173/ shots/vue-smoke
 ```
 
-verify 依赖的 DOM 契约（页面迁移时必须保持；`.hs`/`.map-section` 判据由脚本启动时从源数据动态求和，不冻结数字）：
-
-- `.map-section` 个数 = `apps/web/src/data/maps` 图数（当前 6）、`.hs` 个数 ≥ `apps/web/src/data/hotspots` 全部点位总数（当前 166）
-- `button[data-act="full"]`（地图卡「全屏查看」按钮）
-- `#fxHero`、`#fxLb`（特效画布）、`#lbClose`（灯箱关闭按钮）
-- `document.documentElement` 的 `locked` 类随灯箱开关加 / 删
-- `<html data-fx>` ∈ { on, off, fallback, unsupported, reduced }
+逐页截图并断言五个入口（`/#/ammo`、`/#/radar`、`/#/craft`、`/#/ttk`、`/#/account`）的骨架 DOM（顶栏 5 个 tab、页头与各页 loading 终态）。随地图模块（commit 14c938e 全端移除）一并删除了旧特效层验证脚本 `verify-effects.mjs`（其 DOM 契约指向已删的 `.map-section`/`#fxHero`/灯箱，对现站点必然假阳性报「SITE BROKEN」）。
 
 ## 功能
 
@@ -155,7 +148,7 @@ npm run craft:selftest  # 纯逻辑离线自测（不打外网）
 - `package.json` — 仓库根 Node 工程：网页端构建依赖 + 全部 npm 脚本（名字不变，内部指向 `apps/web` 与 `server/`）
 - `apps/web/` — 网页端：`index.html` / `vite.config.js`（`@shared` 别名指向仓库根 `shared/`）、`src/`（Vue 视图、组件、样式设计令牌与数据，自 `legacy/` 迁移完成）、`public/`（构建时原样拷入 dist 的静态资源：抽取出的图片、`ammo/market.json` 行情快照、`market/radar.json` 雷达快照、`craft/craft.json` 特勤处制造快照、`guns/` 枪械图）；构建产物 `apps/web/dist/`
 - `apps/ios/` — iOS 原生端（Swift 6 + SwiftUI）：`project.yml`（xcodegen）、`DeltaForce/`（App 壳）、`Packages/DeltaForceCore/`（纯逻辑内核 + Swift Testing 单测）；说明见 [apps/ios/README.md](apps/ios/README.md)
-- `server/` — Node 后端（零 npm 依赖）：`server.mjs` 同源站点（静态托管 + 抓取循环 + SSE）、`refresh-data.mjs`、`export-ios-data.mjs`（跨端数据导出）、`verify-effects.mjs` / `smoke.mjs`（浏览器验证）、`extract-*.mjs`（一次性抽取留档）
+- `server/` — Node 后端（零 npm 依赖）：`server.mjs` 同源站点（静态托管 + 抓取循环 + SSE）、`refresh-data.mjs`、`export-ios-data.mjs`（跨端数据导出）、`smoke.mjs`（构建产物浏览器冒烟）、`extract-*.mjs`（一次性抽取留档）
   - `server/ammo/` — 子弹行情抓取 / 分析 / 监控：moligod-client（主源）/ kkrb-client（兜底源）/ analyze / notify / fetch-once / monitor / live（SSE 本地服务）/ selftest（离线自测）；通知去抖用 `shared/js/notify-policy.js`
   - `server/market/` — 全品类异动雷达：radar（kkrb 涨幅榜 + moligod 全品类曲线 + 双源交叉）/ selftest（离线自测）；复用 `server/ammo/` 的 analyze / moligod-client / kkrb-client，去抖同引 `shared/js/notify-policy.js`
   - `server/craft/` — 特勤处制造：snapshot（moligod special-ops 快照解码 + 整形 + 时利派生 + 落盘）/ selftest（离线自测，含传输编码往返）

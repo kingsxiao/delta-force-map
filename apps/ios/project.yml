@@ -69,10 +69,8 @@ targets:
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
         ITSAppUsesNonExemptEncryption: false
-        # 自托管后端常见形态是 http://IP:8080（未备案 / 内网），放行明文；上 https 后可收紧
-        NSAppTransportSecurity:
-          NSAllowsArbitraryLoads: true
-          NSAllowsArbitraryLoadsInWebContent: true
+        # ATS：后端固定 https://xiaofating.cc（APIClient.productionBaseURL），
+        # 全 App 无 WebView / 无自配服务器地址，无需任何明文例外
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.kingsxiao.deltaforce

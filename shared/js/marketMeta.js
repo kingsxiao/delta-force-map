@@ -4,14 +4,17 @@
    版本双格式：主源 moligod 为 12 位分钟档（YYYYMMDDHHmm），兜底 kkrb 为
    10 位小时档（YYYYMMDDHH）——页面按长度分流显示，不自造分钟。
    时效阈值按 source 分档：分钟级源的新鲜度承诺 tighter，小时级源沿用
-   原阈值。实时通道端点在 liveChannelUrl：本地 http 开发连独立 live 服务
-   （8787），其余 http(s) 连同源 /events（server.mjs 部署）——页面先探测
-   /health 再连，探测不到按环境分流（gate 规则也在这里，供 selftest 断言）。
+   原阈值。实时通道端点在 liveChannelUrl：本地 vite 工具链端口（dev
+   5173–5199 / preview 4173）连独立 live 服务（8787），其余 http(s)——含
+   localhost 上的 server.mjs 部署——连同源 /events——页面先探测 /health
+   再连，探测不到按环境分流（gate 规则也在这里，供 selftest 断言）。
    ============================================================ */
 
-/** 数据版本号 → 展示串：12 位 "YYYY-MM-DD HH:mm"，10 位 "YYYY-MM-DD HH:00" */
+/** 数据版本号 → 展示串：12 位 "YYYY-MM-DD HH:mm"，10 位 "YYYY-MM-DD HH:00"；
+    不足 10 位的非法短输入原样返回，不产出畸形串（与 iOS MarketMeta.swift 同防御） */
 export function formatVersionLabel(v) {
   if (!v) return '—'
+  if (v.length < 10) return v
   if (v.length >= 12) {
     return `${v.slice(0, 4)}-${v.slice(4, 6)}-${v.slice(6, 8)} ${v.slice(8, 10)}:${v.slice(10, 12)}`
   }
@@ -31,11 +34,10 @@ export function staleness(source) {
 
 /** 页头/METHOD 的更新粒度文案（按 market.json 顶层 source 动态；不对外提及具体站点） */
 export function sourceLabel(source) {
-  return source === 'moligod' || source === 'moligod-craft'
-    ? '分钟级'
-    : source === 'kkrb'
-      ? '小时级'
-      : '未知粒度'
+  if (source === 'moligod' || source === 'moligod-craft') return '分钟级'
+  if (source === 'kkrb') return '小时级'
+  if (source === 'kkrb-radar+moligod') return '双源交叉' // 雷达页双源口径（与 iOS MarketMeta.swift 同分支）
+  return '未知粒度'
 }
 
 export function methodDataLine(source) {

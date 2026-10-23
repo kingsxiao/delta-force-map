@@ -103,7 +103,8 @@ export function buildRadarItem(hiItem, { moliCurve = [], minuteTail = null } = {
     rawSignal: analysis.signal,
     // 双源口径打架时不发信号：通知层（judgeSignals）只见 WAIT，天然不触发
     signal: anomaly ? 'WAIT' : analysis.signal,
-    curveSource: curve === kkrbCurve ? 'kkrb' : 'moligod',
+    // 枚举对齐契约 shared/schema/radar-snapshot.schema.json：["moligod","kkrb-radar"]
+    curveSource: curve === kkrbCurve ? 'kkrb-radar' : 'moligod',
   }
 }
 

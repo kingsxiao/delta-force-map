@@ -46,30 +46,39 @@ async function api(path, { method = 'GET', body, token } = {}) {
   return json
 }
 
-/* ---------- 会话存取（localStorage；token 是唯一凭证，user 仅展示用） ---------- */
+/* ---------- 会话存取（localStorage 为主；token 是唯一凭证，user 仅展示用。
+   隐私模式等 localStorage 不可写时以模块级内存会话兜底——本页生命周期内
+   登录 / 云同步仍可用，刷新即回未登录） ---------- */
+
+/** 内存会话兜底：localStorage 写不进（setStoredSession catch）时由
+    getStoredSession 读到这里，兑现「会话仅本次页面生命周期内可用」 */
+let memorySession = null
 
 export function getStoredSession() {
+  let stored = null
   try {
     const token = localStorage.getItem(TOKEN_KEY)
-    if (!token) return null
-    let user = null
-    try {
-      user = JSON.parse(localStorage.getItem(USER_KEY))
-    } catch { /* user 展示信息损坏不阻断：下次 me() 修正 */ }
-    return { token, user }
-  } catch {
-    return null
-  }
+    if (token) {
+      let user = null
+      try {
+        user = JSON.parse(localStorage.getItem(USER_KEY))
+      } catch { /* user 展示信息损坏不阻断：下次 me() 修正 */ }
+      stored = { token, user }
+    }
+  } catch { /* localStorage 不可读：走内存兜底 */ }
+  return stored ?? memorySession
 }
 
 export function setStoredSession({ token, user }) {
+  memorySession = { token, user }
   try {
     localStorage.setItem(TOKEN_KEY, token)
     localStorage.setItem(USER_KEY, JSON.stringify(user))
-  } catch { /* 隐私模式存不进：会话仅本次页面生命周期内可用 */ }
+  } catch { /* 隐私模式存不进：会话仅本次页面生命周期内可用（内存兜底） */ }
 }
 
 export function clearStoredSession() {
+  memorySession = null
   try {
     localStorage.removeItem(TOKEN_KEY)
     localStorage.removeItem(USER_KEY)

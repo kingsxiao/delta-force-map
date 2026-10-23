@@ -314,7 +314,7 @@ struct RankRow: View {
             VStack(alignment: .trailing, spacing: Theme.Space.xs) {
                 HStack(alignment: .firstTextBaseline, spacing: 2) {
                     // 行内最强数字（DESIGN §4.4-2 主数字立权）：TTK 毫秒数 lead 档 bold——排行页比较的就是它
-                    Mono("\(Int(combo.ttk.rounded()))", step: .lead, weight: .bold)
+                    Mono(combo.ttkMillis.map(String.init) ?? "—", step: .lead, weight: .bold)
                     Text("ms").font(Theme.monoFont(.micro)).foregroundStyle(Theme.faint)
                 }
                 // 中文混排：默认 design + 等宽数字；补 lineLimit(1) 对齐 §7-3 单行纪律：
@@ -365,7 +365,7 @@ struct RankRow: View {
     private var a11yLabel: String {
         var s = "第 \(index) 名 · \(combo.gun.zh) · \(combo.ammo.n)"
         if marketReady, let market { s += " · 现价 \(Fmt.price(market.current))" }
-        s += " · TTK \(Int(combo.ttk.rounded())) ms · \(combo.btk) 发碎甲 \(combo.sim.broke) · RPM \(Int(combo.gun.rpm))"
+        s += " · TTK \(combo.ttkMillis.map { "\($0) ms" } ?? "无法估算") · \(combo.btk) 发碎甲 \(combo.sim.broke) · RPM \(Int(combo.gun.rpm))"
         return s
     }
 }
@@ -419,7 +419,7 @@ struct GunDetailView: View {
                             // 行主数字（DESIGN §1.3 / §4.4-2）：与排行行同款「lead 档 bold 数字 + micro 单位退档」，
                             // 单位不再以 lead 同权混排（原「412 ms」整串 lead，单位抢数字的权）
                             HStack(alignment: .firstTextBaseline, spacing: 2) {
-                                Mono("\(Int(c.ttk.rounded()))", step: .lead, weight: .bold)
+                                Mono(c.ttkMillis.map(String.init) ?? "—", step: .lead, weight: .bold)
                                 Text("ms").font(Theme.monoFont(.micro)).foregroundStyle(Theme.faint)
                             }
                             // 中文混排：默认 design + 等宽数字
@@ -475,7 +475,7 @@ struct GunDetailView: View {
         var s = c.ammo.n
         if let note = c.ammo.note { s += " · \(note)" }
         if link.snapshotReady, let item = link.item { s += " · 现价 \(Fmt.price(item.current))" }
-        s += " · TTK \(Int(c.ttk.rounded())) ms · \(c.btk) 发 · 通过 \(Int(c.sim.pass * 100))% · 无甲 \(c.sim.noArmorBtk) 发"
+        s += " · TTK \(c.ttkMillis.map { "\($0) ms" } ?? "无法估算") · \(c.btk) 发 · 通过 \(Int(c.sim.pass * 100))% · 无甲 \(c.sim.noArmorBtk) 发"
         return s
     }
 }

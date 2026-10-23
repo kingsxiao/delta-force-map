@@ -60,16 +60,24 @@ async function writeAtomic(filePath, text) {
 export function createRateLimiter(max, windowMs) {
   let windowStart = Date.now()
   const counts = new Map()
-  // 键数上限：直连形态下攻击者可伪造无限个 IP 键，超限即整窗重置（宁重置不限内存）
+  // 键数上限：直连 / IPv6 形态下攻击者可制造无限个 IP 键。表满时**拒绝收纳
+  // 新键**（宁拒新不释旧）——无论是整窗 counts.clear() 还是 LRU 清最旧键，
+  // 都会给伪造超量键的攻击者腾空间：被限速 IP 的计数被挤掉即解禁自己，
+  // 换源 IP 也能无限白嫖新键。已计数键永不受表满影响；窗口照常翻转清空。
   const MAX_KEYS = 4096
   return {
     take(key) {
       const now = Date.now()
-      if (now - windowStart >= windowMs || counts.size > MAX_KEYS) {
+      if (now - windowStart >= windowMs) {
         windowStart = now
         counts.clear()
       }
       const n = (counts.get(key) ?? 0) + 1
+      if (n === 1) {
+        if (counts.size >= MAX_KEYS) return false // 表满：新键暂拒（下一窗口自愈）
+        counts.set(key, 1)
+        return true
+      }
       counts.set(key, n)
       return n <= max
     },
@@ -92,12 +100,31 @@ export function openAuthStore({ rootDir = process.cwd() } = {}) {
   /** 注册/登录串行链（读改写竞争安全网） */
   let queue = Promise.resolve()
 
+  /** 损坏留档：把坏文件 rename 成 .corrupt-<时间戳> 再由调用方按空初始化。
+   *  不留档直接当空表的话，下一次 register/putData 会把「空表+1 条新记录」
+   *  原子写回原路径，原始内容被彻底覆盖——把可手工恢复的损坏放大成不可逆丢失 */
+  async function quarantine(file, why) {
+    const keep = `${file}.corrupt-${new Date().toISOString().replace(/[:.]/g, '')}`
+    try {
+      await rename(file, keep)
+      console.error(`[auth] ${path.basename(file)} 损坏（${why}），已留档 ${path.basename(keep)}，按空数据初始化`)
+    } catch (e) {
+      console.error(`[auth] ${path.basename(file)} 损坏（${why}）且留档失败：${e.message}，按空数据初始化`)
+    }
+  }
+
   async function loadAccounts() {
     if (accounts) return accounts
     try {
       const raw = JSON.parse(await readFile(accountsFile, 'utf8'))
-      accounts = raw && typeof raw === 'object' && raw.users ? raw : { users: {} }
-    } catch {
+      if (raw && typeof raw === 'object' && raw.users) {
+        accounts = raw
+      } else {
+        await quarantine(accountsFile, '形状异常（缺 users 表）')
+        accounts = { users: {} }
+      }
+    } catch (e) {
+      if (e.code !== 'ENOENT') await quarantine(accountsFile, e.message)
       accounts = { users: {} }
     }
     return accounts
@@ -240,20 +267,36 @@ export function openAuthStore({ rootDir = process.cwd() } = {}) {
       u.updatedAt = new Date().toISOString()
       await writeAtomic(accountsFile, JSON.stringify(table, null, 2))
     }
-    queue = queue.then(run, () => {})
+    // 与 register/login 同款双分支：链终态恒 fulfilled——run 失败若直落队列
+    // （旧写法 `queue.then(run, () => {})` 缺尾部分支），会毒化串行链，紧随
+    // 其后的一次注册/登录不执行且收到这次 logout 的无关错误
+    const out = {}
+    queue = queue.then(run).then((r) => (out.result = r), (e) => (out.error = e))
     await queue
+    if (out.error) throw out.error
+    return out.result
   }
 
   /* ---------- 账号云数据 ---------- */
 
   const dataFile = (uid) => path.join(dataDir, `${uid}.json`)
 
-  /** 读取云数据文档；无则空文档（savedAt = null） */
+  /** 读取云数据文档；无则空文档（savedAt = null）。损坏先留档再按空返回，
+   *  防止客户端拿到空云端后整文档 PUT 把坏文件覆盖（同 loadAccounts 口径）。
+   *  「损坏」含两支：JSON 解析失败，或 JSON 合法但 data 形状非法（数组 /
+   *  键名非法 / 超 64KB）——后者若静默按空且透传 savedAt，客户端会误判
+   *  云端有数据并整文档 PUT 覆盖坏文件，同样必须留档 */
   async function getData(uid) {
     try {
       const raw = JSON.parse(await readFile(dataFile(uid), 'utf8'))
-      return { data: normalizeAccountDoc(raw.data) ?? {}, savedAt: raw.savedAt ?? null }
-    } catch {
+      const data = normalizeAccountDoc(raw?.data)
+      if (!data) {
+        await quarantine(dataFile(uid), 'data 形状非法（normalizeAccountDoc 拒收）')
+        return { data: {}, savedAt: null }
+      }
+      return { data, savedAt: raw.savedAt ?? null }
+    } catch (e) {
+      if (e.code !== 'ENOENT') await quarantine(dataFile(uid), e.message)
       return { data: {}, savedAt: null }
     }
   }
