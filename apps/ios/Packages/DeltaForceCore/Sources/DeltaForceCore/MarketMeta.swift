@@ -1,5 +1,5 @@
 // MarketMeta.swift — shared/js/marketMeta.js 的同构移植（页面元信息纯函数）
-// 版本双格式 / 时效阈值按 source 分档 / 来源文案 / 图标缩略 / 年龄可读化。
+// 版本双格式 / 时效阈值按 source 分档 / 更新粒度文案 / 图标缩略 / 年龄可读化。
 // 改口径先改 shared/js 与 shared/API.md，再同步这里（单测用同一组样本对账）。
 import Foundation
 
@@ -24,26 +24,26 @@ public enum MarketMeta {
         public let staleTipMin: Double
     }
 
-    /// 时效阈值（分钟）：moligod 分钟级 10/30；kkrb 小时级兜底 60/360
+    /// 时效阈值（分钟）：moligod 分钟级 10/30（moligod-craft 特勤处制造同档）；kkrb 小时级兜底 60/360
     public static func staleness(source: String?) -> Staleness {
-        source == "moligod"
+        source == "moligod" || source == "moligod-craft"
             ? Staleness(staleDotMin: 10, staleTipMin: 30)
             : Staleness(staleDotMin: 60, staleTipMin: 360)
     }
 
     public static func sourceLabel(_ source: String?) -> String {
         switch source {
-        case "moligod": "三角洲攻略站 moligod（分钟级）"
-        case "kkrb": "KK三角洲一图流 kkrb.net（约每小时，兜底）"
-        case "kkrb-radar+moligod": "kkrb 涨幅榜 + moligod 曲线（双源交叉）"
-        default: "未知来源"
+        case "moligod", "moligod-craft": "分钟级"
+        case "kkrb": "小时级"
+        case "kkrb-radar+moligod": "双源交叉"
+        default: "未知粒度"
         }
     }
 
     public static func methodDataLine(_ source: String?) -> String {
         source == "moligod"
-            ? "三角洲攻略站 moligod.com 交易行口径，分钟级更新；趋势为近 7 天每小时价格。"
-            : "KK三角洲一图流（kkrb.net）交易行口径，约每小时更新一次；趋势为近 7 天每小时均价。"
+            ? "交易行口径，分钟级更新；趋势为近 7 天每小时价格。"
+            : "交易行口径，约每小时更新一次；趋势为近 7 天每小时均价。"
     }
 
     /// 官方弹药图标 → CDN 缩略图（腾讯云 imageMogr2 按宽缩放；已带查询串的 URL 原样返回）

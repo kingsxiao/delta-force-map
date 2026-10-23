@@ -291,10 +291,12 @@ const hideImg = (e) => { e.target.style.display = 'none' }
   background: color-mix(in srgb, var(--ok) 10%, transparent);
 }
 
-/* 卡内走势满宽自适应（viewBox 5:1）；颜色降为中性纹理，绿色焦点只留给 hero 带 */
+/* 卡内走势满宽自适应（viewBox 5:1）；颜色降为中性纹理（含当前点圆点，经
+   --spark-dot 透传），绿色焦点只留给 hero 带 */
 .sc-spark {
   --spark-line: var(--dim);
   --spark-fill: var(--dim);
+  --spark-dot: var(--dim);
   display: block; width: 100%; height: auto;
 }
 
@@ -403,6 +405,14 @@ const hideImg = (e) => { e.target.style.display = 'none' }
 }
 /* 键盘可达走全局 :focus-visible 外框；:focus 只做边框提亮，不抹 outline */
 .qty-in:focus { border-color: var(--accent-dim); }
+/* number 步进箭头占宽且挤不进窄列：隐藏（键盘直输 / 滚轮仍可调），同台账 .pos-in 口径 */
+.qty-in::-webkit-outer-spin-button, .qty-in::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.qty-in[type="number"] { -moz-appearance: textfield; appearance: textfield; }
+/* iOS Safari 聚焦 <16px 输入会整页自动放大（viewport 未锁 maximum-scale）：
+   移动端临时升到 16px 防缩放跳动，桌面不变 */
+@media (max-width: 680px) {
+  .qty-in { font-size: var(--fs-lg); }
+}
 .sc-totals {
   display: flex; flex-wrap: wrap; gap: var(--sp-4);
   border-top: 1px dashed var(--line2); padding-top: 10px;

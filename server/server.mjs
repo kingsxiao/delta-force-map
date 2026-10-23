@@ -1,16 +1,17 @@
 /* ============================================================
    server.mjs — 同源部署服务：静态站 + 实时行情（node:http 零依赖）
    ------------------------------------------------------------
-   一个进程四件事：定时抓上游（弹药 fast/slow 双循环 + 雷达循环，均复用
-   既有抓取器与 kkrb 兜底）→ 原子写快照（apps/web/public 与其 dist 联动）
-   → SSE 推送（event:market / event:radar）→ 静态托管 apps/web/dist。
+   一个进程四件事：定时抓上游（弹药 fast/slow 双循环 + 雷达循环 + 特勤处
+   制造循环，均复用既有抓取器与 kkrb 兜底）→ 原子写快照（apps/web/public
+   与其 dist 联动）→ SSE 推送（event:market / event:radar / event:craft）
+   → 静态托管 apps/web/dist。
    多端 monorepo 布局：Node 后端在 server/，网页端在 apps/web（vite 构建），
    iOS 原生端 apps/ios 只消费本服务的 HTTP + SSE 接口（契约 shared/API.md）。
    站点与 /events 同源是关键：https 部署下无 mixed content、无 CORS，
    页面端 liveChannelUrl() 直接连 ${origin}/events 即为实时模式。
-   雷达节奏默认 10 分钟（榜单约每小时滚动、分钟现价对分位信号翻转不
-   敏感，10 分钟已跟上实际变化；请求量 ~126 次/小时，与弹药侧合计仍
-   低于每秒 1 次）——--radar-interval N 可调。
+   雷达与特勤处节奏默认 10 分钟（雷达榜单约每小时滚动、特勤处利润随分钟
+   价推进，10 分钟已跟上实际变化；请求量与弹药侧合计仍低于每秒 1 次）
+   ——--radar-interval / --craft-interval N 可调。
    路由：
      /events  SSE（连接即 hello；落盘广播 market / radar，实现同 live.mjs）
      /health  {ok, source, version, cycles, ...}（弹药侧状态）
@@ -31,6 +32,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createLiveServer } from './ammo/live.mjs'
 import { runRadarCycle } from './market/radar.mjs'
+import { runCraftCycle } from './craft/snapshot.mjs'
 import { createAuthApi } from './auth/api.mjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -54,11 +56,12 @@ const MIME = {
 /**
  * 创建同源站点服务（不 listen；selftest 用 port 0 自取临时端口）。
  * @param {{rootDir?:string, webDir?:string, noNotify?:boolean,
- *          radarCycle?:Function, radarMs?:number}} opts
+ *          radarCycle?:Function, radarMs?:number,
+ *          craftCycle?:Function, craftMs?:number}} opts
  *   rootDir 仓库根（data/ 留档与监控 state 挂这里）；webDir 网页端目录
  *   （public/dist 写入与静态托管，默认 = rootDir，selftest 传临时目录即原行为）
  * @returns {{server:http.Server, live:object, start:Function, close:Function,
- *            triggerRadarCycle:Function}}
+ *            triggerRadarCycle:Function, triggerCraftCycle:Function}}
  */
 export function createSiteServer({
   rootDir = ROOT,
@@ -66,6 +69,8 @@ export function createSiteServer({
   noNotify = true,
   radarCycle = runRadarCycle,
   radarMs = 10 * 60 * 1000,
+  craftCycle = runCraftCycle,
+  craftMs = 10 * 60 * 1000,
   trustProxy = false,
 } = {}) {
   const distDir = path.join(webDir, 'dist')
@@ -75,6 +80,7 @@ export function createSiteServer({
   // trustProxy：nginx 反代形态下显式开启才采信 X-Forwarded-For 做限速
   const auth = createAuthApi({ rootDir, trustProxy })
   let radarTimer = null
+  let craftTimer = null
   let closing = false
 
   /* 雷达循环：失败只记日志不重试加速（榜单小时级滚动，下一轮自然补）；
@@ -102,6 +108,31 @@ export function createSiteServer({
     await cycleRadar()
     if (closing) return
     radarTimer = setTimeout(radarLoop, radarMs)
+  }
+
+  /* 特勤处制造循环（同雷达范式）：失败只记日志，下一轮自然补 */
+  async function cycleCraft() {
+    try {
+      const out = await craftCycle({ webDir })
+      live.broadcast('craft', {
+        version: out.version,
+        total: out.stats.total,
+        complete: out.stats.complete,
+        profitable: out.stats.profitable,
+      })
+      log(`[craft] version ${out.version} · 配方 ${out.stats.total} · 完整 ${out.stats.complete} · 可盈利 ${out.stats.profitable}`)
+      return out
+    } catch (e) {
+      console.error(`[${new Date().toLocaleString('zh-CN')}] [craft] 抓取失败：${e.message}`)
+      return null
+    }
+  }
+
+  async function craftLoop() {
+    if (closing) return
+    await cycleCraft()
+    if (closing) return
+    craftTimer = setTimeout(craftLoop, craftMs)
   }
 
   function cacheControlFor(pathname) {
@@ -166,16 +197,18 @@ export function createSiteServer({
   async function close() {
     closing = true
     clearTimeout(radarTimer)
+    clearTimeout(craftTimer)
     await live.close()
     await new Promise((resolve) => server.close(resolve))
   }
-  /** 启动序列：弹药（live.start 自带冷启动 + 双循环）与雷达初始轮并行；
-      雷达失败不阻塞（catch 在 cycleRadar 内），下一轮计时照常 */
+  /** 启动序列：弹药（live.start 自带冷启动 + 双循环）与雷达 / 特勤处初始轮并行；
+      雷达 / 特勤处失败不阻塞（catch 在各自 cycle 内），下一轮计时照常 */
   async function start() {
-    await Promise.all([live.start(), cycleRadar()])
+    await Promise.all([live.start(), cycleRadar(), cycleCraft()])
     radarTimer = setTimeout(radarLoop, radarMs)
+    craftTimer = setTimeout(craftLoop, craftMs)
   }
-  return { server, live, start, close, triggerRadarCycle: cycleRadar }
+  return { server, live, start, close, triggerRadarCycle: cycleRadar, triggerCraftCycle: cycleCraft }
 }
 
 // ---- CLI 直跑 ----
@@ -190,6 +223,9 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   const radarIntervalMin = Number(
     argOf('radar-interval') || process.env.RADAR_INTERVAL_MIN || 10
   )
+  const craftIntervalMin = Number(
+    argOf('craft-interval') || process.env.CRAFT_INTERVAL_MIN || 10
+  )
   if (!existsSync(path.join(WEB_DIR, 'dist', 'index.html'))) {
     console.error('缺少 apps/web/dist/index.html：先运行 npm run build，再启动服务')
     process.exit(1)
@@ -200,11 +236,12 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     webDir: WEB_DIR,
     noNotify: !notify,
     radarMs: Math.max(1, radarIntervalMin) * 60 * 1000,
+    craftMs: Math.max(1, craftIntervalMin) * 60 * 1000,
     trustProxy,
   })
   site.server.listen(port, host, () => {
     log(`站点已启动：http://${host}:${port}/ · SSE /events · health /health（Ctrl+C 退出）`)
-    log(`静态目录 apps/web/dist/ · 雷达循环每 ${radarIntervalMin} 分钟 · 系统通知${notify ? '开启' : '关闭（--notify 可开启）'} · 上游抓取循环随服务常驻`)
+    log(`静态目录 apps/web/dist/ · 雷达每 ${radarIntervalMin} 分钟 · 特勤处制造每 ${craftIntervalMin} 分钟 · 系统通知${notify ? '开启' : '关闭（--notify 可开启）'} · 上游抓取循环随服务常驻`)
   })
   await site.start()
   const shutdown = (sig) => {

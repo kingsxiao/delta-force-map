@@ -27,6 +27,10 @@ enum Fixtures {
         try JSONDecoder.deltaForce().decode(MarketSnapshot.self, from: data("shared/fixtures/radar-sample.json"))
     }
 
+    static func craft() throws -> CraftSnapshot {
+        try JSONDecoder.deltaForce().decode(CraftSnapshot.self, from: data("shared/fixtures/craft-sample.json"))
+    }
+
     static func ttk() throws -> TtkData {
         try TtkData.load(from: data("shared/data/ttk.json"))
     }

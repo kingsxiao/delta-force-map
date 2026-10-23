@@ -70,7 +70,6 @@ const detail = computed(() => {
   const g = props.c.gun
   const bits = []
   if (g.note) bits.push(g.note)
-  if (g.conflict) bits.push('数值存在来源冲突：' + g.conflict)
   if (g.est) bits.push('数值置信度较低')
   if (g.belly != null) bits.push('该枪胸腹同伤（腹部 ×' + g.belly + '）')
   return {
@@ -511,7 +510,7 @@ const detail = computed(() => {
 }
 .drow.capt small {
   display: block;
-  font-size: var(--fs-xs);
+  font-size: var(--fs-2xs); /* 注不压列名（capt-t 为 micro）；同 .rk-head .th-ta small 的层级关系 */
   letter-spacing: .06em;
   color: var(--faint);
   margin-top: 2px;
@@ -637,7 +636,7 @@ const detail = computed(() => {
 .d-jnote {
   font-family: var(--mono);
   font-size: var(--fs-xs);
-  color: var(--dim);
+  color: var(--faint); /* 备注行比主判定行（--dim）暗一档，两级信息不打架 */
   line-height: 1.5;
 }
 

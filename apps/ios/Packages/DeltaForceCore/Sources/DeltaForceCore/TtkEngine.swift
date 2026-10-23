@@ -29,7 +29,6 @@ public struct Gun: Codable, Sendable, Hashable, Identifiable {
     public let belly: Double?
     public let est: Bool?
     public let note: String?
-    public let conflict: String?
     /// 官方渲染图 objectID（apps/web/public/guns/<img>.webp，iOS 以文件夹引用捆绑）
     public let img: String?
 }

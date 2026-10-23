@@ -14,6 +14,8 @@ final class AppModel {
     let positions = PositionsStore()
     let market = FeedModel(kind: .market)
     let radar = FeedModel(kind: .radar)
+    /// 特勤处制造利润快照（server/craft 落盘，契约 §1.3；SSE craft 事件驱动重拉）
+    let craft = FeedModel<CraftSnapshot>(fetcher: { try await $0.fetchCraft() })
     let channel = LiveChannel()
     let notifications = NotificationManager()
     let ttk = TtkStore()
@@ -54,6 +56,7 @@ final class AppModel {
             let interval: Duration = state.isLive ? .seconds(300) : .seconds(60)
             market.pollInterval = interval
             radar.pollInterval = interval
+            craft.pollInterval = interval
         }
         market.onSnapshot = { [weak self] snap in
             guard let self else { return }
@@ -80,6 +83,7 @@ final class AppModel {
         let client = settings.client
         market.configure(client: client)
         radar.configure(client: client)
+        craft.configure(client: client)
         channel.start(client: client)
     }
 
@@ -103,6 +107,7 @@ final class AppModel {
             Task {
                 await market.refresh()
                 await radar.refresh()
+                await craft.refresh()
             }
         case .background:
             channel.stop()
@@ -117,6 +122,8 @@ final class AppModel {
             market.noteRemoteVersion(ping.version)
         case .radar(let ping):
             radar.noteRemoteVersion(ping.version)
+        case .craft(let ping):
+            craft.noteRemoteVersion(ping.version)
         case .other:
             break
         }

@@ -19,6 +19,7 @@ const refreshing = ref(false)
 const refreshTip = ref('')
 const expanded = ref(null)
 const pageRef = ref(null)
+const searchRef = ref(null)
 
 const DATA_URL = '/market/radar.json'
 const POLL_MS = 60 * 1000
@@ -115,6 +116,22 @@ function onSort(v) {
     state.dir = state.dir === 'asc' ? 'desc' : 'asc'
   }
 }
+/* 行键盘开关（同 AmmoMarketView.onRowKeydown）：Space 也能展开，preventDefault
+   吞掉其页面滚动默认行为；焦点落在子元素时不代触发 */
+function onRowKeydown(e, name) {
+  if (e.target !== e.currentTarget) return
+  e.preventDefault()
+  expanded.value = expanded.value === name ? null : name
+}
+function clearFilters() {
+  state.signal = 'all'
+  state.q = ''
+}
+/* 搜索清除（模式同 AmmoMarketView.clearSearch）：清词后焦点回搜索框，键盘流不断 */
+function clearSearch() {
+  state.q = ''
+  searchRef.value?.focus({ preventScroll: true })
+}
 
 const items = computed(() => market.value?.items || [])
 const filtered = computed(() => {
@@ -205,17 +222,18 @@ onBeforeUnmount(() => {
     <header class="compact-head">
       <h1>全品类异动雷达 <span class="live-dot" :class="{ stale: ageMin !== null && ageMin > STALE_DOT_MIN }" aria-hidden="true"></span></h1>
       <p v-if="market" class="meta" :title="`数据版本 ${versionLabel}${liveTip ? ' · ' + liveTip : ''}`">
-        <template v-if="ageLabel"><span :class="{ 'meta-stale': ageMin > STALE_TIP_MIN }">{{ ageLabel }}更新</span> · </template>kkrb 涨幅榜 + moligod 曲线
+        <template v-if="ageLabel"><span :class="{ 'meta-stale': ageMin > STALE_TIP_MIN }">{{ ageLabel }}更新</span> · </template>全品类涨幅榜 + 双源曲线交叉
       </p>
     </header>
 
     <p v-if="ageMin !== null && ageMin > STALE_TIP_MIN" class="state-tip stale-tip" role="status">
       数据已 {{ ageLabel }} 未更新（榜单约每小时滚动），可稍后回来查看。
     </p>
-    <p v-if="loadState === 'loading'" class="state-tip">正在加载雷达数据…</p>
+    <div v-if="loadState === 'loading'" class="load-hold" role="status">正在加载雷达数据…</div>
     <div v-else-if="loadState === 'empty'" class="state-card">
       <p>还没有雷达数据。</p>
       <p class="dim">雷达快照正在准备中，稍后再来看看。</p>
+      <button class="retry" @click="load()">重试</button>
     </div>
     <div v-else-if="loadState === 'error'" class="state-card">
       <p>雷达数据加载失败：{{ loadError }}</p>
@@ -238,7 +256,13 @@ onBeforeUnmount(() => {
             }}</span>
           </button>
         </div>
-        <input v-model.trim="state.q" class="search" type="search" placeholder="搜索物品" aria-label="搜索物品" />
+        <span class="search-wrap">
+          <input
+            ref="searchRef" v-model.trim="state.q" class="search" :class="{ hasq: state.q }"
+            type="search" placeholder="搜索物品" aria-label="搜索物品"
+          >
+          <button v-if="state.q" class="search-clear" aria-label="清除搜索" title="清除搜索" @click="clearSearch">✕</button>
+        </span>
         <div class="chips" role="group" aria-label="排序">
           <button
             v-for="s in SORTS" :key="s.v"
@@ -247,16 +271,16 @@ onBeforeUnmount(() => {
             @click="onSort(s.v)"
             >{{ s.label }}<svg v-if="state.sort === s.v" class="dir" viewBox="0 0 16 16" aria-hidden="true"><path v-if="state.dir === 'desc'" d="M8 3.5v9M4.5 9 8 12.5 11.5 9" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path v-else d="M8 12.5v-9M4.5 7 8 3.5 11.5 7" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
         </div>
-        <button class="chip refresh" :disabled="refreshing" @click="load({ silent: true })">刷新</button>
+        <button class="chip refresh" :disabled="refreshing" title="重新拉取最新快照" @click="load({ silent: true })">{{ refreshing ? '刷新中…' : '刷新' }}</button>
       </div>
-      <p v-if="refreshTip" class="refresh-tip warn">{{ refreshTip }}</p>
+      <p v-if="refreshTip" class="refresh-tip warn" role="status">{{ refreshTip }}</p>
 
       <!-- 榜单表 -->
       <div class="tbl-scroll">
         <table class="tbl">
           <thead>
             <tr>
-              <th class="num">#</th>
+              <th class="num" title="kkrb 涨幅榜名次">#</th>
               <th>物品</th>
               <th class="num">现价</th>
               <th>信号</th>
@@ -268,12 +292,14 @@ onBeforeUnmount(() => {
             </tr>
           </thead>
           <tbody>
-            <template v-for="(i, idx) in filtered" :key="i.name">
+            <template v-for="i in filtered" :key="i.name">
               <tr
-                class="row" :class="{ open: expanded === i.name, odd: idx % 2 === 0, even: idx % 2 === 1 }"
+                class="row data-row" :class="{ open: expanded === i.name }"
                 tabindex="0"
+                :aria-expanded="expanded === i.name"
                 @click="expanded = expanded === i.name ? null : i.name"
-                @keydown.enter="expanded = expanded === i.name ? null : i.name"
+                @keydown.enter="onRowKeydown($event, i.name)"
+                @keydown.space="onRowKeydown($event, i.name)"
               >
                 <td class="mono dimtx num">{{ i.hiRank ?? '—' }}</td>
                 <td>
@@ -321,10 +347,10 @@ onBeforeUnmount(() => {
                   <span
                     class="cross" :class="{ anomaly: i.anomaly }"
                     :title="i.anomaly
-                      ? `kkrb 与 moligod 曲线重叠 ${i.crossOverlap} 小时的中位偏差 ${crossLabel(i)}——口径分歧，信号已压制为观望`
+                      ? `两路独立曲线在重叠 ${i.crossOverlap} 小时的中位偏差 ${crossLabel(i)}——口径分歧，信号已压制为观望`
                       : i.crossDev == null
                         ? `重叠小时不足 24，未做双源结论`
-                        : `kkrb 与 moligod 曲线中位偏差（越低越一致）`"
+                        : `两路独立曲线的中位偏差（越低越一致）`"
                     ><!-- 双源异常标记（inline SVG）：警示三角 + 叹号，随 .cross.anomaly 染 --warn -->
                     <svg v-if="i.anomaly" class="warn-ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.4 14.4 13.6H1.6Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M8 6.2v3.2M8 11.7v.1" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>{{ crossLabel(i) }}</span>
                 </td>
@@ -335,22 +361,21 @@ onBeforeUnmount(() => {
                   <PriceChart :curve="i.curve" :p25="i.p25" :p75="i.p75" :current="i.current" />
                   <p class="exp-note">
                     口径：买入参考 {{ fmt(i.p25) }}（P25）/ 目标挂卖 {{ fmt(i.targetSell) }}（P75，税后到手 {{ fmt(i.netSell) }}）/
-                    税率 {{ (i.taxRate * 100).toFixed(0) }}%（非子弹无税后字段，按兜底税率）。曲线源
-                    {{ i.curveSource === 'moligod' ? 'moligod' : 'kkrb 榜单（moligod 名称未匹配）' }}。
+                    税率 {{ (i.taxRate * 100).toFixed(0) }}%（非子弹无税后字段，按兜底税率）。
                     <template v-if="i.anomaly">双源中位偏差 {{ crossLabel(i) }}，原始信号 {{ SIGNAL_META[i.rawSignal]?.label || i.rawSignal }} 已压制为观望。</template>
                   </p>
                 </td>
               </tr>
             </template>
             <tr v-if="!filtered.length">
-              <td colspan="9" class="empty-cell">没有符合当前筛选的物品</td>
+              <td colspan="9" class="empty-cell">没有符合当前筛选的物品　<button class="retry" @click="clearFilters">清除全部筛选</button></td>
             </tr>
           </tbody>
         </table>
       </div>
 
       <p class="src-note">
-        榜单为 kkrb「全物品价格变化曲线」涨幅榜 Top10（钥匙/护甲/配件/物资等，子弹走
+        榜单为全品类涨幅榜 Top10（钥匙/护甲/配件/物资等，子弹走
         <router-link to="/ammo">子弹行情</router-link>页）；信号口径与子弹页一致：P25 买入 / P80 卖出 / 税后 ≥8% 才报买入。
         非子弹单笔金额大、流动性差，挂单深度游戏内自查。
       </p>
@@ -376,12 +401,26 @@ onBeforeUnmount(() => {
 .state-tip { color: var(--dim); font-size: var(--fs-md); padding: var(--sp-6) 0; }
 .state-tip code { font-family: var(--mono); color: var(--accent); }
 .stale-tip { color: var(--warn); }
+/* 首载高度预留：ready 态是「控制条 + 表头 + 10 行」（约 590px），加载态原先
+   只有一行文字，ready 时页高跳一屏；按表格容器同款描边预留最小高度并居中
+   提示（粗估即可，不做假行骨架） */
+.load-hold {
+  min-height: 560px;
+  display: flex; align-items: center; justify-content: center;
+  margin: var(--sp-5) 0 var(--sp-4); /* 与 .ctl-bar 外距同节奏，ready 切换时垂直位置稳定 */
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--dim); font-size: var(--fs-md);
+}
 .state-card {
   background: var(--card); border: 1px dashed var(--line2); border-radius: var(--radius);
   padding: var(--sp-6); color: var(--tx); margin: var(--sp-4) 0;
 }
 .state-card pre { background: var(--deep); padding: 10px 14px; border-radius: var(--radius-sm); overflow: auto; }
 .state-card code { font-family: var(--mono); color: var(--accent); }
+/* 空态副文案降级（同 AmmoMarketView）：模板里的 .dim 原本无对应规则，
+   两行等权重渲染，主次层级塌掉 */
+.state-card .dim { color: var(--faint); font-size: var(--fs-sm); }
 .retry {
   background: var(--accent-bg); color: var(--accent); border: 1px solid var(--accent-dim);
   border-radius: var(--radius); padding: 6px 18px; cursor: pointer; font-size: var(--fs-sm);
@@ -426,6 +465,22 @@ onBeforeUnmount(() => {
 /* 输入聚焦只改边框（--accent-dim），不写 outline:none——键盘聚焦的 2px --accent
    外框由 base.css 全局 :focus-visible 提供，不许在组件里抹掉 */
 .search:focus { border-color: var(--accent-dim); }
+/* 搜索框包装：给「✕ 清除」留绝对定位包含块（复刻子弹页 .search-wrap/.search-clear
+   模式，不占布局位、不挤 chip；Firefox 的 type=search 无原生清除 UI） */
+.search-wrap { position: relative; display: inline-flex; }
+/* 有词时给 ✕ 让位；同时压掉 WebKit type=search 自带清除钮（避免双 ✕） */
+.search.hasq { padding-right: 26px; }
+.search::-webkit-search-cancel-button { display: none; }
+.search-clear {
+  position: absolute; right: 5px; top: 50%; transform: translateY(-50%);
+  width: 18px; height: 18px; flex: none;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: none; border: 0; border-radius: 50%;
+  color: var(--faint); font-size: var(--fs-2xs); line-height: 1; cursor: pointer;
+  transition: color var(--t-fast) var(--ease), background-color var(--t-fast) var(--ease);
+}
+.search-clear:hover,
+.search-clear:active { color: var(--tx); background: var(--line); }
 
 /* 榜单表：9 列低于 ~1000px 视口时会被 width:100% 的 auto 布局压列换行，
    给足 min-width 让 .tbl-scroll 横向滚动而不是把物品名压成竖排 */
@@ -435,12 +490,21 @@ onBeforeUnmount(() => {
   border-radius: var(--radius);
 }
 .tbl-scroll .tbl { min-width: 980px; }
+/* 窄屏横滚提示：右缘 32px 渐隐（mask 固定于滚动视口、内容从其下滚过，零 DOM、
+   不挡交互）；同步 padding-right 造出等宽空槽——滚到最右时渐隐落在空槽上，
+   不压「双源」列数字。阈值 1069 = 表 980 + 槽 32 + wrap 水槽 56 + 边框 2，
+   此宽度以下必然横滚（media 与可滚保持一致，宽屏无痕） */
+@media (max-width: 1069px) {
+  .tbl-scroll {
+    padding-right: 32px;
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent);
+    mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent);
+  }
+}
 .row { cursor: pointer; }
-/* 展开会插入 tr 打乱 base.css 的 nth-child 奇偶（下方整片翻色），改按
-   filtered 索引自算斑马纹；scoped 类含 [data-v]（0,3,0）高于 base.css 的
-   .tbl tbody tr:hover（0,2,2），hover 底色必须在此重声明否则静默失效 */
-.row.odd { background: transparent; }
-.row.even { background: var(--zebra); }
+/* 斑马纹交给 base.css 的 nth-child(even of .data-row) 契约：本页数据行已挂
+   data-row，展开行插入不再打断奇偶，无需再按 filtered 索引自算 odd/even；
+   scoped [data-v]（0,3,0）高于 base 表级规则（0,2,2），hover/open 仍需在此重声明 */
 .row:hover,
 .row:focus-visible { background: var(--row-hover); }
 .row.open { background: var(--accent-bg); box-shadow: inset 2px 0 0 var(--accent-dim); }
@@ -470,7 +534,7 @@ onBeforeUnmount(() => {
 .row.open .row-chev { transform: rotate(180deg); color: var(--accent); }
 
 .rank-cell { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
-.rb-num { font-family: var(--mono); font-size: var(--fs-2xs); color: var(--dim); }
+.rb-num { font-family: var(--mono); font-size: var(--fs-xs); color: var(--dim); }
 .rb-num.low { color: var(--ok); }
 .rb-num.high { color: var(--danger); }
 .rank-bar { position: relative; width: 110px; height: 7px; background: var(--line2); border-radius: 4px; }
@@ -515,13 +579,13 @@ onBeforeUnmount(() => {
 td.profit { color: var(--ok); font-weight: 600; }
 .tbl td.price-cell { font-size: var(--fs-md); color: var(--tx-strong); font-weight: 700; }
 
-.cross { font-family: var(--mono); font-size: var(--fs-2xs); color: var(--dim); cursor: help; }
+.cross { font-family: var(--mono); font-size: var(--fs-xs); color: var(--dim); cursor: help; }
 .cross.anomaly { color: var(--warn); font-weight: 600; }
 
 .expander td { position: relative; background: var(--card2); border-top: 1px solid var(--accent-dim); }
 .exp-close {
   position: absolute; top: 10px; right: 10px;
-  font-family: var(--mono); font-size: var(--fs-2xs); color: var(--dim);
+  font-family: var(--mono); font-size: var(--fs-xs); color: var(--dim);
   background: var(--card); border: 1px solid var(--line); border-radius: var(--radius-pill);
   padding: 3px 12px; cursor: pointer;
   transition: color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
@@ -542,7 +606,7 @@ td.profit { color: var(--ok); font-weight: 600; }
 
 /* 本页新增/收紧的微交互过渡统一在 reduce 下关闭（live-dot 的在上面自带） */
 @media (prefers-reduced-motion: reduce) {
-  .chip, .search, .retry, .exp-close, .row-chev { transition: none; }
+  .chip, .search, .search-clear, .retry, .exp-close, .row-chev { transition: none; }
   .retry:active { transform: none; }
 }
 </style>

@@ -25,8 +25,14 @@ defineEmits(['toggle'])
 
 const router = useRouter()
 
-const gunsOf = computed(() =>
-  GUNS.filter((g) => g.cal === props.calKey).map((g) => g.zh).join(' / '))
+const gunsOf = computed(() => {
+  const names = GUNS.filter((g) => g.cal === props.calKey).map((g) => g.zh)
+  /* 头注长枪名列表截断：CollapseCol 的 .col-note 不换行，9x19（9 把）/7.62×51（9 把）
+     的全量列表在窄屏会被容器 overflow 硬裁成半截字；收成前 4 把 + 总数 */
+  return names.length > 4
+    ? names.slice(0, 4).join(' / ') + ' 等 ' + names.length + ' 把'
+    : names.join(' / ')
+})
 
 const countText = computed(() =>
   props.cal.sub + ' · ' + props.cal.ammo.length + ' 弹 · ' + gunsOf.value)
@@ -68,11 +74,11 @@ function gotoMarket(am) {
       <table class="tbl">
         <thead>
           <tr>
-            <th>弹药</th><th>穿透</th><th>肉伤系数</th><th>甲伤系数</th><th>参考单发（肉/甲）</th><th>现价·7天分位</th><th>备注</th>
+            <th>弹药</th><th>穿透</th><th class="num">肉伤系数</th><th class="num">甲伤系数</th><th class="num">参考单发（肉/甲）</th><th class="num">现价·7天分位</th><th>备注</th>
           </tr>
         </thead>
         <tbody>
-          <tr v-for="am in cal.ammo" :key="am.n">
+          <tr v-for="am in cal.ammo" :key="am.n" class="data-row">
             <td class="strong">{{ am.n }}</td>
             <td><PenBadge :p="am.pen" /></td>
             <td class="mono num">{{ fmtCoef(am.flesh) }}</td>

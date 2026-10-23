@@ -59,6 +59,13 @@ onBeforeUnmount(() => {
   transition: color var(--t-med), border-color var(--t-med), background var(--t-med),
     transform var(--t-fast);
 }
+/* 触达热区外扩 6px（38 → 50px，过 HIG 44pt 下限）：视觉尺寸不变，
+   窄屏拇指按压不再要求精准点中；::before 不设背景，纯命中区 */
+.to-top::before {
+  content: "";
+  position: absolute;
+  inset: -6px;
+}
 .to-top:hover {
   color: var(--tx);
   border-color: var(--line-hover);

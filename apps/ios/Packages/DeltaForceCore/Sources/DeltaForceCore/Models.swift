@@ -184,7 +184,7 @@ public struct HealthStatus: Codable, Sendable, Hashable {
     public let cycles: Int?
 }
 
-/// SSE 命名事件的 data 负载（hello / market / radar 三者字段并集，均为轻量 ping）
+/// SSE 命名事件的 data 负载（hello / market / radar / craft 四者字段并集，均为轻量 ping）
 public struct LivePing: Codable, Sendable, Hashable {
     public let version: String?
     public let source: String?
@@ -193,8 +193,10 @@ public struct LivePing: Codable, Sendable, Hashable {
     public let anomaly: Int?
     public let buy: Int?
     public let sell: Int?
+    public let complete: Int?
+    public let profitable: Int?
 
-    public init(version: String?, source: String? = nil, generatedAt: String? = nil, total: Int? = nil, anomaly: Int? = nil, buy: Int? = nil, sell: Int? = nil) {
+    public init(version: String?, source: String? = nil, generatedAt: String? = nil, total: Int? = nil, anomaly: Int? = nil, buy: Int? = nil, sell: Int? = nil, complete: Int? = nil, profitable: Int? = nil) {
         self.version = version
         self.source = source
         self.generatedAt = generatedAt
@@ -202,6 +204,8 @@ public struct LivePing: Codable, Sendable, Hashable {
         self.anomaly = anomaly
         self.buy = buy
         self.sell = sell
+        self.complete = complete
+        self.profitable = profitable
     }
 }
 
@@ -209,6 +213,7 @@ public enum LiveEvent: Sendable, Hashable {
     case hello(LivePing)
     case market(LivePing)
     case radar(LivePing)
+    case craft(LivePing)
     case other(name: String, data: String)
 
     /// 把原始 SSE 事件映射为契约事件；data 解析失败也不丢事件（退化为 version=nil 的 ping）
@@ -219,6 +224,7 @@ public enum LiveEvent: Sendable, Hashable {
         case "hello": return .hello(ping)
         case "market": return .market(ping)
         case "radar": return .radar(ping)
+        case "craft": return .craft(ping)
         default: return .other(name: event.name, data: event.data)
         }
     }

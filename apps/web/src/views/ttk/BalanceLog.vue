@@ -14,7 +14,8 @@ const note = ref('镜像快照')
 
 onMounted(async () => {
   try {
-    const res = await fetch('/data/balance-updates.json')
+    // BASE_URL 前缀与 TtkView 行情快照同口径：子路径静态托管（BASE_URL 非 '/'）下不再 404
+    const res = await fetch(`${import.meta.env.BASE_URL}data/balance-updates.json`)
     if (!res.ok) throw new Error('HTTP ' + res.status)
     const data = await res.json()
     entries.value = Array.isArray(data.entries) ? data.entries : []
@@ -33,7 +34,9 @@ onMounted(async () => {
         本地快照缺失：在仓库根目录运行 <code>npm run dfttk:snapshot</code> 生成
         <code>apps/web/public/data/balance-updates.json</code>（一次性抓取后自托管，前端不再请求外部站点）。
       </p>
-      <ol v-else-if="entries && entries.length" class="bal-list">
+      <!-- 加载中与空快照分开：fetch 未返回前若落在「快照为空 · 稍后重跑」上，会误导用户去重跑脚本 -->
+      <p v-else-if="!entries" class="bal-empty">快照加载中……</p>
+      <ol v-else-if="entries.length" class="bal-list">
         <li v-for="e in entries" :key="e.id" class="bal-item">
           <span class="bal-date">{{ e.date }}</span>
           <div class="bal-body">
@@ -47,7 +50,7 @@ onMounted(async () => {
           </div>
         </li>
       </ol>
-      <p v-else class="bal-empty">快照为空：来源暂无带明细的公告条目，稍后重跑 <code>npm run dfttk:snapshot</code>。</p>
+      <p v-else class="bal-empty">快照为空：暂无带明细的公告条目，稍后重跑 <code>npm run dfttk:snapshot</code>。</p>
     </CollapseCol>
   </div>
 </template>

@@ -780,7 +780,7 @@ check('页面纯逻辑：版本双格式 / 阈值按 source 分档 / SSE 环境�
   assert(staleTipText('moligod', 300).includes('5 小时'), `300 分钟应显示「5 小时」，实际：${staleTipText('moligod', 300)}`)
   const tipK = staleTipText('kkrb', 420)
   assert(tipK.includes('7 小时') && !tipK.includes('历史快照'), `kkrb 过期文案应保持小时口径，实际：${tipK}`)
-  assert(sourceLabel('moligod').includes('moligod') && sourceLabel('kkrb').includes('kkrb'), '来源文案应按 source 切换')
+  assert(sourceLabel('moligod').includes('分钟级') && sourceLabel('kkrb').includes('小时级'), '更新粒度文案应按 source 切换')
 })
 
 /* ============================================================

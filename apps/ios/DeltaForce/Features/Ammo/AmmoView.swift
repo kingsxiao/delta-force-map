@@ -422,8 +422,9 @@ struct SignalCard: View {
             }
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 // 主数字立权（§4.1-2）：预赚与收益率升 lead 档 ok 加粗。
-                // 「预赚 …/发」中英混排：默认 design + 等宽数字（lead=16/body，mono 只留给纯 ASCII）
-                Text("预赚 +\(Fmt.price(item.profitPerRound))/发")
+                // 「预赚 …/发」中英混排：默认 design + 等宽数字（lead=16/body，mono 只留给纯 ASCII）。
+                // 符号跟 Fmt 口径：正数补 +、负数的 - 由 Fmt.price 自带（外层硬拼 + 会得到「+-123」）
+                Text("预赚 \(item.profitPerRound.map { $0 >= 0 ? "+" : "" } ?? "")\(Fmt.price(item.profitPerRound))/发")
                     .font(Theme.font(.lg, weight: .semibold))
                     .monospacedDigit()
                     .foregroundStyle(Theme.ok)
@@ -432,14 +433,27 @@ struct SignalCard: View {
             RankBar(item: item)
             if let eta, let med = eta.medianH, eta.episodes >= 2 {
                 Text("预计 \(SellEtaEngine.fmtHours(med)) 到价（\(eta.etaLabel ?? "—")，\(eta.episodes) 次样本）")
-                    .font(Theme.font(.xs)).foregroundStyle(Theme.dim)
+                    .font(Theme.font(.xs)).monospacedDigit().foregroundStyle(Theme.dim)
             } else if let eta, let peak = SellEtaEngine.fmtPeak(start: eta.peakStart, end: eta.peakEnd) {
-                Text("日内 \(peak) 通常最贵").font(Theme.font(.xs)).foregroundStyle(Theme.dim)
+                Text("日内 \(peak) 通常最贵").font(Theme.font(.xs)).monospacedDigit().foregroundStyle(Theme.dim)
             }
         }
         .frame(width: cardWidth, alignment: .leading)
         // 可点卡片（§4.1-7）：描边换 lineHover 暗示入口；按压 lift 面见 SignalCardPressStyle
         .card(hoverable: true)
+        // 合并朗读（§7-1）：与 SellSignalCard / AmmoRow 同款成句转述，替代逐控件拼读
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(a11yLabel)
+    }
+
+    /// 成句转述（语序对齐视觉：三格输入 → 预赚主数字）
+    private var a11yLabel: String {
+        var parts = [item.name, "买入信号"]
+        parts.append("买入不高于 \(Fmt.price(item.current))，挂卖 \(Fmt.price(item.targetSell))，税后到手 \(Fmt.price(item.netSell))")
+        if let p = item.profitPerRound {
+            parts.append("预赚 \(p >= 0 ? "+" : "")\(Fmt.price(p)) 每发（\(Fmt.pct(item.profitPct))）")
+        }
+        return parts.joined(separator: "，")
     }
 }
 
@@ -471,10 +485,16 @@ struct SellSignalCard: View {
                 StatCell(label: "到手", value: Fmt.price(item.netHigh))
             }
             HStack(alignment: .firstTextBaseline, spacing: 6) {
-                // 主数字立权（同买入卡 §4.1-2）：高位分位 lead 档 danger；距最高为辅读数
-                Mono(highRankText, step: .lead, color: Theme.danger)
+                // 主数字立权（同买入卡 §4.1-2）：高位分位 lead 档 danger；距最高为辅读数。
+                // 「高位 N%」中英混排：与买入卡「预赚 …/发」同配方——默认 design + 等宽数字（lg semibold），
+                // 两张上下相邻的信号卡主数字字阶与数字设计一致（mono design 只留给纯 ASCII）
+                Text(highRankText)
+                    .font(Theme.font(.lg, weight: .semibold))
+                    .monospacedDigit()
+                    .foregroundStyle(Theme.danger)
                 if let liftToHigh {
-                    Text("距最高 +\(Fmt.pct(liftToHigh))")
+                    // Fmt.pct 正数自带 +、负数自带 -（MarketMeta.swift:95），外层再拼 + 会渲染成「++0.0%」
+                    Text("距最高 \(Fmt.pct(liftToHigh))")
                         .font(Theme.font(.md, weight: .semibold))
                         .monospacedDigit()
                         .foregroundStyle(Theme.dim)
@@ -482,9 +502,9 @@ struct SellSignalCard: View {
             }
             RankBar(item: item)
             if let eta, let peak = SellEtaEngine.fmtPeak(start: eta.peakStart, end: eta.peakEnd) {
-                Text("已贴近 7 天高位，日内 \(peak) 通常最贵").font(Theme.font(.xs)).foregroundStyle(Theme.dim)
+                Text("已贴近 7 天高位，日内 \(peak) 通常最贵").font(Theme.font(.xs)).monospacedDigit().foregroundStyle(Theme.dim)
             } else {
-                Text("已贴近 7 天高位，持仓建议出货").font(Theme.font(.xs)).foregroundStyle(Theme.dim)
+                Text("已贴近 7 天高位，持仓建议出货").font(Theme.font(.xs)).monospacedDigit().foregroundStyle(Theme.dim)
             }
         }
         .frame(width: cardWidth, alignment: .leading)
@@ -500,7 +520,7 @@ struct SellSignalCard: View {
 
     private var a11yLabel: String {
         var parts = [item.name, "卖出信号，现价 \(Fmt.price(item.current))"]
-        if let liftToHigh { parts.append("距 7 天最高 +\(Fmt.pct(liftToHigh))")
+        if let liftToHigh { parts.append("距 7 天最高 \(Fmt.pct(liftToHigh))") // Fmt.pct 自带符号，不重复拼 +（与视觉行同口径）
         }
         parts.append("持仓建议出货")
         return parts.joined(separator: "，")
@@ -591,9 +611,10 @@ struct MethodNote: View {
         VStack(alignment: .leading, spacing: 6) {
             // 含中文标题：默认 design + 等宽数字（mono 只留给纯 ASCII）
             Text("口径").font(Theme.font(.xs, weight: .bold)).monospacedDigit().foregroundStyle(Theme.accent)
-            Text(MarketMeta.methodDataLine(source)).font(Theme.font(.xs)).foregroundStyle(Theme.dim)
+            // 正文含 P25/8%/15% 等实义数字：同样走等宽数字，与标题及全页数字节拍一致
+            Text(MarketMeta.methodDataLine(source)).font(Theme.font(.xs)).monospacedDigit().foregroundStyle(Theme.dim)
             Text("买卖点 = 近 7 天小时曲线分位数回归：现价 ≤ P25 且税后收益率 ≥ 8% 判「买入」、≥ P80 判「卖出」、≤ P35 判「关注」；目标挂卖价取 P75，税率按税后价实测反推（约 15%）。历史分位不代表未来走势，信号仅供参考。")
-                .font(Theme.font(.xs)).foregroundStyle(Theme.dim)
+                .font(Theme.font(.xs)).monospacedDigit().foregroundStyle(Theme.dim)
         }
     }
 }

@@ -55,11 +55,11 @@ struct MarketMetaTests {
         #expect(Fmt.grouped(-1234567) == "-1,234,567")
     }
 
-    @Test("来源文案")
+    @Test("更新粒度文案")
     func sourceLabel() {
         #expect(MarketMeta.sourceLabel("moligod").contains("分钟级"))
-        #expect(MarketMeta.sourceLabel("kkrb").contains("兜底"))
+        #expect(MarketMeta.sourceLabel("kkrb").contains("小时级"))
         #expect(MarketMeta.sourceLabel("kkrb-radar+moligod").contains("双源"))
-        #expect(MarketMeta.sourceLabel("?") == "未知来源")
+        #expect(MarketMeta.sourceLabel("?") == "未知粒度")
     }
 }

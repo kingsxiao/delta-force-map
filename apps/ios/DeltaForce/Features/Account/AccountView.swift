@@ -9,9 +9,13 @@ import SwiftUI
 
 struct AccountView: View {
     @Environment(AppModel.self) private var app
+    // §7-9 Reduce Motion：错误行淡入为纯透明度过渡，仍与 FadeInModifier 同口径跳过
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     // 二分触感：登录/注册成功 / 失败各自 tick（§4.5-3 同口径）
     @State private var okTick = 0
     @State private var errTick = 0
+    // 退出登录二次确认（防误触）：destructive 动作使全部已登录设备下线，误触代价高
+    @State private var confirmLogout = false
 
     @State private var mode = "login"
     @State private var username = ""
@@ -51,8 +55,9 @@ struct AccountView: View {
                         rowTitle("用户名")
                     }
                     LabeledContent {
+                        // 行值统一 semibold（同设置页「上次通知」等时间值口径，原先 regular 与同列混排粗细不一）
                         Text(createdAtText(user.createdAt))
-                            .font(Theme.font(.md))
+                            .font(Theme.font(.md, weight: .semibold))
                             .foregroundStyle(Theme.dim)
                     } label: {
                         rowTitle("注册时间")
@@ -79,7 +84,8 @@ struct AccountView: View {
                     if let t = app.auth.lastSyncAt {
                         LabeledContent {
                             Text(t.formatted(date: .omitted, time: .shortened))
-                                .font(Theme.font(.md))
+                                .font(Theme.font(.md, weight: .semibold))
+                                .monospacedDigit()
                                 .foregroundStyle(Theme.dim)
                         } label: {
                             rowTitle("上次同步")
@@ -117,9 +123,23 @@ struct AccountView: View {
 
                 Section {
                     Button("退出登录", role: .destructive) {
-                        Task { await app.logoutAccount() }
+                        confirmLogout = true // 先确认再执行：一次误触不应让全部设备下线
                     }
                     .font(Theme.font(.md, weight: .semibold))
+                    .confirmationDialog(
+                        // 两步确认文案对齐 Web 端账号页口径（视觉复验修复）：标题明确指向当前账号，
+                        // 「所有设备下线」后果从按钮文案移入 message（信息不丢，按钮回到 取消/退出 二元选择）
+                        "确定退出当前账号？",
+                        isPresented: $confirmLogout,
+                        titleVisibility: .visible
+                    ) {
+                        Button("退出", role: .destructive) {
+                            Task { await app.logoutAccount() }
+                        }
+                        Button("取消", role: .cancel) {}
+                    } message: {
+                        Text("退出会让所有已登录设备一起下线；本机自选保留，只是不再同步。")
+                    }
                 } footer: {
                     Text("退出会让所有已登录设备一起下线；本机自选保留，只是不再同步。")
                         .font(Theme.font(.xs))
@@ -185,9 +205,12 @@ struct AccountView: View {
                     .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
 
                     if let errorText {
+                        // §5 P2：错误行淡入淡出（纯透明度，Reduce Motion 跳过）；出现/消失由下方
+                        // .animation(value: errorText) 统一驱动，赋值处无需各自 withAnimation
                         Label(errorText, systemImage: "exclamationmark.triangle.fill")
                             .font(Theme.font(.xs))
                             .foregroundStyle(Theme.danger)
+                            .transition(.opacity)
                     }
                 } header: {
                     sectionHeader("账号")
@@ -217,6 +240,8 @@ struct AccountView: View {
         }
         .sensoryFeedback(.success, trigger: okTick)
         .sensoryFeedback(.error, trigger: errTick)
+        // 错误行出现 / 消失（提交失败、切换方式清除）统一淡入淡出（§5 P2）
+        .animation(reduceMotion ? nil : .easeOut(duration: Theme.durFast), value: errorText)
     }
 
     /* ---------- 私有 ---------- */
@@ -226,19 +251,20 @@ struct AccountView: View {
         mode == "login" ? "密码" : "密码（至少 8 位）"
     }
 
-    /// 字段校验角标：合规 → 绿勾（accent）；失焦后不合规 → 红叹号；空 / 未触碰 → 无（不打扰输入）
+    /// 字段校验角标：合规 → 绿勾（accent）；失焦后不合规 → 红叹号；空 / 未触碰 → 无（不打扰输入）。
+    /// 角标带 a11y label（非 hidden）：校验状态对 VoiceOver 可达，不只在提交报错后才被感知
     @ViewBuilder
     private var usernameStatusIcon: some View {
         if !username.isEmpty && usernameOk {
             Image(systemName: "checkmark.circle.fill")
                 .font(Theme.font(.md))
                 .foregroundStyle(Theme.accent)
-                .accessibilityHidden(true)
+                .accessibilityLabel("用户名格式正确")
         } else if !username.isEmpty && touchedUsername {
             Image(systemName: "exclamationmark.circle.fill")
                 .font(Theme.font(.md))
                 .foregroundStyle(Theme.danger)
-                .accessibilityHidden(true)
+                .accessibilityLabel("用户名格式不符")
         }
     }
 
@@ -248,12 +274,12 @@ struct AccountView: View {
             Image(systemName: "checkmark.circle.fill")
                 .font(Theme.font(.md))
                 .foregroundStyle(Theme.accent)
-                .accessibilityHidden(true)
+                .accessibilityLabel("密码符合要求")
         } else if !password.isEmpty && touchedPassword {
             Image(systemName: "exclamationmark.circle.fill")
                 .font(Theme.font(.md))
                 .foregroundStyle(Theme.danger)
-                .accessibilityHidden(true)
+                .accessibilityLabel("密码不足 8 位")
         }
     }
 
@@ -296,11 +322,17 @@ struct AccountView: View {
     }
 
     private var syncStateText: some View {
+        // 行值字阶与同列其余行（用户名 / 同步内容）及设置页同口径：.md semibold——
+        // 原先漏挂 font 会回退系统 body regular，同屏行值粗细不一
         switch app.auth.syncState {
-        case .idle: Text(user == nil ? "未登录" : "待同步").foregroundStyle(Theme.dim)
-        case .syncing: Text("同步中…").foregroundStyle(Theme.dim)
-        case .ok: Text("已同步").foregroundStyle(Theme.ok)
-        case .error: Text("同步失败").foregroundStyle(Theme.danger)
+        case .idle: Text(user == nil ? "未登录" : "待同步")
+            .font(Theme.font(.md, weight: .semibold)).foregroundStyle(Theme.dim)
+        case .syncing: Text("同步中…")
+            .font(Theme.font(.md, weight: .semibold)).foregroundStyle(Theme.dim)
+        case .ok: Text("已同步")
+            .font(Theme.font(.md, weight: .semibold)).foregroundStyle(Theme.ok)
+        case .error: Text("同步失败")
+            .font(Theme.font(.md, weight: .semibold)).foregroundStyle(Theme.danger)
         }
     }
 

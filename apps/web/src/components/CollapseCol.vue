@@ -68,6 +68,7 @@ defineEmits(['toggle'])
   text-align: left;
   font-size: var(--fs-md);
   font-weight: 600;
+  line-height: var(--lh-tight); /* 长标题折行时行距不塌缩（button 默认 line-height:normal） */
   transition: background var(--t-med);
 }
 .col-head:hover { background: var(--row-hover); }
@@ -79,6 +80,10 @@ defineEmits(['toggle'])
   font-weight: 400;
   color: var(--faint);
   white-space: nowrap;
+  min-width: 0; /* 窄屏放不下时 note 先于 label 收缩并省略号截断（AmmoTable 的
+                   「口径 · N 弹 · 枪名清单」很长），防整行溢出被 .col 裁掉 */
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .chev {
   flex: none;

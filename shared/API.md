@@ -83,6 +83,39 @@ Schema：[schema/radar-snapshot.schema.json](schema/radar-snapshot.schema.json)
 | `rawSignal` | string | 被异常压制前的原始信号 |
 | `curveSource` | string | 实际采用的曲线源（`moligod` / `kkrb-radar`） |
 
+### GET `/craft/craft.json` — 特勤处制造利润快照
+
+Schema：暂无独立 schema 文件（字段以本节为准）。数据源 moligod 特勤处制造页同名接口（公开传输编码：AES-256-GCM + gzip，密钥随响应头下发，`server/craft/snapshot.mjs` 内解码），利润口径为上游算好的预估值：**材料按现价买入 → 产出按现价 × 数量挂卖 → 扣手续费**。
+
+顶层：
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `version` | string | 12 位分钟档 `YYYYMMDDHHmm`，= 全部配方产出 `lastUpdate`（北京墙钟）最大值 |
+| `fetchedAt` / `generatedAt` | ISO-8601 | 本服务抓取时刻 / 上游生成时刻 |
+| `source` | `"moligod-craft"` | 恒定；时效阈值按分钟级档（同 `moligod`，10/30 分钟） |
+| `places` | `{id, label}[]` | 制造台展示序：workbench 工作台 / armory 防具台 / tech 技术中心 / pharmacy 制药台 |
+| `items` | Item[] | 全量配方（当前 230，过滤上游 `is_special_ops_visible === false`） |
+| `stats` | `{total, complete, profitable}` | 完整 = 材料与产出价格齐全；可盈利 = 完整且 `profit > 0` |
+
+Item 字段：
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `id` | int | 上游配方 id（唯一键） |
+| `place` | string | 制造台 id（见 `places`） |
+| `requiredLevel` | int | 制造台解锁等级 |
+| `category` | string \| null | 产出品类（ammo / protect / gun / acc / props …） |
+| `output` | `{name, grade, pic, count, price, lastUpdate}` | 产物：名称 / 品级 / 官方图标 / 数量 / 现价 / 价格更新时刻（北京墙钟）；缺价时 `price` 为 null |
+| `materials` | `{name, grade, pic, count, price, cost}[]` | 材料清单；缺价材料 `price` 为 null |
+| `cost` `fee` `feeRate` `revenue` `profit` | number | 材料成本 / 手续费 / 费率 / 产出收入（价×数量）/ 预估净利润；`profit = revenue − fee − cost` |
+| `profitPerHour` `roi` | number \| null | 服务端派生：时利 = profit / periodHours（periodHours ≤ 0 为 null）；回报率 = profit / cost |
+| `periodHours` `periodLabel` | number, string | 制造耗时（小时 / 原始标签如 `12h`） |
+| `todayMaxProfit` `sevenDayMaxProfit` | number | 今日 / 7 日最高利润（乐观参照，非承诺） |
+| `missingPriceCount` | int | 材料或产出缺价计数；> 0 时利润估算不可用，客户端应降级展示 |
+
+**最佳口径（三端一致）**：`missingPriceCount === 0` 且 `profitPerHour` 最大的配方（制造台同一时间只能跑一条，时利才是真实约束）；单次利润最高可作次序展示。
+
 ### GET `/health` — 服务健康
 
 ```json
@@ -105,6 +138,7 @@ Schema：[schema/radar-snapshot.schema.json](schema/radar-snapshot.schema.json)
 | `hello` | `{version, source, generatedAt}` | 连接建立即发（当前盘上快照元信息） |
 | `market` | `{version, source, generatedAt}` | 弹药快照落盘后 |
 | `radar` | `{version, total, anomaly, buy, sell}` | 雷达快照落盘后 |
+| `craft` | `{version, total, complete, profitable}` | 特勤处制造快照落盘后 |
 
 **事件是轻量 ping，不带全量数据**：客户端收到后比较 `version`，版本前进才重新 GET 对应快照（复用既有数据路径，与网页端行为一致）。
 
@@ -115,6 +149,7 @@ Schema：[schema/radar-snapshot.schema.json](schema/radar-snapshot.schema.json)
 | source | 变灰阈值 | 过期提示阈值 |
 | --- | --- | --- |
 | `moligod`（分钟级） | 10 分钟 | 30 分钟 |
+| `moligod-craft`（分钟级，特勤处制造） | 10 分钟 | 30 分钟 |
 | `kkrb`（小时级兜底） | 60 分钟 | 360 分钟 |
 
 年龄计算锚点：`fetchedAt`（心跳会刷新它）；年龄可读化 <60min 用分钟、<24h 用小时、更长用天。

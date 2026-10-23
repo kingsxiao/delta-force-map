@@ -10,7 +10,8 @@ const { user } = useAccount()
 const tabs = [
   { to: '/ammo', label: '子弹行情' },
   { to: '/radar', label: '异动雷达' },
-  { to: '/ttk', label: 'TTK排行' },
+  { to: '/craft', label: '特勤处制造' },
+  { to: '/ttk', label: 'TTK 排行' },
 ]
 </script>
 
@@ -99,6 +100,8 @@ const tabs = [
 }
 .tabs {
   display: flex;
+  align-self: stretch; /* 拉通顶栏全高：tab 触达区 44 → 56px，且 ::after 指示条
+                           （bottom:-1px）贴住顶栏下边线，激活态与分隔线连续成一体 */
   gap: var(--sp-5);
 }
 /* 下划线式 tab：文字 + 底部指示条，与页内胶囊 chips 拉开层级 */
@@ -107,7 +110,7 @@ const tabs = [
   display: inline-flex;
   align-items: center;
   flex: none; /* 横向滚动模式下不吃收缩，保持整词宽 */
-  min-height: 44px; /* 触控行高下限（HIG 44pt）；56px 顶栏内垂直居中，桌面观感不变 */
+  min-height: 44px; /* 触控行高下限（HIG 44pt）；.tabs 已拉通 56px 顶栏全高，实际行高即 56px */
   padding: 6px 2px;
   font-size: var(--fs-sm);
   color: var(--dim);

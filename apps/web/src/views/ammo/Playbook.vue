@@ -2,15 +2,14 @@
 /* ============================================================
    Playbook — 倒卖手册（/ammo 页尾区块）
    ------------------------------------------------------------
-   静态内容：把社区攻略里验证过的实操经验（买什么/何时买、挂单
+   静态内容：实操经验（买什么/何时买、挂单
    定价技巧、版本窗口套利、卡邮件扩容）与本站信号口径串成一条
-   「囤→卖」动线。内容为公开攻略整理（来源见页尾链接），机制与
-   数值随版本变动，不在本组件里写死任何游戏内实时数值。
+   「囤→卖」动线。机制与数值随版本变动，不在本组件里写死任何游戏内实时数值。
    ============================================================ */
 
-/* 一天内的买/卖窗口（社区共识的流量节奏；tone 对齐站点语义 buy=绿 sell=红） */
+/* 一天内的买/卖窗口（流量节奏共识；tone 对齐站点语义 buy=绿 sell=红） */
 const WINDOWS = [
-  { time: '02:00–05:00', tag: '扫货', tone: 'buy', note: '挂机党下线甩卖，全天低位（社区观察约低两成）' },
+  { time: '02:00–05:00', tag: '扫货', tone: 'buy', note: '挂机党下线甩卖，全天低位（约低两成）' },
   { time: '07:00–09:00', tag: '囤货', tone: 'buy', note: '工作日早间黄金期：上班族未上线，卖压轻' },
   { time: '12:00–14:00', tag: '上架', tone: 'sell', note: '午休补弹潮，挂单可比凌晨高约 10%' },
   { time: '19:00–23:00', tag: '出货', tone: 'sell', note: '晚间高峰；周日晚 20–23 点是全周最佳抛售窗口' },
@@ -38,7 +37,7 @@ const CARDS = [
     idx: '03', en: 'WINDOW', title: '版本与赛季窗口（利润最厚）', warn: false,
     items: [
       { lead: '更新前 3–7 天囤货：', text: '新赛季/大版本前囤热门口径（新枪配套弹、5.56 等主流弹）；赛季末物价低迷同样是囤货窗口。' },
-      { lead: '开更后 3 天内出货：', text: '全服补弹需求暴增，是主要抛售窗口（社区案例：AP6.3 更新后涨至约 4.5 万/格）。' },
+      { lead: '开更后 3 天内出货：', text: '全服补弹需求暴增，是主要抛售窗口（AP6.3 更新后涨至约 4.5 万/格）。' },
       { lead: '活动公告驱动：', text: '新玩法、夜战等活动公布即囤对应消耗品；研发部门新配方、特勤处制作活动会拉动特定材料价格。' },
     ],
   },
@@ -57,7 +56,7 @@ const RISKS = [
   { lead: '倒卖本身合规：', text: '交易行是官方自由市场，低买高卖属正常玩法；但卡邮件漏洞法、多开搬砖属灰色操作，风险自负。' },
   { lead: '变现红线：', text: '哈夫币不能直接交易；私下交易骗子多，比例明显偏离行情的基本是骗局；官方市集安全但手续费约 30%，出手前先算净所得。' },
   { lead: '行情会跌：', text: '囤货可能不涨反跌，多人同时抛售会加速下跌；历史分位不代表未来走势，本站信号同理。' },
-  { lead: '费率以游戏内为准：', text: '挂单 12 / 24 小时费率不同、成交后才扣除；本站利润按上游税后价实测税率（约 15%）逐弹计算，与部分攻略引用的基础费率（约 5%）口径不一。' },
+  { lead: '费率以游戏内为准：', text: '挂单 12 / 24 小时费率不同、成交后才扣除；本站利润按实测税率（约 15%）逐弹计算。' },
 ]
 </script>
 
@@ -65,11 +64,11 @@ const RISKS = [
   <section class="block reveal">
     <div class="block-h">
       <span class="bht">PLAYBOOK</span><span class="bhline"></span>
-      <span class="bhc">倒卖手册 · 社区攻略整理</span>
+      <span class="bhc">倒卖手册</span>
     </div>
 
     <p class="pb-lede">
-      倒卖 = 低价囤消耗品 + 高位分批抛售。本站信号解决「哪种弹、什么价」，下面是社区攻略里
+      倒卖 = 低价囤消耗品 + 高位分批抛售。本站信号解决「哪种弹、什么价」，下面是
       验证过的「什么时间、怎么操作」——按 <b>时段 → 买 → 卖 → 窗口</b> 串成一条完整动线。
     </p>
 
@@ -104,11 +103,6 @@ const RISKS = [
     </div>
 
     <p class="pb-src">
-      要点整理自社区公开攻略（2026-10）：
-      <a href="https://gl.ali213.net/html/2026-1/1738617.html" target="_blank" rel="noopener">挂单定价技巧 · 游民星空</a>　
-      <a href="https://gl.ali213.net/html/2025-11/1717669.html" target="_blank" rel="noopener">卡邮件机制 · 游侠网</a>　
-      <a href="https://www.taptap.cn/moment/556972710542970097" target="_blank" rel="noopener">交易行系统篇 · TapTap</a>　
-      <a href="https://www.taptap.cn/moment/720582626234076432" target="_blank" rel="noopener">搬砖全攻略 · TapTap</a>；
       机制与数值随版本变动，以游戏内实际为准。
     </p>
   </section>
@@ -188,14 +182,8 @@ const RISKS = [
 .pb-risk li::before { content: "◆"; position: absolute; left: 0; top: 6px; font-size: 7px; color: var(--danger); opacity: .7; }
 .pb-risk li b { color: var(--tx); font-weight: 600; }
 
-/* ---------- 来源（正文外链：默认 --dim + --line 底边，hover 字 --accent + 边 --accent-dim） ---------- */
+/* ---------- 备注（正文外说明行） ---------- */
 .pb-src { font-size: var(--fs-xs); color: var(--faint); line-height: 2; margin: var(--sp-4) 0 0; }
-.pb-src a {
-  color: var(--dim); text-decoration: none; border-bottom: 1px solid var(--line);
-  transition: color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
-}
-.pb-src a:hover,
-.pb-src a:active { color: var(--accent); border-bottom-color: var(--accent-dim); }
 
 /* ---------- 响应式：时段条 4→2→1 列，卡组 2→1 列 ---------- */
 @media (max-width: 900px) { .pb-clock { grid-template-columns: repeat(2, 1fr); } }
@@ -204,6 +192,6 @@ const RISKS = [
 
 /* 微交互过渡的 reduced-motion 关闭 */
 @media (prefers-reduced-motion: reduce) {
-  .pb-card, .pb-src a { transition: none; }
+  .pb-card { transition: none; }
 }
 </style>
