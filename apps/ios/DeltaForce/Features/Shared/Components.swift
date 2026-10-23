@@ -290,72 +290,29 @@ struct Sparkline: View {
     }
 }
 
-/// 列表头：来源 / 版本 / 年龄 / 通道状态 / 过期提示（TimelineView 让年龄每 30s 自更）
-/// （行情 / 雷达专用；特勤处制造页用 CraftView 内的同构轻量版 CraftFeedHeader）
-struct FeedHeader: View {
-    let feed: FeedModel<MarketSnapshot>
-    let channel: LiveChannel
-    var subtitle: String?
-    /// 错误行开关（错误去重，默认 true）：无快照的首拉失败若由页内 RetryErrorRow 承担错误展示
-    /// （含重试出口），置 false 隐藏此处胶囊，避免同屏双份同一文案；有快照的后台刷新失败仍由此处提示。
-    /// 带默认值，既有调用点零改动
-    var showLoadError: Bool = true
+/// 数据源错误横幅：仅在有错误要展示时渲染（正常态整行退场、零占位）。
+/// 供行情 / 雷达 / 制造页列表顶部共用；无快照的首拉失败建议交给页内
+/// RetryErrorRow（带重试出口），调用方以「有快照才显示」来去重同屏双份文案。
+struct FeedErrorBanner: View {
+    let message: String?
 
     var body: some View {
-        TimelineView(.periodic(from: .now, by: 30)) { ctx in
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 8) {
-                    // 连接点复用共享 ConnectionDot（C11 提为共享 API），着色维度全参传入：
-                    // 观感与原 private dotColor 逐分支等价（live 且未过期→ok / 有错误→danger / 其余→faint）。
-                    // showLabel=false：页头不显「实时推送」状态文字，只留圆点（页头信息密度高，文字说明不必要）
-                    ConnectionDot(
-                        state: channel.state,
-                        error: feed.lastError != nil,
-                        stale: feed.isDotStale(now: ctx.date),
-                        showLabel: false
-                    )
-                    Spacer()
-                    if feed.isLoading { ProgressView().controlSize(.mini) }
-                    Mono(MarketMeta.formatVersionLabel(feed.snapshot?.version), step: .micro, color: Theme.dim)
-                }
-                if let snap = feed.snapshot {
-                    // 「X小时前」中文不断开：fmtAge 尾部无空格，"前"前不加字面空格
-                    Text("\(MarketMeta.sourceLabel(snap.source)) · 数据 \(MarketMeta.fmtAge(minutes: feed.ageMinutes(now: ctx.date)))前")
-                        .font(Theme.font(.xs))
-                        .foregroundStyle(Theme.faint)
-                }
-                if let subtitle {
-                    Text(subtitle).font(Theme.font(.xs)).foregroundStyle(Theme.faint)
-                }
-                if let err = feed.lastError, showLoadError {
-                    // C7：错误行升格为 danger 8% 底胶囊行，断网时在列表顶部一眼可见（原图标语义=警告）；
-                    // showLoadError=false 时由页内 RetryErrorRow 承担（无快照首拉失败场景，见参数注释）
-                    Label(err, systemImage: "exclamationmark.triangle")
-                        .font(Theme.font(.xs))
-                        .foregroundStyle(Theme.danger)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(Theme.danger.opacity(0.08), in: Capsule())
-                }
-                if feed.isStale(now: ctx.date), let snap = feed.snapshot {
-                    Text(MarketMeta.staleTipText(source: snap.source, ageMin: feed.ageMinutes(now: ctx.date)))
-                        .font(Theme.font(.xs))
-                        .foregroundStyle(Theme.warn)
-                }
-            }
+        if let message {
+            // danger 8% 底胶囊行（C7 配方）：断网 / 后台刷新失败时在列表顶部一眼可见
+            Label(message, systemImage: "exclamationmark.triangle")
+                .font(Theme.font(.xs))
+                .foregroundStyle(Theme.danger)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Theme.danger.opacity(0.08), in: Capsule())
         }
-        // C6：id 绑 version × lastRefreshAt 组合——任一前进即重建 TimelineView、以当前时间重算年龄。
-        // 只绑 version 不够：FeedModel.refresh 明确处理「version 不变、fetchedAt 前进」的同版本重拉
-        //（State/FeedModel.swift:60 changed 判断），此时恰好漏掉要消灭的 30s 年龄滞后；30s 周期兜底保留
-        .id("\(feed.snapshot?.version ?? "-")-\(Int(feed.lastRefreshAt?.timeIntervalSince1970 ?? 0))")
     }
 }
 
-/// 连接状态小组件（C11）：8pt 圆点 + state.label 文案，供 FeedHeader 与设置页「连接状态」行共用。
-/// 着色规则（与原 FeedHeader.dotColor 逐步对齐）：`state.isLive && !stale` → ok；`error` → danger；其余 → faint。
-/// LiveChannel.State 六态没有 error 态，故签名必须带 `error`/`stale` 两个带默认值参数承载这两个维度：
-/// 设置页只传 `state`（live 显 ok、其余 faint）；FeedHeader 传全参（观感与现状逐分支等价）。
+/// 连接状态小组件（C11）：8pt 圆点 + state.label 文案，供设置页「连接状态」行使用。
+/// 着色规则：`state.isLive && !stale` → ok；`error` → danger；其余 → faint。
+/// LiveChannel.State 六态没有 error 态，故签名必须带 `error`/`stale` 两个带默认值参数承载这两个维度。
 struct ConnectionDot: View {
     let state: LiveChannel.State
     /// feed.lastError != nil 时圆点转 danger
