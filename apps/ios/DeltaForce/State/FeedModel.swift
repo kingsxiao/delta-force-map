@@ -34,6 +34,10 @@ final class FeedModel<Snap: FeedSnapshot> {
 
     private var client: APIClient?
     private var pollTask: Task<Void, Never>?
+    /// refresh 飞行中收到的新请求（SSE 版本事件触发的重拉）：不丢弃，当前请求
+    /// 完成后立即补拉一次（否则竞态窗口内飞行请求可能拿到旧版本，要等下一个
+    /// 事件 / 轮询周期才补上）
+    private var pendingRefresh = false
 
     /// 通用入口：任意快照形状经 fetcher 注入（特勤处制造等新数据源）
     init(fetcher: @escaping @Sendable (APIClient) async throws -> Snap) {
@@ -62,19 +66,28 @@ final class FeedModel<Snap: FeedSnapshot> {
 
     func refresh() async {
         guard let client else { return }
-        if isLoading { return }
+        if isLoading {
+            pendingRefresh = true
+            return
+        }
         isLoading = true
         defer { isLoading = false }
-        do {
-            let snap = try await fetcher(client)
-            let changed = snap.version != snapshot?.version || snap.fetchedAt != snapshot?.fetchedAt
-            snapshot = snap
-            lastError = nil
-            lastRefreshAt = .now
-            if changed { onSnapshot?(snap) }
-        } catch {
-            lastError = error.localizedDescription
-        }
+        // 循环补拉而非递归：递归发起时本函数未退出、defer 未执行、isLoading
+        // 仍为 true，会再次命中上方守卫把补拉又挂回 pendingRefresh（永远拉不
+        // 出去）。循环内 isLoading 持续为真，飞行窗口内的新请求照旧挂标志排队
+        repeat {
+            pendingRefresh = false
+            do {
+                let snap = try await fetcher(client)
+                let changed = snap.version != snapshot?.version || snap.fetchedAt != snapshot?.fetchedAt
+                snapshot = snap
+                lastError = nil
+                lastRefreshAt = .now
+                if changed { onSnapshot?(snap) }
+            } catch {
+                lastError = error.localizedDescription
+            }
+        } while pendingRefresh
     }
 
     /// SSE ping：版本前进才重拉（事件不带全量数据，契约 §2）

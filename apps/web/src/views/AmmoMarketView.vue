@@ -69,14 +69,19 @@ let pollTimer = null
 let clockTimer = null
 let ctlRO = null
 let prevTitle = '' // 路由标题：进入存默认值，卸载还原（模式同 TtkView）
+/* 请求序号：SSE 事件 / 轮询 / 手动刷新并发打同一 URL 时只认最新一次的响应，
+   先发慢到的旧快照不覆盖新快照（fetch 不取消、响应落地即丢弃） */
+let loadSeq = 0
 
 async function load(opts = {}) {
+  const seq = ++loadSeq
   const silent = !!(opts.silent && market.value)
   if (silent) refreshing.value = true
   else loadState.value = 'loading'
   try {
     const prevVersion = market.value?.version
     const res = await fetch(`${import.meta.env.BASE_URL}ammo/market.json?t=${Date.now()}`)
+    if (seq !== loadSeq) return
     if (res.status === 404) {
       if (silent) throw new Error('快照不存在（HTTP 404）')
       loadState.value = 'empty'
@@ -84,6 +89,7 @@ async function load(opts = {}) {
     }
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
     const json = await res.json()
+    if (seq !== loadSeq) return
     if (!json || !Array.isArray(json.items)) throw new Error('数据格式异常')
     market.value = json
     loadState.value = 'ready'
@@ -105,6 +111,7 @@ async function load(opts = {}) {
     syncTblFade()
     mountCtlRO()
   } catch (e) {
+    if (seq !== loadSeq) return // 旧请求的失败不覆盖新请求的状态
     if (silent) {
       // 静默失败：保留旧数据，只在控制条下给一行提示，不整页报错
       refreshTip.value = '刷新失败，仍显示之前的数据'
@@ -116,7 +123,7 @@ async function load(opts = {}) {
       loadState.value = 'error'
     }
   } finally {
-    refreshing.value = false
+    if (seq === loadSeq) refreshing.value = false
   }
 }
 
@@ -583,16 +590,25 @@ function etaLine(i) {
 function schedulePoll() {
   const delay = liveChannel.value === 'off' ? 30 * 60 * 1000 : 60 * 1000
   pollTimer = setTimeout(() => {
-    if (document.visibilityState === 'visible' && market.value) load({ silent: true, auto: true })
+    // 首载失败 / 空（market 恒 null）时轮询也重试，纯静态部署错误态可自动恢复
+    // （silent 分支在无数据时自然降级为整页重载）；ready 态维持原有静默刷新
+    if (document.visibilityState === 'visible' && (market.value || loadState.value === 'error' || loadState.value === 'empty')) {
+      load({ silent: true, auto: true })
+    }
     schedulePoll()
   }, delay)
 }
 /* 回前台补拉：后台期间 schedulePoll 的可见检查会跳过拉取，切回最坏要
-   等下个周期（off 档 30min）；数据龄已过变灰阈值就直接补一次，不等 tick */
+   等下个周期（off 档 30min）；数据龄已过变灰阈值就直接补一次，不等 tick。
+   首载失败 / 空的页面回前台同样补一次自动恢复 */
 function onVisibility() {
   if (document.visibilityState !== 'visible') return
   nowTs.value = Date.now() // 分钟钟 60s 才走一格，回台先校正数据年龄
-  if (market.value && ageMin.value != null && ageMin.value > thresholds.staleDotMin) {
+  if (!market.value) {
+    if (loadState.value === 'error' || loadState.value === 'empty') load({ silent: true, auto: true })
+    return
+  }
+  if (ageMin.value != null && ageMin.value > thresholds.staleDotMin) {
     load({ silent: true, auto: true })
   }
 }

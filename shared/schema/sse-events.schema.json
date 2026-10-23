@@ -38,6 +38,18 @@
         "buy": { "type": "integer", "minimum": 0 },
         "sell": { "type": "integer", "minimum": 0 }
       }
+    },
+    {
+      "title": "craft",
+      "description": "特勤处制造快照落盘后广播",
+      "type": "object",
+      "required": ["version", "total", "complete", "profitable"],
+      "properties": {
+        "version": { "$ref": "market-snapshot.schema.json#/$defs/versionKey" },
+        "total": { "type": "integer", "minimum": 0 },
+        "complete": { "type": "integer", "minimum": 0 },
+        "profitable": { "type": "integer", "minimum": 0 }
+      }
     }
   ]
 }

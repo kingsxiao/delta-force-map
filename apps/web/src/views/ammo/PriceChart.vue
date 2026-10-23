@@ -118,11 +118,12 @@ const geo = computed(() => {
       <text :x="PAD.l - 6" :y="geo.y((geo.max + geo.min) / 2) + 4" class="pc-tick" text-anchor="end">{{ Math.round((geo.max + geo.min) / 2) }}</text>
       <text :x="PAD.l - 6" :y="geo.y(geo.min) + 4" class="pc-tick" text-anchor="end">{{ Math.round(geo.min) }}</text>
 
-      <!-- 分位线：P75 卖出参考（上）、P25 买入参考（下）；标注挂线左端，与右缘「现在」错位 -->
-      <line v-if="p75" :x1="PAD.l" :y1="geo.y(p75)" :x2="W - PAD.r" :y2="geo.y(p75)" class="pc-quant q75" />
-      <text v-if="p75" :x="PAD.l + 4" :y="geo.q75y" class="pc-qtxt q75t" text-anchor="start">P75 卖出参考 {{ Math.round(p75) }}</text>
-      <line v-if="p25" :x1="PAD.l" :y1="geo.y(p25)" :x2="W - PAD.r" :y2="geo.y(p25)" class="pc-quant q25" />
-      <text v-if="p25" :x="PAD.l + 4" :y="geo.q25y" class="pc-qtxt q25t" text-anchor="start">P25 买入参考 {{ Math.round(p25) }}</text>
+      <!-- 分位线：P75 卖出参考（上）、P25 买入参考（下）；标注挂线左端，与右缘「现在」错位。
+           判定与脚本层 geo 的 Number.isFinite 同口径：0 是有效价位要画线（v-if="p75" 会把 0 当缺失） -->
+      <line v-if="Number.isFinite(p75)" :x1="PAD.l" :y1="geo.y(p75)" :x2="W - PAD.r" :y2="geo.y(p75)" class="pc-quant q75" />
+      <text v-if="Number.isFinite(p75)" :x="PAD.l + 4" :y="geo.q75y" class="pc-qtxt q75t" text-anchor="start">P75 卖出参考 {{ Math.round(p75) }}</text>
+      <line v-if="Number.isFinite(p25)" :x1="PAD.l" :y1="geo.y(p25)" :x2="W - PAD.r" :y2="geo.y(p25)" class="pc-quant q25" />
+      <text v-if="Number.isFinite(p25)" :x="PAD.l + 4" :y="geo.q25y" class="pc-qtxt q25t" text-anchor="start">P25 买入参考 {{ Math.round(p25) }}</text>
 
       <path :d="geo.area" class="pc-area" />
       <path :d="geo.line" class="pc-line" fill="none" />

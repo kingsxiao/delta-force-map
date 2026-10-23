@@ -88,7 +88,7 @@ check('buildRadarItem：高位 → SELL；分钟尾点覆盖曲线尾点', () =>
 
 check('buildRadarItem：moligod 曲线过短（<24 点）→ 回退榜单曲线', () => {
   const it = buildRadarItem(hiItem(zigzag), { moliCurve: zigzag.slice(-5), minuteTail: null })
-  assert(it.curveSource === 'kkrb', it.curveSource)
+  assert(it.curveSource === 'kkrb-radar', it.curveSource) // 枚举对齐 schema：["moligod","kkrb-radar"]
   assert(it.curve.length === 48, `curve=${it.curve.length}`)
   // 曲线尾点 200（锯齿末点是高位）作现价 → SELL
   assert(it.current === 200 && it.signal === 'SELL', `current=${it.current} signal=${it.signal}`)

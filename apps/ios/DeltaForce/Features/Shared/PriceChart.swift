@@ -20,6 +20,21 @@ struct PriceChart: View {
         let price: Double
     }
 
+    /// 时间轴 / 气泡固定北京时区：key 本身是北京墙钟数字（keyToDate 按北京解析），
+    /// 按设备时区格式化会让海外设备显示出与 key 不一致的小时（日期还会偏移），
+    /// 与同页 ETA 的北京日历口径（friendlyClock）也不一致——统一走 SellEta 的北京时区
+    private static let bjFullStyle: Date.FormatStyle = {
+        var f = Date.FormatStyle.dateTime.month().day().hour().minute()
+        f.timeZone = SellEtaEngine.beijing.timeZone
+        return f
+    }()
+    /// X 轴日标签（仅月日，同上固定北京时区）
+    private static let bjDayStyle: Date.FormatStyle = {
+        var f = Date.FormatStyle.dateTime.month(.defaultDigits).day()
+        f.timeZone = SellEtaEngine.beijing.timeZone
+        return f
+    }()
+
     private var points: [Pt] {
         item.curve.compactMap { p in
             guard let d = SellEtaEngine.keyToDate(p.key) else { return nil }
@@ -79,7 +94,7 @@ struct PriceChart: View {
                     .lineStyle(StrokeStyle(lineWidth: 1, dash: [3, 3]))
                     .annotation(position: .top, alignment: .leading) {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(sel.date.formatted(.dateTime.month().day().hour().minute()))
+                            Text(sel.date.formatted(Self.bjFullStyle))
                                 .font(Theme.font(.micro))
                                 .foregroundStyle(Theme.faint)
                             Mono(Fmt.price(sel.price), step: .micro, weight: .bold) // P3：与现价标注同源同档
@@ -95,7 +110,7 @@ struct PriceChart: View {
         .chartXAxis {
             AxisMarks(values: .stride(by: .day)) { _ in
                 AxisGridLine().foregroundStyle(Theme.line)
-                AxisValueLabel(format: .dateTime.month(.defaultDigits).day(), centered: false)
+                AxisValueLabel(format: Self.bjDayStyle, centered: false)
                     .foregroundStyle(Theme.faint)
             }
         }
@@ -177,6 +192,6 @@ struct PriceChart: View {
         let idx = pts.indices.contains(voCursor) ? voCursor : pts.count - 1
         guard pts.indices.contains(idx) else { return "暂无数据" }
         let p = pts[idx]
-        return "\(p.date.formatted(.dateTime.month().day().hour().minute()))，价格 \(Fmt.price(p.price))"
+        return "\(p.date.formatted(Self.bjFullStyle))，价格 \(Fmt.price(p.price))"
     }
 }

@@ -67,8 +67,18 @@ final class AuthStore {
     private let client: APIClient
     /// 云端文档缓存（上推保留其他键；登录拉取后有效）
     private var cloudDoc: [String: AccountValue] = [:]
+    /// cloudDoc 是否已成功从云端加载。未加载前拒绝整文档上推——服务端 PUT 是
+    /// 全量覆盖，带着空缓存推会误删云端其他端写入的键（如网页端 mycost.ammo）
+    private var cloudDocLoaded = false
+    /// 会话是否已经 /me 验证（冷启动离线时先用 UserDefaults 缓存作乐观展示，
+    /// 未验证期间 scenePhase 回前台可重试；adopt 即已验证）
+    private var restoreVerified = false
     private var pushTask: Task<Void, Never>?
     private var started = false
+
+    /// 上推途中退化为拉取合并（cloudDoc 尚未加载）时，把合并结果抛给 AppModel
+    /// 落回本地 Store——否则本地仍是未合并的旧集合，后续上推会把它覆盖回云端
+    var onMerged: ((MergeResult) -> Void)?
 
     init(client: APIClient) {
         self.client = client
@@ -87,15 +97,52 @@ final class AuthStore {
 
     // MARK: - 启动恢复
 
-    /// 启动时用存量 token 调 /me 恢复会话（静默：失败只清失效令牌）
+    /// 启动时用存量 token 调 /me 恢复会话（静默：401 只清失效令牌）。
+    /// 网络类失败（离线冷启动）不放弃会话：回填 UserDefaults 缓存用户作乐观
+    /// 展示，云同步照常排队；scenePhase 回前台由 retryRestoreIfNeeded 补拉验证。
     func restore() async {
         guard !started else { return }
         started = true
         guard let token else { return }
         do {
-            user = try await client.me(token: token)
+            let me = try await client.me(token: token)
+            user = me
+            restoreVerified = true
+            cacheUser(me)
+        } catch {
+            if isAuthExpired(error) {
+                clearLocal()
+            } else if let cached = cachedUser() {
+                user = cached
+            }
+        }
+    }
+
+    /// 会话补拉：restore 因网络失败（或无缓存）未验证时，前台激活等时机重试 /me。
+    /// 返回 true = 本次调用验证成功（调用方可顺带补一次冷启动漏掉的云同步）。
+    func retryRestoreIfNeeded() async -> Bool {
+        guard started, !restoreVerified, let token else { return false }
+        do {
+            let me = try await client.me(token: token)
+            user = me
+            restoreVerified = true
+            cacheUser(me)
+            return true
         } catch {
             if isAuthExpired(error) { clearLocal() }
+            return false
+        }
+    }
+
+    /// UserDefaults 里的用户缓存（adopt 时写入；离线冷启动兜底展示用）
+    private func cachedUser() -> AuthUser? {
+        guard let data = UserDefaults.standard.data(forKey: Self.userKey) else { return nil }
+        return try? JSONDecoder().decode(AuthUser.self, from: data)
+    }
+
+    private func cacheUser(_ u: AuthUser) {
+        if let data = try? JSONEncoder().encode(u) {
+            UserDefaults.standard.set(data, forKey: Self.userKey)
         }
     }
 
@@ -114,16 +161,15 @@ final class AuthStore {
     private func adopt(_ session: AuthSession) {
         token = session.token
         user = session.user
-        if let data = try? JSONEncoder().encode(session.user) {
-            UserDefaults.standard.set(data, forKey: Self.userKey)
-        }
+        restoreVerified = true
+        cacheUser(session.user)
+        resetCloudDoc() // 换会话：旧账号的云端缓存绝不能带进新会话的上推
     }
 
     /// 登出：服务器失效全部令牌（best-effort，不可达也已清本地）→ 清会话；本地自选保留
     func logout() async {
         let old = token
         clearLocal()
-        cloudDoc = [:]
         pushTask?.cancel()
         syncState = .idle
         if let old {
@@ -134,7 +180,15 @@ final class AuthStore {
     private func clearLocal() {
         token = nil
         user = nil
+        restoreVerified = false
         UserDefaults.standard.removeObject(forKey: Self.userKey)
+        resetCloudDoc()
+    }
+
+    /// 云端缓存复位：新会话 / 会话失效后，未加载状态下的上推会被门禁拦下
+    private func resetCloudDoc() {
+        cloudDoc = [:]
+        cloudDocLoaded = false
     }
 
     /// 401 语义（BAD_TOKEN / TOKEN_EXPIRED）：会话已失效，需清本地重登
@@ -171,14 +225,21 @@ final class AuthStore {
         syncState = .syncing
         do {
             let envelope = try await client.accountData(token: token)
-            cloudDoc = normalizeAccountDoc(envelope.data) ?? [:]
+            // 规范化不过（键非法 / 超尺寸）按同步失败中止——若回退空文档继续，
+            // 后续上推会以空缓存整文档覆盖，误删云端其他键
+            guard let doc = normalizeAccountDoc(envelope.data) else {
+                syncState = .error(message: "云端数据校验失败，已中止同步")
+                return MergeResult(stars: nil, positions: nil)
+            }
+            cloudDoc = doc
+            cloudDocLoaded = true
             let mergedStars = mergeStars(local: stars, remote: cloudStars)
             let mergedPositions = mergePositions(local: positions, remote: cloudPositions)
-            var doc = cloudDoc
-            doc["stars.ammo"] = .array(mergedStars.map { .string($0) })
-            doc["ledger.ammo"] = Self.accountValue(mergedPositions)
-            try await client.putAccountData(doc, token: token)
-            cloudDoc = doc
+            var newDoc = cloudDoc
+            newDoc["stars.ammo"] = .array(mergedStars.map { .string($0) })
+            newDoc["ledger.ammo"] = Self.accountValue(mergedPositions)
+            try await client.putAccountData(newDoc, token: token)
+            cloudDoc = newDoc
             lastSyncAt = .now
             syncState = .ok
             return MergeResult(stars: mergedStars, positions: mergedPositions)
@@ -207,10 +268,32 @@ final class AuthStore {
 
     private func pushNow(_ payload: LocalData) async {
         guard let token, user != nil else { return }
+        // 门禁：云端缓存未加载（登录后首拉失败 / 尚未拉过）时先转一次完整
+        // 拉取合并——拉不到就中止，绝不带着空缓存整文档 PUT（会误删云端
+        // 其他端写入的键，且本地集合会覆盖其他端新增的星标）
+        if !cloudDocLoaded {
+            let merged = await pullAndMerge(stars: payload.stars, positions: payload.positions)
+            if merged.stars != nil || merged.positions != nil {
+                onMerged?(merged) // AppModel 落回本地，本地与云端回到同一并集
+            }
+            return
+        }
         do {
-            var doc = cloudDoc
-            doc["stars.ammo"] = .array(payload.stars.map { .string($0) })
-            doc["ledger.ammo"] = Self.accountValue(payload.positions)
+            // 上推前先 GET 云端现值，两键按 §6.3 口径合并（星标并集 / 台账按名
+            // 并集·同名本机优先）再回推——多端并发时后推者不用内存旧快照整文档
+            // 覆盖对端改动（网页端写入的 mycost.ammo 等其他键随最新云端原样
+            // 保留），与 web useAccount.schedulePush 同口径
+            let envelope = try await client.accountData(token: token)
+            guard let remote = normalizeAccountDoc(envelope.data) else {
+                // 规范化不过按同步失败中止，绝不带着空文档整文档覆盖（同 pullAndMerge）
+                syncState = .error(message: "云端数据校验失败，已中止同步")
+                return
+            }
+            var doc = remote
+            let mergedStars = mergeStars(local: payload.stars, remote: remote["stars.ammo"]?.stringArray ?? [])
+            let mergedPositions = mergePositions(local: payload.positions, remote: remote["ledger.ammo"]?.ledgerArray ?? [])
+            doc["stars.ammo"] = .array(mergedStars.map { .string($0) })
+            doc["ledger.ammo"] = Self.accountValue(mergedPositions)
             try await client.putAccountData(doc, token: token)
             cloudDoc = doc
             lastSyncAt = .now

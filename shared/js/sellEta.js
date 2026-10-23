@@ -12,6 +12,9 @@
    该出货」。
    时间键双格式：moligod 12 位分钟档（YYYYMMDDHHmm）/ kkrb 10 位小时档
    （YYYYMMDDHH），同 marketMeta 约定。
+   墙钟口径固定北京时间（+08:00，时间键的生成口径）：keyToDate 解析与
+   friendlyClock 渲染都不走访问者本地时区——与 iOS SellEta.swift 固定
+   Asia/Shanghai 同口径，海外访问者看到的「今日/明日 HH:00」与北京一致。
    ETA 时钟锚点取 max(曲线末点, now)：数据过期时从当下起算，页面的数据
    年龄提示仍如实标注边界。历史统计不代表未来——展示层必须带这句。
    ============================================================ */
@@ -22,15 +25,20 @@ function hourOfKey(key) {
   return Number.isInteger(h) && h >= 0 && h <= 23 ? h : null
 }
 
-/** 时间键 → Date（按数据墙钟解析；moligod/kkrb 均为北京时间口径） */
+/** 北京墙钟相对 UTC 的固定偏移（无夏令时，日界计算可直接整除） */
+const BEIJING_OFFSET_MS = 8 * 60 * 60 * 1000
+
+/** 时间键 → Date（按北京墙钟解析；moligod/kkrb 均为北京时间口径，不随访问者时区漂移） */
 function keyToDate(key) {
   const s = String(key)
   const mi = s.length >= 12 ? Number(s.slice(10, 12)) : 0
-  return new Date(Number(s.slice(0, 4)), Number(s.slice(4, 6)) - 1, Number(s.slice(6, 8)), Number(s.slice(8, 10)), mi)
+  const wall = Date.UTC(Number(s.slice(0, 4)), Number(s.slice(4, 6)) - 1, Number(s.slice(6, 8)), Number(s.slice(8, 10)), mi)
+  return new Date(wall - BEIJING_OFFSET_MS)
 }
 
 const pad2 = (n) => String(n).padStart(2, '0')
-const startOfDay = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate())
+/** epoch → 该时刻北京墙钟当日 0 点的 epoch */
+const beijingDayStart = (ms) => Math.floor((ms + BEIJING_OFFSET_MS) / 86400000) * 86400000 - BEIJING_OFFSET_MS
 
 /**
  * 日内节律：7 天同小时均价 → 连续 3 小时最高的窗口（允许跨午夜回绕）。
@@ -176,15 +184,17 @@ function median(sorted) {
   return n % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2
 }
 
-/** 时刻 → 友好标签：与 base 同日「今日 HH:00」、次日「明日 HH:00」、更远「M-D HH:00」 */
+/** 时刻 → 友好标签：与 base 同日「今日 HH:00」、次日「明日 HH:00」、更远「M-D HH:00」
+    （北京墙钟口径：加偏移后读 getUTC* 分量，不随访问者本地时区漂移） */
 function friendlyClock(hit, base) {
   // 估计值精确到小时即可：分钟四舍五入到整点，避免「21:14 前后」的假精度
-  const t = new Date(Math.round(hit.getTime() / 3600000) * 3600000)
-  const hm = `${pad2(t.getHours())}:00`
-  const dayDiff = Math.round((startOfDay(t).getTime() - startOfDay(base).getTime()) / 86400000)
+  const tMs = Math.round(hit.getTime() / 3600000) * 3600000
+  const t = new Date(tMs + BEIJING_OFFSET_MS)
+  const hm = `${pad2(t.getUTCHours())}:00`
+  const dayDiff = Math.round((beijingDayStart(tMs) - beijingDayStart(base.getTime())) / 86400000)
   if (dayDiff === 0) return `今日 ${hm}`
   if (dayDiff === 1) return `明日 ${hm}`
-  return `${t.getMonth() + 1}-${pad2(t.getDate())} ${hm}`
+  return `${t.getUTCMonth() + 1}-${pad2(t.getUTCDate())} ${hm}`
 }
 
 /**

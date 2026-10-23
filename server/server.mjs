@@ -19,9 +19,10 @@
               缓存；*.json 数据与 html 走 no-cache；路径归一化防目录穿越）
    通知默认关闭（部署形态通常无桌面）；--notify 开启。
    用法：npm run build && npm run serve [--port 8080] [--host 0.0.0.0] [--notify]
-         [--radar-interval 10]
+         [--radar-interval 10] [--trust-proxy[=N]]
    环境变量 PORT / HOST / RADAR_INTERVAL_MIN 与参数同义。上 https 用
-   nginx/caddy 反代即可。
+   nginx/caddy 反代即可；限速 IP 取 XFF 从右数第 N 跳：--trust-proxy 为
+   单层反代（1 跳），多级链（CDN→nginx→node 等）须 --trust-proxy=N 指明。
    注意：与 ammo:live / ammo:monitor / radar:monitor / 手动 fetch 同为写盘者，
    同时只跑一个。
    ============================================================ */
@@ -71,13 +72,15 @@ export function createSiteServer({
   radarMs = 10 * 60 * 1000,
   craftCycle = runCraftCycle,
   craftMs = 10 * 60 * 1000,
+  /** true = 单层反代（XFF 末段）；正整数 N = 多级反代从右数第 N 跳 */
   trustProxy = false,
 } = {}) {
   const distDir = path.join(webDir, 'dist')
-  const live = createLiveServer({ rootDir, webDir, noNotify })
+  const live = createLiveServer({ rootDir, webDir, noNotify, trustProxyHops: typeof trustProxy === 'number' ? trustProxy : 1 })
   // 账号 API（注册 / 登录 / 登出 / me + 账号云数据，契约 shared/API.md §6）：
   // 与站点同进程同源；POST/PUT 只进这一支，静态托管仍保持只读 GET/HEAD。
   // trustProxy：nginx 反代形态下显式开启才采信 X-Forwarded-For 做限速
+  // （true = 单层反代取末段；数字 N = 多级反代从右数第 N 跳，见 api.mjs clientIp）
   const auth = createAuthApi({ rootDir, trustProxy })
   let radarTimer = null
   let craftTimer = null
@@ -231,7 +234,15 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     process.exit(1)
   }
   const notify = argv.includes('--notify')
-  const trustProxy = argv.includes('--trust-proxy') || process.env.TRUST_PROXY === '1'
+  // --trust-proxy：单层 nginx 反代（取 XFF 末段）；--trust-proxy=N 或
+  // TRUST_PROXY=N：N 级反代链，限速 IP 取 XFF 从右数第 N 跳。末段口径只对
+  // 单层反代成立——CDN→nginx→node 等多级链不指明 N 的话，末段恒为上级代理
+  // 内网 IP，全站用户聚合到同一限速键 / SSE 单 IP 上限互相挤掉配额。
+  // 带值形式值非法则不采信（按 socket 直连地址限速，不因脏配置放松 XFF）
+  const trustArg = argv.find((a) => a.startsWith('--trust-proxy'))
+  const trustN = Number(trustArg !== undefined ? trustArg.replace(/^--trust-proxy=?/, '') : process.env.TRUST_PROXY)
+  const trustOk = Number.isInteger(trustN) && trustN >= 1
+  const trustProxy = trustArg === '--trust-proxy' ? true : trustOk ? trustN : false
   const site = createSiteServer({
     webDir: WEB_DIR,
     noNotify: !notify,

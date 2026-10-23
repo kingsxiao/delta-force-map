@@ -42,6 +42,10 @@ function gotoMarket(am) {
 
 defineEmits(['toggle'])
 
+/* 枪械渲染图：BASE_URL 前缀随子路径部署（同行情页数据 URL 口径）；加载失败就地隐藏（同 hideImg 口径） */
+const gunImg = (img) => `${import.meta.env.BASE_URL}guns/${img}.webp`
+const hideImg = (e) => { e.target.style.display = 'none' }
+
 /* 分档徽标配色（与 TierBoard 卡片同色）：T0 金 / T1 主色 / T2 蓝 / T3 灰 */
 const TIER_COLORS = { T0: 'var(--lv5)', T1: 'var(--accent)', T2: 'var(--lv3)', T3: 'var(--lv0)' }
 const tierColor = computed(() => TIER_COLORS[props.tier] || 'var(--faint)')
@@ -67,6 +71,9 @@ const detail = computed(() => {
   const list = props.combos
     .filter((x) => x.gun === props.c.gun && x.part === props.c.part && x.armor === props.c.armor)
     .sort((a, b) => a.ttk - b.ttk)
+  // 条宽基准取详情内最小「正」TTK（同 TtkView bestTtk 口径）：btk=1 一枪死（ttk=0）
+  // 稳居列表首位，直接用 list[0] 会 0/0=NaN、基准为 0 时其余弹全塌最小条
+  const base = list.find((x) => x.ttk > 0)?.ttk || 1
   const g = props.c.gun
   const bits = []
   if (g.note) bits.push(g.note)
@@ -75,7 +82,10 @@ const detail = computed(() => {
   return {
     list: list.map((x) => ({
       x,
-      w: Math.max(4, Math.min(100, list[0].ttk / x.ttk * 100)) + '%',
+      /* ttk=0 条画满，0 基准防 0/0=NaN——守卫与行级 barWidth 同款（基准恒正后仅兜底） */
+      w: (base <= 0 || x.ttk <= 0)
+        ? '100%'
+        : Math.max(4, Math.min(100, base / x.ttk * 100)) + '%',
     })),
     bits,
   }
@@ -94,7 +104,7 @@ const detail = computed(() => {
     >
       <span class="rk-num">{{ String(rank).padStart(2, '0') }}</span>
       <span class="rk-thumb" :class="{ ph: !c.gun.img }" aria-hidden="true">
-        <img v-if="c.gun.img" class="rk-img" :src="'/guns/' + c.gun.img + '.webp'" alt="" loading="lazy" decoding="async">
+        <img v-if="c.gun.img" class="rk-img" :src="gunImg(c.gun.img)" alt="" loading="lazy" decoding="async" @error="hideImg">
         <svg v-else class="rk-sil" viewBox="0 0 240 120"><g fill="currentColor"><rect x="4" y="56" width="54" height="7" rx="2.5"/><rect x="58" y="51" width="44" height="16" rx="3"/><rect x="100" y="47" width="72" height="23" rx="3"/><path d="M118 70 l19 0 l-7 32 l-17 0 z"/><path d="M152 70 l17 0 l-9 28 l-15 0 z"/><path d="M172 51 h27 c9 0 14 5 14 11 v9 h-15 l-6 -9 h-20 z"/></g></svg>
       </span>
       <span class="rk-gun">
@@ -127,10 +137,11 @@ const detail = computed(() => {
             <img
               v-if="c.gun.img"
               class="dpic"
-              :src="'/guns/' + c.gun.img + '.webp'"
+              :src="gunImg(c.gun.img)"
               :alt="c.gun.zh + ' 官方渲染图'"
               loading="lazy"
               decoding="async"
+              @error="hideImg"
             >
             <svg v-else class="dpic dph" viewBox="0 0 240 120" aria-hidden="true">
               <g fill="currentColor">

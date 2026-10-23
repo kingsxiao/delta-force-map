@@ -9,7 +9,8 @@
          - ledger.ammo 囤货台账：按弹名并集、同名本机优先（mergePositions）
          - mycost.ammo 买入价（SignalCard 自录）：按弹名并集、同名本机优先
          - 登录后拉云端与本地逐项合并落回两端，云端其他键原样保留；
-           登录期间星标 / 台账变化 → 2s 防抖整文档回推（mycost 随推带上）
+           登录期间星标 / 台账变化 → 2s 防抖回推（推送前先拉最新云端，
+           三键按同款口径合并，不用内存旧快照整文档覆盖对端改动）
          - 未登录不动云；登出只清会话，本地数据保留
    云端存什么的原则：只存「用户创作内容」（自选、台账、买入价这类丢了
    会心疼的），不存设备偏好（通知开关等每台设备自己的）——本 composable
@@ -64,7 +65,12 @@ async function pullAndMerge() {
   syncError.value = ''
   try {
     const token = getStoredSession()?.token
-    if (!token) return
+    // 无 token（隐私模式 localStorage 读写全废等极端场景）：复位状态避免卡
+    // 「同步中」，账号页如实显示「待同步」；本地星标/台账功能不受影响
+    if (!token) {
+      syncState.value = 'idle'
+      return
+    }
     const { data } = await getAccountData(token)
     cloudDoc = normalizeAccountDoc(data) ?? {}
     const mergedStars = mergeStars(starsList(), cloudDoc['stars.ammo'])
@@ -93,7 +99,10 @@ async function pullAndMerge() {
   }
 }
 
-/** 防抖整文档上推（保留云端其他键；失败转手动「立即同步」恢复） */
+/** 防抖上推（失败转手动「立即同步」恢复）：推送前先 GET 云端现值，三键按
+    §6.3 口径（星标并集 / 台账·买入价同名本机优先）合并进最新云端再回推——
+    多端并发时后推者不用旧快照整文档覆盖对端改动，云端其他键也原样保留
+    （登录拉取未完成的窗口内推送同样安全） */
 function schedulePush() {
   if (!user.value) return
   clearTimeout(pushTimer)
@@ -101,11 +110,13 @@ function schedulePush() {
     const token = getStoredSession()?.token
     if (!token) return
     try {
+      const { data } = await getAccountData(token)
+      const remote = normalizeAccountDoc(data) ?? {}
       const doc = {
-        ...cloudDoc,
-        'stars.ammo': starsList(),
-        'ledger.ammo': positions.value,
-        'mycost.ammo': loadMycost(),
+        ...remote,
+        'stars.ammo': mergeStars(starsList(), remote['stars.ammo']),
+        'ledger.ammo': mergePositions(positions.value, remote['ledger.ammo']),
+        'mycost.ammo': mergeLocalWins(loadMycost(), remote['mycost.ammo']),
       }
       await putAccountData(token, doc)
       cloudDoc = doc

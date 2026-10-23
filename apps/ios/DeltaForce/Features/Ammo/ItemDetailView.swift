@@ -316,7 +316,7 @@ struct ItemDetailView: View {
                 }
                 Spacer(minLength: 0)
             }
-            Text("台账（数量 × 成本）仅存本机，不上传不同步；浮盈随行情快照实时计算。")
+            Text("台账（数量 × 成本）登录后随账号云同步（按弹名合并，本机优先）；未登录仅存本机。浮盈随行情快照实时计算。")
                 .font(Theme.font(.xs)).foregroundStyle(Theme.faint)
         }
     }

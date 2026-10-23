@@ -114,6 +114,10 @@ public struct ComboResult: Sendable, Hashable, Identifiable {
     public let ttk: Double
 
     public var btk: Int { sim.btk }
+
+    /// 展示用 TTK 整毫秒：非有限（rpm ≤ 0 等数据异常，对应 JS Infinity）时
+    /// Int(exactly:) 落空返回 nil——视图层据此显示「—」，绝不强转 crash
+    public var ttkMillis: Int? { Int(exactly: ttk.rounded()) }
 }
 
 public enum AmmoFilter: Sendable, Hashable {
@@ -169,15 +173,20 @@ public enum TtkEngine {
             }
             hp -= d
         }
+        // 无甲 BTK：fleshFull ≤ 0（数据异常）时 100/fleshFull 非有限，Int(exactly:)
+        // 落空 → Int.max 哨兵（对应 JS Math.ceil(Infinity)=Infinity 的「打不死」，不 crash）
+        let noArmor = max(1, Int(exactly: (100 / fleshFull).rounded(.up)) ?? Int.max)
         return SimResult(
             btk: n,
             broke: broke,
             pass: pass,
             flesh: fleshFull,
-            noArmorBtk: max(1, Int((100 / fleshFull).rounded(.up)))
+            noArmorBtk: noArmor
         )
     }
 
+    /// TTK 毫秒数（展示用）：rpm ≤ 0 等数据异常时 ttk 为 ±Inf/NaN（JS 同位返回
+    /// Infinity 不 crash），Int(exactly:) 落空返回 nil——视图层据此显示「—」
     public static func ttk(btk: Int, rpm: Double) -> Double {
         Double(btk - 1) * 60000 / rpm
     }
@@ -187,7 +196,8 @@ public enum TtkEngine {
         return ComboResult(gun: gun, ammo: ammo, sim: sim, ttk: ttk(btk: sim.btk, rpm: gun.rpm))
     }
 
-    /// 排行：按 TTK 升序（同 TTK 按 BTK、碎甲发数、枪名稳定排序）
+    /// 排行：TTK 升序 → 同 TTK 按 BTK → 面板肉伤降序（与网页端 TtkView rankRows
+    /// 的排序链逐项一致；「每枪最佳」的取法见 bestPerGun）
     public static func ranking(
         data: TtkData, classId: String?, partId: String, armorLevel: Int, filter: AmmoFilter
     ) -> [ComboResult] {
@@ -202,27 +212,47 @@ public enum TtkEngine {
             }
             let combos = ammos.map { combo(gun: gun, ammo: $0, armorLevel: armorLevel, part: part, tables: data.armor) }
             if case .bestPerGun = filter {
-                if let best = combos.min(by: order) { out.append(best) }
+                if let best = bestPerGun(combos) { out.append(best) }
             } else {
                 out.append(contentsOf: combos)
             }
         }
-        return out.sorted(by: order)
+        return stableSort(out, by: order)
     }
 
-    /// 单枪全部弹药对比（详情展开用）
+    /// 单枪全部弹药对比（详情展开用；对齐网页端 RankRow 展开区：仅按 TTK 升序，
+    /// 并列保留口径弹药列表顺序）
     public static func combos(data: TtkData, gun: Gun, partId: String, armorLevel: Int) -> [ComboResult] {
         guard let part = data.part(partId), let cal = data.calibers[gun.cal] else { return [] }
-        return cal.ammo
+        let list = cal.ammo
             .map { combo(gun: gun, ammo: $0, armorLevel: armorLevel, part: part, tables: data.armor) }
-            .sorted(by: order)
+        return stableSort(list) { a, b in a.ttk != b.ttk ? a.ttk < b.ttk : nil }
     }
 
-    static func order(_ a: ComboResult, _ b: ComboResult) -> Bool {
+    /// 每枪最佳：严格更小 TTK 才替换，并列保留列表先出现者——与网页端 byKey
+    /// 口径一致（min(by: order) 会在并列时按次要键另挑一发行，双端展示会分叉）
+    static func bestPerGun(_ combos: [ComboResult]) -> ComboResult? {
+        var best: ComboResult?
+        for c in combos where best == nil || c.ttk < best!.ttk { best = c }
+        return best
+    }
+
+    /// 排序链（网页端 TtkView：ttk 升序 || btk 升序 || gun.dmg 降序）；
+    /// 三项全并列返回 nil = 视为相等，由 stableSort 按下标保序
+    static func order(_ a: ComboResult, _ b: ComboResult) -> Bool? {
         if a.ttk != b.ttk { return a.ttk < b.ttk }
         if a.btk != b.btk { return a.btk < b.btk }
-        if a.sim.broke != b.sim.broke { return a.sim.broke < b.sim.broke }
-        if a.gun.zh != b.gun.zh { return a.gun.zh < b.gun.zh }
-        return a.ammo.n < b.ammo.n
+        if a.gun.dmg != b.gun.dmg { return a.gun.dmg > b.gun.dmg }
+        return nil
+    }
+
+    /// 稳定排序（JS Array.sort 保序，Swift sorted 不保证）：以枚举下标作最终
+    /// tie-break，同键保持组内出现顺序（枪序 × 口径弹药列表序）
+    private static func stableSort(
+        _ list: [ComboResult], by areInIncreasingOrder: (ComboResult, ComboResult) -> Bool?
+    ) -> [ComboResult] {
+        list.enumerated()
+            .sorted { a, b in areInIncreasingOrder(a.element, b.element) ?? (a.offset < b.offset) }
+            .map(\.element)
     }
 }

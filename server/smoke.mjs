@@ -1,5 +1,5 @@
 // smoke.mjs — 构建产物真实浏览器冒烟验证（自包含、零 npm 依赖，node >= 22：原生 fetch/WebSocket，低版本启动即友好报错）
-// 模式照搬 scripts/verify-effects.mjs（本仓库现成的 CDP 驱动模板）。
+// CDP 驱动模板（原照搬已随地图模块删除的 verify-effects.mjs，现为本仓库唯一浏览器验证脚本）。
 // 前置：本脚本只 spawn headless Chrome，不拉起 preview server——先另开终端运行：
 //   npm run preview -- --port 4173 --strictPort
 // 用法:

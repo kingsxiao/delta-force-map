@@ -40,6 +40,11 @@ const WEB_DIR = path.join(ROOT, 'apps', 'web')
 const DEFAULT_STATE_PATH = path.join(ROOT, 'data', 'ammo', 'monitor-state.json')
 const KKRBCADENCE_MS = 10 * 60 * 1000 // 兜底源为小时档数据，10min 轮询足够
 const PROBE_EVERY = 3 // 每 3 轮 kkrb 服务，探活一次 moligod
+/** SSE 连接上限：/events 无鉴权且 ACAO:*，任意第三方网页可让访客浏览器批量开
+ *  EventSource——全局 + 单 IP 双上限防 FD/内存耗尽单进程（超限 503，页面自动
+ *  退回轮询兜底） */
+const MAX_SSE_CLIENTS = 100
+const MAX_SSE_PER_IP = 15
 const log = (msg) => console.log(`[${new Date().toLocaleString('zh-CN')}] ${msg}`)
 
 async function loadState(statePath) {
@@ -53,9 +58,12 @@ async function loadState(statePath) {
 /**
  * 创建 live 服务（不 listen；selftest 用 port 0 自取临时端口）。
  * @param {{noNotify?:boolean, noDist?:boolean, rootDir?:string, webDir?:string,
- *          statePath?:string, fastMs?:number, slowMs?:number}} opts
+ *          statePath?:string, fastMs?:number, slowMs?:number,
+ *          trustProxyHops?:number}} opts
  *   rootDir 仓库根（state 默认挂 data/ammo）；webDir 网页端目录（public/dist
- *   写入与预热读取，默认 = rootDir，selftest 注入临时目录即原行为）
+ *   写入与预热读取，默认 = rootDir，selftest 注入临时目录即原行为）；
+ *   trustProxyHops 反代信任跳数（/events 单 IP 计数从右数第 N 跳，
+ *   单层 nginx = 1 = 末段；多级反代由 server.mjs --trust-proxy=N 传入）
  * @returns {{server:http.Server, triggerCycle:Function, status:object, close:Function}}
  */
 export function createLiveServer({
@@ -66,8 +74,11 @@ export function createLiveServer({
   statePath = DEFAULT_STATE_PATH,
   fastMs = 60 * 1000,
   slowMs = 30 * 60 * 1000,
+  trustProxyHops = 1,
 } = {}) {
   const clients = new Set()
+  /** 单 IP 并发 SSE 计数（key 口径见 /events handler） */
+  const ipCounts = new Map()
   const status = {
     source: null,
     version: null,
@@ -85,14 +96,33 @@ export function createLiveServer({
   let closing = false
   let state = emptyState()
 
-  function broadcast(event, payload) {
-    for (const res of clients) {
-      try {
-        res.write(`event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`)
-      } catch {
+  /** SSE 单连接写：write 返回 false（写缓冲已满 = 慢读客户端）即掐断该连接。
+   *  广播/心跳对每个连接无脑 res.write、不管返回值的话，恶意慢读会让数据在
+   *  Node 写缓冲无限堆积直至 OOM；掐断后浏览器 EventSource 自动重连（超限
+   *  则收到 503 退回轮询） */
+  function sseWrite(res, chunk) {
+    try {
+      if (!res.write(chunk)) {
         clients.delete(res)
+        res.destroy()
+        return false
       }
+      return true
+    } catch {
+      clients.delete(res)
+      // 与 write 返回 false 分支同口径：显式掐断。write 同步抛通常意味着流已
+      // 坏，不 destroy 的话半坏连接要等 TCP 层超时才回收（req close 不触发，
+      // ipCounts 也不递减）
+      try {
+        res.destroy()
+      } catch {}
+      return false
     }
+  }
+
+  function broadcast(event, payload) {
+    const frame = `event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`
+    for (const res of clients) sseWrite(res, frame)
   }
 
   async function cycle(mode) {
@@ -167,8 +197,33 @@ export function createLiveServer({
   }
 
   const server = http.createServer((req, res) => {
-    const url = new URL(req.url, `http://${req.headers.host || '127.0.0.1'}`)
+    let url
+    try {
+      url = new URL(req.url, `http://${req.headers.host || '127.0.0.1'}`)
+    } catch {
+      // 畸形 Host 头（如 'a b'）会让 new URL 同步抛 ERR_INVALID_URL；Node
+      // http 不捕获 request listener 的同步异常，CLI 直跑形态会打死进程
+      res.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8' })
+      res.end('bad request')
+      return
+    }
     if (url.pathname === '/events') {
+      // 单 IP 计数口径：nginx 反代形态下所有直连地址都是回环，仅对回环连接
+      // 采信 XFF 从右数第 trustProxyHops 跳（$proxy_add_x_forwarded_for 追加
+      // 的真实对端；单层反代 = 1 = 末段，多级链由 server.mjs --trust-proxy=N
+      // 传入跳数，否则末段恒为上级代理 IP，全站共享单 IP 上限）；外部地址
+      // 一律按 socket 地址计——外部伪造 XFF 无从入口（非回环不吃 XFF）
+      const raw = req.socket?.remoteAddress || 'unknown'
+      const loopback = raw === '127.0.0.1' || raw === '::1' || raw === '::ffff:127.0.0.1'
+      const parts = String(req.headers['x-forwarded-for'] || '')
+        .split(',').map((s) => s.trim()).filter(Boolean)
+      // 跳数多于 XFF 段数 = 链路与配置不符，退回 socket 地址（同 api.mjs clientIp）
+      const ipKey = loopback && parts.length >= trustProxyHops ? parts[parts.length - trustProxyHops] : raw
+      if (clients.size >= MAX_SSE_CLIENTS || (ipCounts.get(ipKey) || 0) >= MAX_SSE_PER_IP) {
+        res.writeHead(503, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' })
+        res.end('too many sse connections')
+        return
+      }
       res.writeHead(200, {
         'Content-Type': 'text/event-stream; charset=utf-8',
         'Cache-Control': 'no-cache',
@@ -177,14 +232,20 @@ export function createLiveServer({
         // nginx 反代部署（阿里云等）防 SSE 被代理缓冲掐成慢轮询
         'X-Accel-Buffering': 'no',
       })
+      clients.add(res)
+      ipCounts.set(ipKey, (ipCounts.get(ipKey) || 0) + 1)
+      req.on('close', () => {
+        clients.delete(res)
+        const n = (ipCounts.get(ipKey) || 1) - 1
+        if (n <= 0) ipCounts.delete(ipKey)
+        else ipCounts.set(ipKey, n)
+      })
       // 连接即发 hello：携带当前盘上快照的元信息（页面据此标记实时通道已连接）
-      res.write(`event: hello\ndata: ${JSON.stringify({
+      sseWrite(res, `event: hello\ndata: ${JSON.stringify({
         version: status.version,
         source: status.source,
         generatedAt: status.generatedAt,
       })}\n\n`)
-      clients.add(res)
-      req.on('close', () => clients.delete(res))
       return
     }
     if (url.pathname === '/health') {
@@ -219,13 +280,7 @@ export function createLiveServer({
     fastTimer = setTimeout(fastLoop, nextFastDelay())
     slowTimer = setTimeout(slowLoop, slowMs)
     hbTimer = setInterval(() => {
-      for (const res of clients) {
-        try {
-          res.write(': ping\n\n') // SSE 注释心跳，防中间代理掐空闲连接
-        } catch {
-          clients.delete(res)
-        }
-      }
+      for (const res of clients) sseWrite(res, ': ping\n\n') // SSE 注释心跳，防中间代理掐空闲连接
     }, 25 * 1000)
   }
 
@@ -240,6 +295,7 @@ export function createLiveServer({
       } catch {}
     }
     clients.clear()
+    ipCounts.clear()
     await new Promise((resolve) => server.close(resolve))
   }
 
