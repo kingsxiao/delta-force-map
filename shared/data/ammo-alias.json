@@ -1,0 +1,327 @@
+{
+ "generatedFrom": "apps/web/src/data/ttk/ammo-market-alias.js (npm run export:ios)",
+ "pairs": [
+  {
+   "cal": "919",
+   "ammo": "RIP",
+   "market": "9x19mm RIP"
+  },
+  {
+   "cal": "919",
+   "ammo": "AP 6.3",
+   "market": "9x19mm AP6.3"
+  },
+  {
+   "cal": "919",
+   "ammo": "PBP",
+   "market": "9x19mm PBP"
+  },
+  {
+   "cal": "45",
+   "ammo": "RIP",
+   "market": ".45 ACP RIP"
+  },
+  {
+   "cal": "45",
+   "ammo": "FMJ",
+   "market": ".45 ACP FMJ"
+  },
+  {
+   "cal": "45",
+   "ammo": "AP",
+   "market": ".45 ACP AP"
+  },
+  {
+   "cal": "46",
+   "ammo": "亚音速",
+   "market": "4.6x30mm Subsonic SX"
+  },
+  {
+   "cal": "46",
+   "ammo": "FMJ SX",
+   "market": "4.6x30mm FMJ SX"
+  },
+  {
+   "cal": "46",
+   "ammo": "AP SX",
+   "market": "4.6x30mm AP SX"
+  },
+  {
+   "cal": "57",
+   "ammo": "R37.F",
+   "market": "5.7x28mm R37.F"
+  },
+  {
+   "cal": "57",
+   "ammo": "L191",
+   "market": "5.7x28mm L191"
+  },
+  {
+   "cal": "57",
+   "ammo": "SS193",
+   "market": "5.7x28mm SS193"
+  },
+  {
+   "cal": "57",
+   "ammo": "SS190",
+   "market": "5.7x28mm SS190"
+  },
+  {
+   "cal": "939",
+   "ammo": "SP-5",
+   "market": "9x39mm SP5"
+  },
+  {
+   "cal": "939",
+   "ammo": "SP-6",
+   "market": "9x39mm SP6"
+  },
+  {
+   "cal": "939",
+   "ammo": "BP",
+   "market": "9x39mm BP"
+  },
+  {
+   "cal": "545",
+   "ammo": "PS",
+   "market": "5.45x39mm PS"
+  },
+  {
+   "cal": "545",
+   "ammo": "BT",
+   "market": "5.45x39mm BT"
+  },
+  {
+   "cal": "545",
+   "ammo": "BS",
+   "market": "5.45x39mm BS"
+  },
+  {
+   "cal": "556",
+   "ammo": "M855",
+   "market": "5.56x45mm M855"
+  },
+  {
+   "cal": "556",
+   "ammo": "M855A1",
+   "market": "5.56x45mm M855A1"
+  },
+  {
+   "cal": "556",
+   "ammo": "M995",
+   "market": "5.56x45mm M995"
+  },
+  {
+   "cal": "58",
+   "ammo": "DVP-88",
+   "market": "5.8x42mm DVP88"
+  },
+  {
+   "cal": "58",
+   "ammo": "DVC-12",
+   "market": "5.8x42mm DVC12"
+  },
+  {
+   "cal": "76239",
+   "ammo": "PS",
+   "market": "7.62x39mm PS"
+  },
+  {
+   "cal": "76239",
+   "ammo": "BP",
+   "market": "7.62x39mm BP"
+  },
+  {
+   "cal": "76239",
+   "ammo": "AP",
+   "market": "7.62x39mm AP"
+  },
+  {
+   "cal": "76251",
+   "ammo": "BPZ",
+   "market": "7.62x51mm BPZ"
+  },
+  {
+   "cal": "76251",
+   "ammo": "M80",
+   "market": "7.62x51mm M80"
+  },
+  {
+   "cal": "76251",
+   "ammo": "M62",
+   "market": "7.62x51mm M62"
+  },
+  {
+   "cal": "68",
+   "ammo": "FMJ",
+   "market": "6.8x51mm FMJ"
+  },
+  {
+   "cal": "68",
+   "ammo": "Hybrid",
+   "market": "6.8x51mm Hybrid"
+  },
+  {
+   "cal": "127",
+   "ammo": "PS12A",
+   "market": "12.7x55mm PS12A"
+  },
+  {
+   "cal": "127",
+   "ammo": "PS12",
+   "market": "12.7x55mm PS12"
+  },
+  {
+   "cal": "127",
+   "ammo": "PS12B",
+   "market": "12.7x55mm PS12B"
+  },
+  {
+   "cal": "547",
+   "ammo": "T46M",
+   "market": "7.62x54R T46M"
+  },
+  {
+   "cal": "547",
+   "ammo": "LPS",
+   "market": "7.62x54R LPS"
+  },
+  {
+   "cal": "547",
+   "ammo": "BT",
+   "market": "7.62x54R BT"
+  },
+  {
+   "cal": "4570",
+   "ammo": "RN",
+   "market": "45-70 Govt RN"
+  },
+  {
+   "cal": "4570",
+   "ammo": "FMJ",
+   "market": "45-70 Govt FMJ"
+  },
+  {
+   "cal": "4570",
+   "ammo": "FTX",
+   "market": "45-70 Govt FTX"
+  },
+  {
+   "cal": "12ga",
+   "ammo": "8.5mm 鹿弹",
+   "market": "12 Gauge 8.5毫米鹿弹"
+  },
+  {
+   "cal": "12ga",
+   "ammo": "箭形弹",
+   "market": "12 Gauge 箭形弹"
+  },
+  {
+   "cal": "12ga",
+   "ammo": "龙息弹",
+   "market": "12 Gauge 龙息弹"
+  },
+  {
+   "cal": "12ga",
+   "ammo": "独头 AP-20",
+   "market": "12 Gauge独头 AP-20"
+  },
+  {
+   "cal": "12ga",
+   "ammo": "独头 FTX",
+   "market": "12 Gauge独头 FTX"
+  },
+  {
+   "cal": "12ga",
+   "ammo": "DART",
+   "market": "12 Gauge DART"
+  },
+  {
+   "cal": "50ae",
+   "ammo": "JHP",
+   "market": ".50 AE JHP"
+  },
+  {
+   "cal": "50ae",
+   "ammo": "FMJ",
+   "market": ".50 AE FMJ"
+  },
+  {
+   "cal": "357",
+   "ammo": "JHP",
+   "market": ".357 Magnum JHP"
+  },
+  {
+   "cal": "357",
+   "ammo": "FMJ",
+   "market": ".357 Magnum FMJ"
+  },
+  {
+   "cal": "357",
+   "ammo": "鼠弹",
+   "market": ".357 Magnum 9号霰射\"鼠弹\""
+  }
+ ],
+ "unmapped": [
+  {
+   "market": "紫.300BLK",
+   "reason": "ambiguous"
+  },
+  {
+   "market": "蓝.300BLK",
+   "reason": "ambiguous"
+  },
+  {
+   "market": "金.300BLK",
+   "reason": "ambiguous"
+  },
+  {
+   "market": ".45 ACP Super​",
+   "reason": "noTtkAmmo"
+  },
+  {
+   "market": "5.8x42mm DBP10",
+   "reason": "noTtkAmmo"
+  },
+  {
+   "market": "12.7x55mm PD12双头弹",
+   "reason": "noTtkAmmo"
+  },
+  {
+   "market": "5.7x28mm HT",
+   "reason": "noTtkAmmo"
+  },
+  {
+   "market": "5.7 x 28mm HT+",
+   "reason": "noTtkAmmo"
+  },
+  {
+   "market": "7.62 x 51mm LS",
+   "reason": "noTtkAmmo"
+  },
+  {
+   "market": "4.6 x 30mm AP ST",
+   "reason": "noTtkAmmo"
+  },
+  {
+   "market": "4.6 x 30mm FMJ ST",
+   "reason": "noTtkAmmo"
+  },
+  {
+   "market": "4.6 x 30mm CT",
+   "reason": "noTtkAmmo"
+  },
+  {
+   "market": "玻纤柳叶箭矢",
+   "reason": "noCal"
+  },
+  {
+   "market": "碳纤维刺骨箭矢",
+   "reason": "noCal"
+  },
+  {
+   "market": "碳纤维穿甲箭矢",
+   "reason": "noCal"
+  }
+ ]
+}

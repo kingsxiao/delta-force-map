@@ -7,7 +7,7 @@
 | --- | --- | --- |
 | Node 后端 | `server/` | 产出快照 / SSE 事件（本契约的**实现方**） |
 | 网页端 | `apps/web`（Vue 3） | fetch 快照 + EventSource SSE，`@shared/js` 直引纯函数 |
-| iOS 端 | `apps/ios`（SwiftUI） | URLSession 快照 + URLSession.bytes SSE；`js/` 中口径**同构移植**为 Swift（`MarketMeta.swift` / `SellEta.swift` / `NotifyPolicy.swift`，测试用 `fixtures/` 固定样本） |
+| iOS 端 | `apps/ios`（SwiftUI） | URLSession 快照 + URLSession.bytes SSE；`js/` 中口径**同构移植**为 Swift（`MarketMeta.swift` / `SellEta.swift` / `NotifyPolicy.swift` / `AccountData.swift`，测试用 `fixtures/` 固定样本） |
 
 任何字段增删 / 语义变化：先改本文件与 schema，再改三端，PR 描述注明契约变更。
 
@@ -124,8 +124,47 @@ Schema：[schema/radar-snapshot.schema.json](schema/radar-snapshot.schema.json)
 - `js/sellEta.js` — 预计卖出时间：A) 历史完整上涨段中位/最快历时（从 ≤现价 首次涨到 ≥P75）；B) 日内节律（7 天同小时均价的连续 3 小时最高窗口，允许跨午夜）。时钟锚点 `max(曲线末点, now)`；**历史统计不代表未来，展示层必须带这句**。
 - `js/marketMeta.js` — 版本双格式展示、时效阈值、来源文案、图标缩略、年龄可读化。
 - `js/liveChannel.js` — 网页端 SSE 端点判定（原生端不用：直接连 `${baseURL}/events`）。
-- 信号通知去抖（`server/ammo/notify-policy.mjs`）：首次出现立即通知；信号切换需连续 2 轮确认；同信号 6h 冷却；BUY 冷却期内价格较上次通知价累计再跌 ≥5% 重报。iOS 本地通知同口径移植。
+- `js/accountData.js` — 账号云数据口径：文档校验（键名 / 64KB）、星标并集与台账按名合并（§6.3）。
+- `js/notify-policy.js` — 信号通知去抖（三端同构，唯一事实来源在 shared：服务端 monitor/live/雷达的 macOS 通知、网页端浏览器通知、iOS 本地通知共用本口径）：首次出现立即通知；信号切换需连续 2 轮确认；同信号 6h 冷却；BUY 冷却期内价格较上次通知价累计再跌 ≥5% 重报。
 
 ## 5. fixtures
 
 `fixtures/market-sample.json`、`fixtures/radar-sample.json`：固定样本快照（脱敏自真实数据），供 iOS 单测与「演示模式」捆绑；后端自测另有自己的注入桩。契约变化时同步更新 fixtures。
+
+## 6. 账号与云同步（`server/auth/`，实现方 = 后端）
+
+自托管账号体系：注册 / 登录 / 登出 + **账号云数据**（不透明 K/V 文档，服务端只存不解析）。网页端与 iOS 端用它同步自选星标、囤货台账等本地数据。与快照接口同源同进程（`server/server.mjs` 挂载 `/api/*`），无需额外部署。
+
+### 6.1 鉴权方式
+
+- `Authorization: Bearer <token>`；token 为**无状态签名令牌** `v1.<uid>.<tokenVersion>.<expMs>.<hmac>`，HMAC-SHA256 密钥仅存服务器（`data/auth/secret.key`，首次运行自动生成，gitignore）。
+- 有效期 30 天。**登出 = 服务器把该用户 `tokenVersion` +1**：该用户全部已发 token 立即失效（语义为「退出所有设备」，工具型单用户场景够用；无单设备吊销）。
+- 密码哈希 `scrypt`（N=16384, r=8, p=1, 32B + 16B 随机盐），比对走 `timingSafeEqual`。
+
+### 6.2 接口
+
+| 方法 | 路径 | 鉴权 | 成功 | 失败 |
+| --- | --- | --- | --- | --- |
+| POST | `/api/auth/register` | — | `201 {token, user}` | `409` 用户名已存在；`400` 用户名/密码不合规 |
+| POST | `/api/auth/login` | — | `200 {token, user}` | `401` 用户名或密码错误（不区分提示，防枚举） |
+| POST | `/api/auth/logout` | Bearer | `204` | `401` |
+| GET | `/api/auth/me` | Bearer | `200 {uid, username, createdAt}` | `401` |
+| GET | `/api/account/data` | Bearer | `200 {data, savedAt}` | `401` |
+| PUT | `/api/account/data` | Bearer | `200 {savedAt}`（整文档覆盖） | `400` 顶层非对象 / JSON 不合法；`413` 键名不合规或超 64KB |
+
+- `user` / Session 形状：[schema/auth-response.schema.json](schema/auth-response.schema.json)；账号数据文档：[schema/account-data.schema.json](schema/account-data.schema.json)。
+- 错误响应统一 `{error: "中文说明", code: "MACHINE_CODE"}`，`code` 供两端分支（如 `AUTH_FAILED` / `USERNAME_TAKEN` / `BAD_TOKEN` / `RATE_LIMITED`）。
+- 请求体上限 128KB；鉴权响应一律 `Cache-Control: no-store`。
+- 用户名 2–16 字符（字母 / 数字 / 下划线 / 中文，全表唯一，大小写不敏感）；密码 8–64 字符，无组成规则。
+- 限速（按 IP）：注册 10 次/小时，登录 20 次/小时，超限 `429 {code:"RATE_LIMITED"}`。默认按**直连地址**计（XFF 可伪造，不采信）；nginx 反代形态启动时加 `--trust-proxy`（或 `TRUST_PROXY=1`）才按 `X-Forwarded-For` 首段计。
+- CORS：`/api/*` 响应带 `Access-Control-Allow-Origin: *` 并处理 `OPTIONS` 预检（与 `/events` 同 posture；客户端用 token 而非 cookie，无凭证风险）。
+
+### 6.3 账号数据口径（`js/accountData.js`，三端同构）
+
+- 文档 = 不透明 K/V：键名 `^[A-Za-z0-9._-]{1,64}$`（点分命名空间），整体序列化 ≤ 64KB（`normalizeAccountDoc` 校验，PUT 两侧共用）。
+- 已约定键：`stars.ammo` = string[]（子弹自选弹名）；`ledger.ammo` = `[{name, qty, cost}]`（囤货台账：弹名 / 数量 / 成本单价）；`mycost.ammo` = `{弹名: 成本单价}`（网页端信号卡自录买入价，iOS 暂只透传保留不消费）。后续键按需增补，先改本节再改端。
+- 首次登录 / 拉取合并口径：星标取**并集**（`mergeStars`，去重排序后回写两端与云端）；台账按弹名并集、**同名冲突本地优先**（`mergePositions`）；mycost 同为按键并集、本地优先（`mergeLocalWins`）——避免任何一端被覆盖丢数据。
+- **云端只存「用户创作内容」**（自选、台账这类丢了会心疼的），不存「设备偏好」（通知开关、服务器地址、UI 状态——每台设备自己的，同步它们反而会互相踩）。
+- iOS 同构实现：`DeltaForceCore/AccountData.swift`（`normalizeAccountDoc` / `mergeStars` / `mergePositions`），单测与 JS 口径逐项对账。
+- 数据落盘：`data/auth/accounts.json`（账号表）+ `data/auth/account-data/<uid>.json`（每用户文档），原子写（tmp+rename），随 `/data/` 整体 gitignore。
+- 隐私边界：文档内容不做加密（自托管单机、明文 http 合法形态下 TLS 由部署侧负责）；不要往里放任何敏感信息，见键名约定。

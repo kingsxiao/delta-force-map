@@ -1,8 +1,13 @@
 // PlaybookView.swift — 倒卖手册（与 apps/web/src/views/ammo/Playbook.vue 同一份静态内容）
+// 顶部动态区：全市场日内节律卡（MarketClock）——数据驱动的「现在几点，该扫货
+// 还是该出货」，与下方静态 WINDOWS 共识时段互补；算法 DeltaForceCore marketClock
+// （shared/js/sellEta.js 同构对拍）。
 import SwiftUI
+import DeltaForceCore
 
 struct PlaybookView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(AppModel.self) private var app
 
     private struct Window: Identifiable {
         let id = UUID()
@@ -57,6 +62,11 @@ struct PlaybookView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: Theme.Space.md) {
+                    // 全市场日内节律（数据驱动）：快照不足时静默跳过，手册静态内容不受影响
+                    if let clock = SellEtaEngine.marketClock(app.market.items) {
+                        MarketClockCard(clock: clock)
+                    }
+
                     Text("倒卖 = 低价囤消耗品 + 高位分批抛售。信号解决「哪种弹、什么价」，下面是社区攻略里验证过的「什么时间、怎么操作」——按 时段 → 买 → 卖 → 窗口 串成一条完整动线。")
                         .font(Theme.font(.sm)).foregroundStyle(Theme.dim)
 
@@ -118,5 +128,160 @@ struct PlaybookView: View {
             .toolbar { Button("完成") { dismiss() } }
         }
         .preferredColorScheme(.dark)
+    }
+}
+
+/// 全市场日内节律卡（手册顶部动态区）：24 格水位色带 + 数据时刻指针 + 三档判读。
+/// 布局与配色语义对齐网页端 apps/web/src/views/ammo/MarketClock.vue（低=ok / 中=faint /
+/// 高=danger，▼ 指针标数据时刻）；判读口径在 DeltaForceCore marketClock（与 web 对拍）。
+private struct MarketClockCard: View {
+    let clock: MarketClock
+
+    /// 有效水位区间（色带高度 / 三档配色统一取位；平坦时全部居中）
+    private var span: (low: Double, high: Double)? {
+        let valid = clock.levels.compactMap { $0 }
+        guard let low = valid.min(), let high = valid.max() else { return nil }
+        return (low, high)
+    }
+
+    private func pos(_ v: Double?) -> Double? {
+        guard let v, let s = span, s.high - s.low > 1e-9 else { return v != nil ? 0.5 : nil }
+        return (v - s.low) / (s.high - s.low)
+    }
+
+    private var verdictTint: Color {
+        switch clock.verdict {
+        case .buy: Theme.ok
+        case .sell: Theme.danger
+        case .wait, nil: Theme.faint
+        }
+    }
+
+    private var verdictNote: String {
+        switch clock.verdict {
+        case .buy: "全市场处日内相对低位，适合进货"
+        case .sell: "全市场处日内相对高位，适合挂卖"
+        case .wait: "处日内中段，等窗口再动手"
+        case nil: "样本不足"
+        }
+    }
+
+    /// 最低小时（首个取到全天最低水位的时刻，读数行展示用）
+    private var lowHour: Int? {
+        guard let s = span else { return nil }
+        return clock.levels.firstIndex(where: { $0 == s.low })
+    }
+
+    /// 读数行文案（ViewBuilder 内不能写 `line +=` 这类 Void 语句，字符串拼接收拢到这里）
+    private var readout: String? {
+        guard let peak = SellEtaEngine.fmtPeak(start: clock.peakStart, end: clock.peakEnd) else { return nil }
+        var line = "高位窗口 \(peak)"
+        if let lift = clock.liftPct { line += "（较最低小时 \(Fmt.pct(lift))）" }
+        if let lh = lowHour { line += " · 最低小时 \(String(format: "%02d:00", lh)) 前后" }
+        return line
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Theme.Space.sm) {
+            HStack(spacing: Theme.Space.xs) {
+                Text("MARKET CLOCK").font(Theme.monoFont(.micro, weight: .bold)).foregroundStyle(Theme.accent)
+                Text("全市场日内节律 · \(clock.counted) 种弹聚合")
+                    .font(Theme.font(.xs))
+                    .foregroundStyle(Theme.dim)
+                    .lineLimit(1)
+                Spacer(minLength: Theme.Space.xs)
+                if let v = clock.verdict { StatusChip(text: v.label, tint: verdictTint) }
+            }
+
+            // 判读行：数据时刻（快照末点墙钟，不随设备时区漂移）+ 判读语
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text("数据时刻").font(Theme.font(.xs)).foregroundStyle(Theme.faint)
+                Mono(clock.dataHour.map { String(format: "%02d:00", $0) } ?? "—", step: .sub, color: Theme.tx)
+                Text(verdictNote).font(Theme.font(.xs)).foregroundStyle(Theme.faint)
+            }
+
+            MarketClockBand(clock: clock, pos: pos)
+
+            // 读数行：高位窗口 / 涨幅 / 最低小时（窗口缺失时整行不渲染，与网页端一致）
+            if let line = readout {
+                Text(line)
+                    .font(Theme.font(.xs)).monospacedDigit().foregroundStyle(Theme.dim)
+            }
+
+            Text("按 \(clock.counted) 种子弹 7 天小时曲线逐弹归一（相对自身 7 天均价）后跨弹取中位聚合；「数据时刻」为快照曲线末点的墙钟时刻，不用设备本地时间。历史统计不代表未来。")
+                .font(Theme.font(.xs)).foregroundStyle(Theme.faint)
+        }
+        .card()
+    }
+}
+
+/// 24 格水位色带：每格竖槽内水位条按位置升起的迷你直方图 + 数据时刻 ▼ 指针
+private struct MarketClockBand: View {
+    let clock: MarketClock
+    /// 与卡片同口径的水位取位函数（0-1；nil = 该小时无样本）
+    let pos: (Double?) -> Double?
+
+    var body: some View {
+        HStack(alignment: .bottom, spacing: 2) {
+            ForEach(0..<24, id: \.self) { h in
+                cell(h)
+                    .frame(maxWidth: .infinity)
+            }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(a11y)
+    }
+
+    @ViewBuilder
+    private func cell(_ h: Int) -> some View {
+        let p = pos(clock.levels[h])
+        let now = clock.dataHour == h
+        VStack(spacing: 2) {
+            // 指针槽（固定高、常驻占位，仅数据时刻点亮——避免色带整体跳动）
+            CaretDown()
+                .fill(now ? Theme.accent : .clear)
+                .frame(width: 8, height: 5)
+                .frame(height: 9, alignment: .bottom)
+            // 轨道 + 水位条（4pt 保底 + 40pt 按位置）
+            ZStack(alignment: .bottom) {
+                RoundedRectangle(cornerRadius: 1.5, style: .continuous).fill(Theme.line2)
+                if let p {
+                    RoundedRectangle(cornerRadius: 1.5, style: .continuous)
+                        .fill(p <= 1.0 / 3.0
+                            ? Theme.ok.opacity(0.55)
+                            : p >= 2.0 / 3.0 ? Theme.danger.opacity(0.6) : Theme.faint.opacity(0.45))
+                        .frame(height: 4 + 40 * p)
+                }
+            }
+            .frame(height: 44)
+            .overlay(RoundedRectangle(cornerRadius: 1.5, style: .continuous)
+                .stroke(now ? Theme.accentDim : .clear, lineWidth: 1))
+            // 小时标注：只标 0/6/12/18（纯 ASCII 时码走 mono）
+            Text(h % 6 == 0 ? String(format: "%02d", h) : "")
+                .font(Theme.monoFont(.micro))
+                .monospacedDigit()
+                .foregroundStyle(Theme.faint)
+                .frame(height: 11)
+        }
+    }
+
+    private var a11y: String {
+        var s = "全市场 24 小时相对水位色带"
+        if let h = clock.dataHour { s += "，数据时刻 \(String(format: "%02d", h)):00" }
+        if let v = clock.verdict { s += "，判读\(v.label)" }
+        if let p = SellEtaEngine.fmtPeak(start: clock.peakStart, end: clock.peakEnd) { s += "，高位窗口\(p)" }
+        return s
+    }
+}
+
+/// 小号下指箭头（数据时刻指针；自绘 Shape，避免裸 .font(.system(size:))）
+private struct CaretDown: Shape {
+    func path(in rect: CGRect) -> Path {
+        var p = Path()
+        p.move(to: CGPoint(x: rect.midX, y: rect.maxY))
+        p.addLine(to: CGPoint(x: rect.minX, y: rect.minY))
+        p.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
+        p.closeSubpath()
+        return p
     }
 }

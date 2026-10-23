@@ -5,7 +5,9 @@
 // - 详情列表 = 当前筛选下该枪全部组合按 TTK 升序（legacy L772-773 同口径），
 //   与点击行 TTK 相同的卡标记 best（legacy L775）。
 import { computed } from 'vue'
+import { useRouter } from 'vue-router'
 import { CAL } from '../../data/ttk/calibers.js'
+import { ttkAmmoMarketName } from '../../data/ttk/ammo-market-alias.js'
 import { fmtMs, fmtDmg, metaText, extraText, scenLabel, partDmg, PART_CHAR } from './format.js'
 import PenBadge from './PenBadge.vue'
 
@@ -18,7 +20,25 @@ const props = defineProps({
   showScen: { type: Boolean, default: false }, // 多场景时在副行标注归属（5 级头）
   tier: { type: String, default: '' },  // T0-T3 强度分档标签（固定基准，见 TtkView tierGun）
   delay: { type: Number, default: 0 },  // 展示层扳机延迟修正（ms）：等量平移，不改名次/模型
+  prices: { type: Object, default: null },  // 行情价格上下文（TtkView 传入）：{ byName, ok }
 })
+
+const router = useRouter()
+
+/* 行情条目（展开详情的弹药对比行按弹名反查现价；无映射 / 行情不可用 → null 不渲染） */
+function marketOf(am) {
+  if (!props.prices?.ok) return null
+  const name = ttkAmmoMarketName(props.c.gun.cal, am.n)
+  return name ? props.prices.byName[name] ?? null : null
+}
+function priceText(i) {
+  const cur = Math.round(i.current).toLocaleString('zh-CN')
+  return i.rank == null ? '现价 ' + cur : '现价 ' + cur + ' · ' + Math.round(i.rank * 100) + '%'
+}
+function gotoMarket(am) {
+  const name = ttkAmmoMarketName(props.c.gun.cal, am.n)
+  if (name) router.push({ path: '/ammo', query: { q: name } })
+}
 
 defineEmits(['toggle'])
 
@@ -151,8 +171,17 @@ const detail = computed(() => {
             >
               <span class="d-rank">{{ String(i + 1).padStart(2, '0') }}</span>
               <span class="d-ammo">
-                <PenBadge :p="item.x.am.pen" />
-                <span class="d-an">{{ item.x.am.n }}</span>
+                <span class="d-ammo-main">
+                  <PenBadge :p="item.x.am.pen" />
+                  <span class="d-an">{{ item.x.am.n }}</span>
+                </span>
+                <button
+                  v-if="marketOf(item.x.am)"
+                  type="button"
+                  class="d-mp"
+                  :title="'去行情页看 ' + ttkAmmoMarketName(c.gun.cal, item.x.am.n) + ' 走势'"
+                  @click="gotoMarket(item.x.am)"
+                >{{ priceText(marketOf(item.x.am)) }}</button>
               </span>
               <span class="d-ttk">
                 <span class="d-ttv">{{ fmtMs(item.x.ttk) }}</span>
@@ -503,10 +532,33 @@ const detail = computed(() => {
 .d-ammo {
   grid-area: ammo;
   display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  min-width: 0;
+}
+/* 徽标 + 弹名横排（现价链接在下方第二行，联动行情页） */
+.d-ammo-main {
+  display: flex;
   align-items: center;
   gap: 8px;
   min-width: 0;
 }
+/* 现价文本链（跳行情页）：等宽数字 + accent，hover/active 下划线（规格同 .ammo-toggle） */
+.d-mp {
+  border: 0;
+  background: none;
+  padding: 0;
+  font-family: var(--mono);
+  font-size: var(--fs-2xs);
+  letter-spacing: .02em;
+  color: var(--accent);
+  cursor: pointer;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.d-mp:hover,
+.d-mp:active { text-decoration: underline; }
 .d-an {
   font-size: var(--fs-xs);
   font-weight: 600;

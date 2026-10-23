@@ -10,7 +10,7 @@
      · 哪种子弹 / 多少价格可以买入（当前价）
      · 什么时候卖出（目标挂单价 + 到手价）
      · 能赚多少（每发利润 + 收益率，已扣交易税）
-   去重（notify-policy.mjs，与 live.mjs 共用 state 文件）：每轮全量记录
+   去重（shared/js/notify-policy.js，与 live.mjs 共用 state 文件）：每轮全量记录
    信号与 streak；首次出现立即通知；信号切换需连续 2 轮确认（分钟级
    数据在分位边界抖动防刷屏）；同信号 6 小时冷却；BUY 冷却期内价格再
    跌 5% 重新提示。
@@ -24,7 +24,7 @@ import { existsSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { fetchOnce, writeJsonAtomic } from './fetch-once.mjs'
-import { judgeSignals, sendNotifications, emptyState } from './notify-policy.mjs'
+import { judgeSignals, sendNotifications, emptyState } from '../../shared/js/notify-policy.js'
 import { notify } from './notify.mjs'
 import { primeCurveCache } from './moligod-client.mjs'
 

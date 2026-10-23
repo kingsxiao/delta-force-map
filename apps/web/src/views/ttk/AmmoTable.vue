@@ -3,8 +3,12 @@
 // "参考单发"= 口径基准枪面板 × 弹药系数（四舍五入到 0.1）；
 // 备注列聚合弹药 note / est 与口径 est。open 状态由父组件持有（初始全收起，§6.3；
 // 与 legacy renderAmmo 仅装配一次、筛选切换不重置的口径一致）。
+// 「现价·7 天分位」列联动行情页（TtkView 一次性拉取 market.json 传入 prices）：
+// 按 ammo-market-alias 映射查现价，点击跳 /ammo?q=弹名；无映射 / 行情不可用显「—」。
 import { computed } from 'vue'
+import { useRouter } from 'vue-router'
 import { GUNS } from '../../data/ttk/guns.js'
+import { ttkAmmoMarketName } from '../../data/ttk/ammo-market-alias.js'
 import { fmtCoef } from './format.js'
 import CollapseCol from '../../components/CollapseCol.vue'
 import PenBadge from './PenBadge.vue'
@@ -13,9 +17,13 @@ const props = defineProps({
   calKey: { type: String, required: true },
   cal: { type: Object, required: true },
   open: { type: Boolean, default: true },
+  // 行情价格上下文（TtkView 传入）：{ byName: {弹名→行情条目}, ok: 快照是否可用 }
+  prices: { type: Object, default: null },
 })
 
 defineEmits(['toggle'])
+
+const router = useRouter()
 
 const gunsOf = computed(() =>
   GUNS.filter((g) => g.cal === props.calKey).map((g) => g.zh).join(' / '))
@@ -36,6 +44,22 @@ function remark(am) {
   if (props.cal.est) bits.push('口径数据置信度较低')
   return bits.join(' · ') || '—'
 }
+
+/* 行情条目（无映射 / 行情不可用 → null，模板显「—」） */
+function marketOf(am) {
+  if (!props.prices?.ok) return null
+  const name = ttkAmmoMarketName(props.calKey, am.n)
+  return name ? props.prices.byName[name] ?? null : null
+}
+/* 现价·7 天分位 短串：分位缺失（数据不足）只显现价 */
+function priceText(i) {
+  const cur = Math.round(i.current).toLocaleString('zh-CN')
+  return i.rank == null ? cur : cur + ' · ' + Math.round(i.rank * 100) + '%'
+}
+function gotoMarket(am) {
+  const name = ttkAmmoMarketName(props.calKey, am.n)
+  if (name) router.push({ path: '/ammo', query: { q: name } })
+}
 </script>
 
 <template>
@@ -44,7 +68,7 @@ function remark(am) {
       <table class="tbl">
         <thead>
           <tr>
-            <th>弹药</th><th>穿透</th><th>肉伤系数</th><th>甲伤系数</th><th>参考单发（肉/甲）</th><th>备注</th>
+            <th>弹药</th><th>穿透</th><th>肉伤系数</th><th>甲伤系数</th><th>参考单发（肉/甲）</th><th>现价·7天分位</th><th>备注</th>
           </tr>
         </thead>
         <tbody>
@@ -54,6 +78,11 @@ function remark(am) {
             <td class="mono num">{{ fmtCoef(am.flesh) }}</td>
             <td class="mono num">{{ fmtCoef(am.amult) }}</td>
             <td class="mono num">{{ refShot(am) }}</td>
+            <td class="num">
+              <!-- 文本链按钮（§5.3 无底无边框）：现价即入口，跳行情页搜该弹 -->
+              <button v-if="marketOf(am)" type="button" class="mp" :title="'去行情页看 ' + ttkAmmoMarketName(calKey, am.n) + ' 走势'" @click="gotoMarket(am)">{{ priceText(marketOf(am)) }}</button>
+              <template v-else>—</template>
+            </td>
             <td class="dimc">{{ remark(am) }}</td>
           </tr>
         </tbody>
@@ -69,10 +98,25 @@ function remark(am) {
   overflow-x: auto;
   padding: var(--sp-3) var(--sp-4);
 }
-.tbl { min-width: 640px; }
+.tbl { min-width: 720px; }
 .cal-note {
   font-size: var(--fs-xs);
   color: var(--faint);
   padding: 0 var(--sp-4) var(--sp-2);
 }
+/* 现价文本链（跳行情页）：等宽数字 + accent，hover/active 下划线（规格同 .ammo-toggle） */
+.mp {
+  border: 0;
+  background: none;
+  padding: 0;
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  letter-spacing: .02em;
+  color: var(--accent);
+  cursor: pointer;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.mp:hover,
+.mp:active { text-decoration: underline; }
 </style>

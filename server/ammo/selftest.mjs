@@ -40,7 +40,7 @@ import {
   CURVE_TTL_MS, beijingParts,
 } from './moligod-client.mjs'
 import { fetchOnce, writeJsonAtomic, HEARTBEAT_MS } from './fetch-once.mjs'
-import { judgeSignals, emptyState, POLICY, buyLine, sellLine } from './notify-policy.mjs'
+import { judgeSignals, emptyState, POLICY, buyLine, sellLine } from '../../shared/js/notify-policy.js'
 import { analyzeItem, analyzeMarket } from './analyze.mjs'
 import { createLiveServer } from './live.mjs'
 import { createSiteServer } from '../server.mjs'

@@ -11,6 +11,7 @@ const router = createRouter({
     { path: '/ttk', name: 'ttk', component: () => import('./views/TtkView.vue') },
     { path: '/ammo', name: 'ammo', component: () => import('./views/AmmoMarketView.vue') },
     { path: '/radar', name: 'radar', component: () => import('./views/MarketRadarView.vue') },
+    { path: '/account', name: 'account', component: () => import('./views/AccountView.vue') },
   ],
 })
 

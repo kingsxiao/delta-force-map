@@ -1,0 +1,339 @@
+// AccountView.swift — 账号与云同步（从设置的「账号」入口推入）
+// 三态：未登录（登录 / 注册表单）/ 已登录（信息 + 云同步 + 退出登录）。
+// 样式与设置页同一范式：rowTitle / sectionHeader / Theme 字阶与卡片底。
+// 表单精修（对齐 Web 端登录页）：字段级实时校验（失焦后亮红、合规亮绿勾，
+// 避免边打边报错）、密码显隐切换、键盘回车流转（用户名 → 密码 → 提交）、
+// 主操作实心按钮 + 按压反馈 + 失能降透明、错误行带警示图标。
+import DeltaForceCore
+import SwiftUI
+
+struct AccountView: View {
+    @Environment(AppModel.self) private var app
+    // 二分触感：登录/注册成功 / 失败各自 tick（§4.5-3 同口径）
+    @State private var okTick = 0
+    @State private var errTick = 0
+
+    @State private var mode = "login"
+    @State private var username = ""
+    @State private var password = ""
+    @State private var submitting = false
+    @State private var errorText: String?
+    @State private var syncing = false
+    // 表单精修态
+    @State private var showPassword = false
+    @State private var touchedUsername = false // 失焦后才亮红（onFocusChange 置位）
+    @State private var touchedPassword = false
+    @FocusState private var focusedField: Field?
+
+    private enum Field { case username, password }
+
+    /// 与服务端同口径的客户端预检（server/auth/store.mjs）：2–16 位字母 / 数字 / 下划线 / 中文
+    private static let usernameRegex = /^[A-Za-z0-9_\p{Han}]{2,16}$/
+
+    private var usernameOk: Bool {
+        (try? Self.usernameRegex.wholeMatch(in: username.trimmingCharacters(in: .whitespaces))) != nil
+    }
+    private var passwordOk: Bool { password.count >= 8 }
+
+    private var canSubmit: Bool {
+        usernameOk && passwordOk && !submitting
+    }
+
+    var body: some View {
+        Form {
+            if let user = app.auth.user {
+                Section {
+                    LabeledContent {
+                        Text(user.username)
+                            .font(Theme.font(.md, weight: .semibold))
+                            .foregroundStyle(Theme.txStrong)
+                    } label: {
+                        rowTitle("用户名")
+                    }
+                    LabeledContent {
+                        Text(createdAtText(user.createdAt))
+                            .font(Theme.font(.md))
+                            .foregroundStyle(Theme.dim)
+                    } label: {
+                        rowTitle("注册时间")
+                    }
+                } header: {
+                    sectionHeader("账号")
+                }
+                .listRowBackground(Theme.card)
+
+                Section {
+                    LabeledContent {
+                        syncStateText
+                    } label: {
+                        rowTitle("云端同步")
+                    }
+                    LabeledContent {
+                        Text("自选 \(app.favorites.names.count) · 台账 \(app.positions.positions.count)")
+                            .font(Theme.font(.md, weight: .semibold))
+                            .monospacedDigit()
+                            .foregroundStyle(Theme.dim)
+                    } label: {
+                        rowTitle("同步内容")
+                    }
+                    if let t = app.auth.lastSyncAt {
+                        LabeledContent {
+                            Text(t.formatted(date: .omitted, time: .shortened))
+                                .font(Theme.font(.md))
+                                .foregroundStyle(Theme.dim)
+                        } label: {
+                            rowTitle("上次同步")
+                        }
+                    }
+                    Button {
+                        guard !syncing else { return }
+                        syncing = true
+                        Task {
+                            await app.syncUserData()
+                            syncing = false
+                        }
+                    } label: {
+                        HStack(spacing: Theme.Space.sm) {
+                            Label("立即同步", systemImage: "arrow.clockwise")
+                                .font(Theme.font(.md, weight: .semibold))
+                            if syncing { ProgressView().controlSize(.small) }
+                        }
+                    }
+                    .disabled(syncing)
+                } header: {
+                    sectionHeader("云同步")
+                } footer: {
+                    if case .error(let message) = app.auth.syncState {
+                        Text("\(message)。可点「立即同步」重试，本地功能不受影响。")
+                            .font(Theme.font(.xs))
+                            .foregroundStyle(Theme.danger)
+                    } else {
+                        Text("自选星标取并集、囤货台账按弹名合并（同名以本机为准），任何一端的数据都不会丢；登录期间改动自动上云。")
+                            .font(Theme.font(.xs))
+                            .foregroundStyle(Theme.faint)
+                    }
+                }
+                .listRowBackground(Theme.card)
+
+                Section {
+                    Button("退出登录", role: .destructive) {
+                        Task { await app.logoutAccount() }
+                    }
+                    .font(Theme.font(.md, weight: .semibold))
+                } footer: {
+                    Text("退出会让所有已登录设备一起下线；本机自选保留，只是不再同步。")
+                        .font(Theme.font(.xs))
+                        .foregroundStyle(Theme.faint)
+                }
+                .listRowBackground(Theme.card)
+            } else {
+                Section {
+                    Picker("方式", selection: $mode) {
+                        Text("登录").tag("login")
+                        Text("注册").tag("register")
+                    }
+                    .pickerStyle(.segmented)
+
+                    // 用户名行：失焦后不合规亮红、合规亮绿勾（空值不亮，避免开场报错）
+                    HStack(spacing: Theme.Space.sm) {
+                        TextField("用户名（2–16 字符）", text: $username)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .focused($focusedField, equals: .username)
+                            .onSubmit { focusedField = .password }
+                        usernameStatusIcon
+                    }
+                    // 密码行：SecureField / TextField 按 showPassword 切换，右侧眼睛切换不夺键盘焦点
+                    HStack(spacing: Theme.Space.sm) {
+                        Group {
+                            if showPassword {
+                                TextField(placeholderPassword, text: $password)
+                            } else {
+                                SecureField(placeholderPassword, text: $password)
+                            }
+                        }
+                        .focused($focusedField, equals: .password)
+                        .onSubmit { submit() }
+                        .submitLabel(.go)
+                        Button {
+                            showPassword.toggle()
+                        } label: {
+                            Image(systemName: showPassword ? "eye.slash" : "eye")
+                                .font(Theme.font(.md))
+                                .foregroundStyle(focusedField == .password ? Theme.tx : Theme.faint)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(showPassword ? "隐藏密码" : "显示密码")
+                        passwordStatusIcon
+                    }
+
+                    // 主操作：全宽实心主色按钮（行背景透明化，CTA 不嵌卡片条）
+                    Button {
+                        submit()
+                    } label: {
+                        HStack(spacing: Theme.Space.sm) {
+                            if submitting { ProgressView().tint(Theme.bg) }
+                            Text(submitting
+                                 ? (mode == "login" ? "登录中…" : "注册中…")
+                                 : (mode == "login" ? "登录" : "注册并登录"))
+                        }
+                    }
+                    .buttonStyle(AuthPrimaryButtonStyle())
+                    .opacity(canSubmit ? 1 : 0.45)
+                    .disabled(!canSubmit)
+                    .listRowBackground(Color.clear)
+                    .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+
+                    if let errorText {
+                        Label(errorText, systemImage: "exclamationmark.triangle.fill")
+                            .font(Theme.font(.xs))
+                            .foregroundStyle(Theme.danger)
+                    }
+                } header: {
+                    sectionHeader("账号")
+                } footer: {
+                    Text("账号数据存放在你自己的服务器上，用于把自选星标同步到多台设备；不要使用与其他网站相同的密码。")
+                        .font(Theme.font(.xs))
+                        .foregroundStyle(Theme.faint)
+                }
+                .listRowBackground(Theme.card)
+            }
+        }
+        .themedList()
+        .frame(maxWidth: 600)
+        .frame(maxWidth: .infinity)
+        .background(Theme.bg)
+        .navigationTitle(mode == "login" && app.auth.user == nil ? "登录" : "账号")
+        // 失焦探测：字段从聚焦 → 离开（nil 或切到另一字段）时置「已触碰」，之后才允许亮红
+        .onChange(of: focusedField) { old, new in
+            if old == .username, new != .username { touchedUsername = true }
+            if old == .password, new != .password { touchedPassword = true }
+        }
+        // 登录 ↔ 注册切换：清错误与「已触碰」标记（换模式不带着旧校验状态走）
+        .onChange(of: mode) { _, _ in
+            errorText = nil
+            touchedUsername = false
+            touchedPassword = false
+        }
+        .sensoryFeedback(.success, trigger: okTick)
+        .sensoryFeedback(.error, trigger: errTick)
+    }
+
+    /* ---------- 私有 ---------- */
+
+    /// 密码占位随模式切换（注册态显式提示长度下限）
+    private var placeholderPassword: String {
+        mode == "login" ? "密码" : "密码（至少 8 位）"
+    }
+
+    /// 字段校验角标：合规 → 绿勾（accent）；失焦后不合规 → 红叹号；空 / 未触碰 → 无（不打扰输入）
+    @ViewBuilder
+    private var usernameStatusIcon: some View {
+        if !username.isEmpty && usernameOk {
+            Image(systemName: "checkmark.circle.fill")
+                .font(Theme.font(.md))
+                .foregroundStyle(Theme.accent)
+                .accessibilityHidden(true)
+        } else if !username.isEmpty && touchedUsername {
+            Image(systemName: "exclamationmark.circle.fill")
+                .font(Theme.font(.md))
+                .foregroundStyle(Theme.danger)
+                .accessibilityHidden(true)
+        }
+    }
+
+    @ViewBuilder
+    private var passwordStatusIcon: some View {
+        if !password.isEmpty && passwordOk {
+            Image(systemName: "checkmark.circle.fill")
+                .font(Theme.font(.md))
+                .foregroundStyle(Theme.accent)
+                .accessibilityHidden(true)
+        } else if !password.isEmpty && touchedPassword {
+            Image(systemName: "exclamationmark.circle.fill")
+                .font(Theme.font(.md))
+                .foregroundStyle(Theme.danger)
+                .accessibilityHidden(true)
+        }
+    }
+
+    private func submit() {
+        guard canSubmit else { return }
+        submitting = true
+        errorText = nil
+        let name = username.trimmingCharacters(in: .whitespaces)
+        let pass = password
+        Task {
+            do {
+                if mode == "login" {
+                    try await app.loginAccount(username: name, password: pass)
+                } else {
+                    try await app.registerAccount(username: name, password: pass)
+                }
+                password = ""
+                okTick += 1
+            } catch {
+                errorText = friendlyError(error)
+                errTick += 1
+            }
+            submitting = false
+        }
+    }
+
+    /// 按 code 翻译成可行动提示（契约 §6.2 错误码）
+    private func friendlyError(_ error: Error) -> String {
+        if let api = error as? APIError, case .server(let code, let message) = api {
+            switch code {
+            case "USERNAME_TAKEN": return "这个用户名已被注册，换一个试试"
+            case "AUTH_FAILED": return "用户名或密码不对，请检查后重试"
+            case "INVALID_USERNAME": return "用户名需 2–16 个字符（字母 / 数字 / 下划线 / 中文）"
+            case "INVALID_PASSWORD": return "密码需 8–64 个字符"
+            case "RATE_LIMITED", "NETWORK": return message
+            default: return message
+            }
+        }
+        return error.localizedDescription
+    }
+
+    private var syncStateText: some View {
+        switch app.auth.syncState {
+        case .idle: Text(user == nil ? "未登录" : "待同步").foregroundStyle(Theme.dim)
+        case .syncing: Text("同步中…").foregroundStyle(Theme.dim)
+        case .ok: Text("已同步").foregroundStyle(Theme.ok)
+        case .error: Text("同步失败").foregroundStyle(Theme.danger)
+        }
+    }
+
+    private var user: AuthUser? { app.auth.user }
+
+    private func createdAtText(_ iso: String) -> String {
+        // ISO-8601（契约带毫秒）→ 本地日期展示；解析失败原样显示
+        let parser = ISO8601DateFormatter()
+        parser.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let date = parser.date(from: iso) ?? ISO8601DateFormatter().date(from: iso)
+        return date.map { $0.formatted(date: .abbreviated, time: .omitted) } ?? iso
+    }
+
+    private func rowTitle(_ s: String) -> some View {
+        Text(s).font(Theme.font(.md)).foregroundStyle(Theme.tx)
+    }
+
+    private func sectionHeader(_ s: String) -> some View {
+        Text(s).font(Theme.font(.micro, weight: .bold)).foregroundStyle(Theme.accent)
+    }
+}
+
+/// 登录 / 注册主操作按钮：全宽 accent 实心、bg 深字（对齐 base.css .submit 的同款语义），
+/// 按压 0.82 透明度 + durFast（Reduce Motion 不跳过——纯透明度淡出非位移动效）
+private struct AuthPrimaryButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(Theme.font(.md, weight: .bold))
+            .foregroundStyle(Theme.bg)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 12)
+            .background(Theme.accent, in: RoundedRectangle(cornerRadius: Theme.radiusTile, style: .continuous))
+            .opacity(configuration.isPressed ? 0.82 : 1)
+            .animation(.easeOut(duration: Theme.durFast), value: configuration.isPressed)
+    }
+}

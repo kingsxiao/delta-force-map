@@ -31,6 +31,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createLiveServer } from './ammo/live.mjs'
 import { runRadarCycle } from './market/radar.mjs'
+import { createAuthApi } from './auth/api.mjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 /** 网页端目录（多端 monorepo：public/ 与 dist/ 都挂在 apps/web 下） */
@@ -65,9 +66,14 @@ export function createSiteServer({
   noNotify = true,
   radarCycle = runRadarCycle,
   radarMs = 10 * 60 * 1000,
+  trustProxy = false,
 } = {}) {
   const distDir = path.join(webDir, 'dist')
   const live = createLiveServer({ rootDir, webDir, noNotify })
+  // 账号 API（注册 / 登录 / 登出 / me + 账号云数据，契约 shared/API.md §6）：
+  // 与站点同进程同源；POST/PUT 只进这一支，静态托管仍保持只读 GET/HEAD。
+  // trustProxy：nginx 反代形态下显式开启才采信 X-Forwarded-For 做限速
+  const auth = createAuthApi({ rootDir, trustProxy })
   let radarTimer = null
   let closing = false
 
@@ -141,6 +147,10 @@ export function createSiteServer({
         live.server.emit('request', req, res)
         return
       }
+      // /api/* 交给账号模块（含 OPTIONS 预检；未匹配路径由其统一 404 JSON）
+      if (url.pathname.startsWith('/api/')) {
+        if (await auth.handle(req, res, url)) return
+      }
       if (req.method !== 'GET' && req.method !== 'HEAD') {
         res.writeHead(405, { 'Content-Type': 'text/plain; charset=utf-8' })
         res.end('method not allowed')
@@ -185,10 +195,12 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     process.exit(1)
   }
   const notify = argv.includes('--notify')
+  const trustProxy = argv.includes('--trust-proxy') || process.env.TRUST_PROXY === '1'
   const site = createSiteServer({
     webDir: WEB_DIR,
     noNotify: !notify,
     radarMs: Math.max(1, radarIntervalMin) * 60 * 1000,
+    trustProxy,
   })
   site.server.listen(port, host, () => {
     log(`站点已启动：http://${host}:${port}/ · SSE /events · health /health（Ctrl+C 退出）`)

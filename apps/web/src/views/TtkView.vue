@@ -28,6 +28,7 @@ import { CAL } from '../data/ttk/calibers.js'
 import { GUNS } from '../data/ttk/guns.js'
 import { DUR, HEAD_DUR, PARTS } from '../data/ttk/armor.js'
 import { combo } from '../data/ttk/model.js'
+import { fmtAge } from '@shared/js/marketMeta.js'
 import { PART_CHAR, scenLabel, fmtMs } from './ttk/format.js'
 
 /* ---------- 分段控件条目（legacy segDefs L714-742 原样，共六组实例） ---------- */
@@ -369,6 +370,27 @@ function toggleAllAmmo() {
   for (const k of ammoKeys) ammoOpen[k] = next
 }
 
+/* ---------- 行情联动（本页唯一的网络请求，一次性拉取同源 /ammo/market.json） ----------
+   现价是增量信息不是本页地基：加载失败 / 快照缺失时现价列一律显「—」，
+   伤害与 TTK 数据不受任何影响。同源相对路径两种部署形态（npm run serve
+   静态托管 / 纯静态托管）均可达；纯静态部署下快照可能很旧——按快照
+   fetchedAt 标注数据龄，不裸显无时间锚的旧价误导买卖决策。 */
+const market = ref(null) // market.json 快照（null = 未加载完 / 失败）
+const marketFailed = ref(false)
+const priceByName = computed(() => {
+  const m = {}
+  for (const i of market.value?.items || []) m[i.name] = i
+  return m
+})
+/* 传给 AmmoTable / RankRow 的窄接口：名字 → 行情条目（弹名对齐见 ammo-market-alias.js） */
+const prices = computed(() => ({ byName: priceByName.value, ok: !!market.value }))
+const marketAgeText = computed(() => {
+  if (marketFailed.value) return '行情不可用'
+  if (!market.value) return '行情加载中'
+  const t = Date.parse(market.value.fetchedAt)
+  return Number.isFinite(t) ? '行情 ' + fmtAge((Date.now() - t) / 60000) + '前' : '行情快照'
+})
+
 /* ---------- 静态折叠块开关（legacy 初始态：矩阵/护甲表/方法开，头盔/来源收） ---------- */
 const matrixOpen = ref(true)
 const armorTblOpen = ref(true)
@@ -386,6 +408,14 @@ onMounted(() => {
   prevTitle = document.title
   document.title = PAGE_TITLE
   observeRoot(rootEl.value)
+  // 行情快照一次性拉取（失败静默兜底：现价列全显「—」，marketAgeText 报「行情不可用」）
+  fetch(`${import.meta.env.BASE_URL}ammo/market.json`)
+    .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+    .then((j) => {
+      if (j && Array.isArray(j.items)) market.value = j
+      else throw new Error('数据格式异常')
+    })
+    .catch(() => { marketFailed.value = true })
 })
 
 onBeforeUnmount(() => {
@@ -486,6 +516,7 @@ onBeforeUnmount(() => {
               :show-scen="multiScen"
               :open="openKeys.has(rowKey(c))"
               :combos="allCombos"
+              :prices="prices"
               @toggle="toggleRow(c)"
             />
             <!-- 渲染上限兜底：截断时露出文本链「显示更多」，每点一次多渲一批（§5.3 无底无边框规格） -->
@@ -508,7 +539,7 @@ onBeforeUnmount(() => {
 
       <!-- 弹药库 -->
       <h3 id="ammo" class="block-h reveal">
-        <span class="bht">弹药库</span><span class="bhline"></span><span class="bhc">{{ ammoCountText }}</span>
+        <span class="bht">弹药库</span><span class="bhline"></span><span class="bhc">{{ ammoCountText }} · {{ marketAgeText }}</span>
       </h3>
       <p class="sec-lede">全枪械涉及的 {{ ammoKeys.length }} 种口径全部弹药。穿透等级决定对各级护甲的伤害通过率（见下方矩阵），肉伤 / 甲伤系数乘算武器面板。表中「参考单发」为该口径基准枪的面板数值，实际随具体武器浮动。</p>
       <div class="ammo-tools">
@@ -520,10 +551,12 @@ onBeforeUnmount(() => {
           :key="k"
           :cal-key="k"
           :cal="CAL[k]"
+          :prices="prices"
           :open="ammoOpen[k]"
           @toggle="ammoOpen[k] = !ammoOpen[k]"
         />
       </div>
+      <p class="ammo-market-note reveal">「现价·7 天分位」列为交易行快照（{{ marketAgeText }}；静态部署下快照可能滞后，买卖决策以行情页实时数据为准），点击可跳行情页查看该弹 7 天走势与买卖信号。「—」= 该弹未上架交易行或命名无法一一对应（禁交易弹 / 国服命名差异 / 弓弩用弹）。</p>
 
       <!-- 版本平衡调整（DFTTK 公告静态镜像，自托管；前端零外部请求） -->
       <h3 id="balance" class="block-h reveal">
@@ -749,6 +782,13 @@ onBeforeUnmount(() => {
 /* 按下同 hover（文本链按钮规格，与 .src-note a / .pb-src a 统一） */
 .ammo-toggle:hover,
 .ammo-toggle:active { text-decoration: underline; }
+/* 弹药库现价列口径说明（数据龄 / 「—」语义），规格同 .rank-footnote */
+.ammo-market-note {
+  margin: var(--sp-3) 0 0;
+  font-size: var(--fs-xs);
+  color: var(--faint);
+  line-height: 1.7;
+}
 
 /* ---------- rank-meta / 列表外壳（上距 16：champs 与计数行同屏收紧） ---------- */
 .rank-meta {

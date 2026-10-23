@@ -301,11 +301,13 @@ struct FeedHeader: View {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 8) {
                     // 连接点复用共享 ConnectionDot（C11 提为共享 API），着色维度全参传入：
-                    // 观感与原 private dotColor 逐分支等价（live 且未过期→ok / 有错误→danger / 其余→faint）
+                    // 观感与原 private dotColor 逐分支等价（live 且未过期→ok / 有错误→danger / 其余→faint）。
+                    // showLabel=false：页头不显「实时推送」状态文字，只留圆点（页头信息密度高，文字说明不必要）
                     ConnectionDot(
                         state: channel.state,
                         error: feed.lastError != nil,
-                        stale: feed.isDotStale(now: ctx.date)
+                        stale: feed.isDotStale(now: ctx.date),
+                        showLabel: false
                     )
                     Spacer()
                     if feed.isLoading { ProgressView().controlSize(.mini) }
@@ -354,6 +356,9 @@ struct ConnectionDot: View {
     var error: Bool = false
     /// feed.isDotStale(now:) 为 true 时 live 也不显 ok
     var stale: Bool = false
+    /// 是否显示状态文字（如「实时推送」）。设置页「连接状态」行要文字；
+    /// 页头只留圆点（状态语义转由圆点的 a11y label 承担）
+    var showLabel: Bool = true
 
     private var tint: Color {
         if state.isLive, !stale { return Theme.ok }
@@ -366,12 +371,16 @@ struct ConnectionDot: View {
             Circle()
                 .fill(tint)
                 .frame(width: 8, height: 8)
-                .accessibilityHidden(true) // 状态语义由 label 文本承担
-            // 含中文状态文案：默认 design + 等宽数字
-            Text(state.label)
-                .font(Theme.font(.xs, weight: .semibold))
-                .monospacedDigit()
-                .foregroundStyle(Theme.dim)
+                // 文字隐藏时状态语义由圆点自身承担；显示文字时圆点让位（避免读两遍）
+                .accessibilityLabel(state.label)
+                .accessibilityHidden(showLabel)
+            if showLabel {
+                // 含中文状态文案：默认 design + 等宽数字
+                Text(state.label)
+                    .font(Theme.font(.xs, weight: .semibold))
+                    .monospacedDigit()
+                    .foregroundStyle(Theme.dim)
+            }
         }
     }
 }

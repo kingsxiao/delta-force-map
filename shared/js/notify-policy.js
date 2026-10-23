@@ -1,6 +1,9 @@
 /* ============================================================
-   notify-policy.mjs — 信号通知去抖策略（monitor.mjs 与 live.mjs 共用）
+   notify-policy.js — 信号通知去抖策略（三端同构，唯一事实来源在 shared）
    ------------------------------------------------------------
+   消费方：服务端 monitor.mjs / live.mjs / market/radar.mjs（macOS 系统
+   通知）、网页端 AmmoMarketView（浏览器通知）、iOS NotifyPolicy.swift
+   （同口径移植，单测用 shared/fixtures 对拍）。改这里 = 改三端口径。
    分钟级数据源下，rank 在 0.25 / 0.80 分位边界抖动会让信号来回翻转，
    在原 monitor 的去重规则上增加 streak 确认与全量逐轮记录：
      · state.items 每轮全量记录每个弹的当前信号（含 WAIT）与 streak
@@ -10,10 +13,9 @@
      · 同信号 6 小时冷却到期        → 通知
      · BUY 较上次通知价累计再跌 5%  → 重报（渐进阴跌也按累计跌幅触发）
    state.items[name] = { signal, price, at(上次通知时刻), streak }
-   参数集中在此可直接调；本文件被 selftest.mjs 覆盖。
+   参数集中在此可直接调；服务端本文件被 selftest.mjs 覆盖。
    ============================================================ */
-import { fmtPrice, fmtPct } from './analyze.mjs'
-import { predictSellEta, fmtHours, fmtPeak } from '../../shared/js/sellEta.js'
+import { predictSellEta, fmtHours, fmtPeak } from './sellEta.js'
 
 export const POLICY = {
   COOLDOWN_MS: 6 * 60 * 60 * 1000, // 同信号冷却
@@ -24,6 +26,11 @@ export const POLICY = {
 export function emptyState() {
   return { items: {} }
 }
+
+/* 价格 / 收益率格式化：与 server/ammo/analyze.mjs、网页端页面 fmt 同款
+   （整数哈夫币 / +27.6%），通知文案三端逐字一致的前提 */
+const fmtPrice = (n) => (Number.isFinite(n) ? Math.round(n).toLocaleString('zh-CN') : '—')
+const fmtPct = (n) => (Number.isFinite(n) ? `${n >= 0 ? '+' : ''}${(n * 100).toFixed(1)}%` : '—')
 
 /** 买入通知正文：哪种子弹 / 多少价格买 / 什么时候卖 / 能赚多少
     （预计到价历时吃条目自带 curve 统计，曲线不足时自动省略该段） */
@@ -43,9 +50,9 @@ export function sellLine(i) {
 
 /**
  * 一轮信号判定：全量记录 + 决定哪些 BUY / SELL 值得通知（就地修改 state）。
- * @param {object} state 持久化状态（monitor-state.json 的内容）
+ * @param {object} state 持久化状态（服务端 monitor-state.json / 网页端 localStorage）
  * @param {Array} items analysis.items 全量（含 WAIT）
- * @param {number} now 可注入时钟（selftest 用）
+ * @param {number} now 可注入时钟（自测用）
  * @returns {{buys:Array, sells:Array}} 通过去抖、需要通知的项
  *
  * 语义（按优先级）：
@@ -103,7 +110,8 @@ export function judgeSignals(state, items, now = Date.now()) {
   return { buys, sells }
 }
 
-/** 通知发送（通知正文与条数上限沿用 monitor 原口径：最多报 3 条，其余进页面） */
+/** 通知发送（通知正文与条数上限沿用 monitor 原口径：最多报 3 条，其余进页面）。
+    notifyFn 为注入投递器：服务端传 osascript 通知、网页端传浏览器 Notification。 */
 export async function sendNotifications(buys, sells, notifyFn) {
   if (buys.length) {
     const top = buys.slice(0, 3)

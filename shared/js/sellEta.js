@@ -7,6 +7,9 @@
         「从现在这个价位到能卖，历史上通常要几小时」。
      B. 日内节律：按小时聚合 7 天同小时均价，找连续 3 小时最高的窗口
         （允许跨午夜）——回答「这个弹种通常几点最贵」。
+   另有全市场聚合口径 marketClock(items)：逐弹归一为相对自身 7 天均值的
+   价格比值后跨弹按小时取中位（见函数注释）——回答「现在几点，该扫货还是
+   该出货」。
    时间键双格式：moligod 12 位分钟档（YYYYMMDDHHmm）/ kkrb 10 位小时档
    （YYYYMMDDHH），同 marketMeta 约定。
    ETA 时钟锚点取 max(曲线末点, now)：数据过期时从当下起算，页面的数据
@@ -61,6 +64,89 @@ export function hourlyProfile(curve) {
     endHour: (startHour + 3) % 24,
     liftPct: low > 0 ? (best - low) / low : null,
   }
+}
+
+/**
+ * 全市场日内节律：逐弹归一 → 跨弹按小时取中位聚合（组件展示 / iOS 对拍共用）。
+   单价量纲差极大（实测 67 弹 162~6140），直接平均原始价则高价弹权重近 40 倍、
+   结果退化为高价弹的节律——因此每条 curve 先除以该弹自身 7 天均值化为价格比值
+   （1.0 = 各弹自身均价），再按小时跨弹取中位数（抗离群），得到 24 小时相对水位。
+   「此刻指针」不用设备本地时间：取参与聚合曲线中最新末点的小时（数据墙钟，
+   与 iOS 固定 Asia/Shanghai 口径等价，海外设备不错位）；判读按该小时水位在
+   全天 [最低, 最高] 区间的位置分三档（下 1/3 扫货 / 上 1/3 出货 / 中段观望），
+   语义对照倒卖手册 WINDOWS（Playbook.vue / PlaybookView.swift）。
+   纯字符串键前缀比较，全程不经 Date——不受访问者时区影响。
+   历史统计不代表未来——展示层必须带这句。
+ */
+export function marketClock(items) {
+  if (!Array.isArray(items) || !items.length) return null
+  const ratios = Array.from({ length: 24 }, () => [])
+  let counted = 0
+  let maxPrefix = null // 最新末点的 YYYYMMDDHH 数值前缀（12 位分钟档 / 10 位小时档通用）
+  let dataHour = null
+  for (const item of items) {
+    const curve = item && Array.isArray(item.curve) ? item.curve : null
+    if (!curve || curve.length < 24) continue
+    let sum = 0
+    let cnt = 0
+    for (const pt of curve) if (Number.isFinite(pt[1])) { sum += pt[1]; cnt++ }
+    const mean = cnt > 0 ? sum / cnt : NaN
+    if (!Number.isFinite(mean) || mean <= 0) continue
+    for (const pt of curve) {
+      const h = hourOfKey(pt[0])
+      const p = pt[1]
+      if (h != null && Number.isFinite(p)) ratios[h].push(p / mean)
+    }
+    counted++
+    // 末点比较只看 YYYYMMDDHH 前缀（同为数据墙钟，分钟差不影响小时判读）
+    const endKey = String(curve[curve.length - 1][0])
+    if (endKey.length >= 10) {
+      const pref = Number(endKey.slice(0, 10))
+      if (Number.isFinite(pref) && (maxPrefix == null || pref > maxPrefix)) {
+        maxPrefix = pref
+        dataHour = hourOfKey(endKey)
+      }
+    }
+  }
+  if (!counted) return null
+  const levels = ratios.map((list) => (list.length ? median([...list].sort((a, b) => a - b)) : null))
+  const win = best3hWindow(levels)
+  return {
+    counted,
+    levels,
+    peakStart: win ? win.startHour : null,
+    peakEnd: win ? win.endHour : null,
+    liftPct: win ? win.liftPct : null,
+    dataHour,
+    verdict: clockVerdict(dataHour != null ? levels[dataHour] : null, levels),
+  }
+}
+
+/** 相对水位数组上的连续 3 小时最高窗口（允许跨午夜回绕；口径同 hourlyProfile） */
+function best3hWindow(levels) {
+  let startHour = -1
+  let best = -Infinity
+  for (let h = 0; h < 24; h++) {
+    const vals = [0, 1, 2].map((o) => levels[(h + o) % 24])
+    if (vals.some((v) => v == null)) continue
+    const m = (vals[0] + vals[1] + vals[2]) / 3
+    if (m > best) { best = m; startHour = h }
+  }
+  if (startHour < 0) return null
+  const valid = levels.filter((v) => v != null)
+  const low = Math.min(...valid)
+  return { startHour, endHour: (startHour + 3) % 24, liftPct: low > 0 ? (best - low) / low : null }
+}
+
+/** 此刻判读：水位落在全天区间下 1/3 扫货 / 上 1/3 出货 / 中段观望；区间平坦不给方向 */
+function clockVerdict(cur, levels) {
+  const valid = levels.filter((v) => v != null)
+  if (!valid.length || cur == null || !Number.isFinite(cur)) return null
+  const low = Math.min(...valid)
+  const high = Math.max(...valid)
+  if (!(high - low > 1e-9)) return 'wait'
+  const pos = (cur - low) / (high - low)
+  return pos <= 1 / 3 ? 'buy' : pos >= 2 / 3 ? 'sell' : 'wait'
 }
 
 /**

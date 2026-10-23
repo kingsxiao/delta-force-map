@@ -24,7 +24,7 @@ import { fileURLToPath } from 'node:url'
 import { kkrbRequest } from '../ammo/kkrb-client.mjs'
 import { fetchHistory } from '../ammo/moligod-client.mjs'
 import { analyzeItem, fmtPrice, fmtPct } from '../ammo/analyze.mjs'
-import { judgeSignals, emptyState } from '../ammo/notify-policy.mjs'
+import { judgeSignals, emptyState } from '../../shared/js/notify-policy.js'
 import { notify } from '../ammo/notify.mjs'
 import { writeJsonAtomic } from '../ammo/fetch-once.mjs'
 

@@ -1,0 +1,13 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "account-data",
+  "description": "账号云数据文档（契约 shared/API.md §6）。服务端不透明存储：K/V，键名点分命名空间，整体序列化 ≤ 64KB。",
+  "type": "object",
+  "additionalProperties": { "type": ["string", "number", "boolean", "array", "object", "null"] },
+  "propertyNames": { "pattern": "^[A-Za-z0-9._-]{1,64}$" },
+  "examples": [
+    {
+      "stars.ammo": ["4.6x APC弹", "5.56x M855A1弹"]
+    }
+  ]
+}

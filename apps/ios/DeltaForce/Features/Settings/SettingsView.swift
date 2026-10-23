@@ -9,6 +9,8 @@ struct SettingsView: View {
     // §7-9 Reduce Motion：为 true 时跳过 symbolEffect（触感不属动效，保留）
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var refreshing = false // 两路快照刷新进行中（防连点）
+    // UI 巡检：-openAccount 启动参数直达账号页（见 onAppear 处注释）
+    @State private var showAccount = false
     // 触觉反馈 tick：全部为本页局部状态、操作后自增（禁绑 Store 派生值）。
     // §4.5-3 刷新反馈二分：两路 lastError 任一非空 → .error，否则 → .success（原固定 .success）
     @State private var refreshOkTick = 0
@@ -118,6 +120,21 @@ struct SettingsView: View {
                 .listRowBackground(Theme.card)
 
                 Section {
+                    NavigationLink {
+                        AccountView()
+                    } label: {
+                        rowTitle("账号与云同步")
+                    }
+                } header: {
+                    sectionHeader("账号")
+                } footer: {
+                    Text("登录后自选星标与囤货台账在多台设备间保持同步（星标并集 / 台账按弹名合并，不丢数据）；账号数据存放在你自己部署的服务器上。")
+                        .font(Theme.font(.xs))
+                        .foregroundStyle(Theme.faint)
+                }
+                .listRowBackground(Theme.card)
+
+                Section {
                     LabeledContent {
                         // §4.5-5「版本」值迁 mono（"x.y.z (build)" 纯 ASCII → MonoStep.sub）
                         Mono(appVersion, step: .sub, color: Theme.dim)
@@ -139,7 +156,11 @@ struct SettingsView: View {
             .frame(maxWidth: .infinity)
             .background(Theme.bg)
             .navigationTitle("设置")
+            // UI 巡检钩子（同 RootView -startTab 模式）：`-openAccount` 启动参数直达账号页，
+            // 供 ios-wf.sh 类视觉验收截图；生产无此参数，行为不变
+            .navigationDestination(isPresented: $showAccount) { AccountView() }
             .onAppear {
+                if ProcessInfo.processInfo.arguments.contains("-openAccount") { showAccount = true }
                 Task { await app.notifications.refreshAuthorization() }
             }
             // §4.5-3 二分触感：成功 / 失败各自 tick，分别挂不同 sensoryFeedback

@@ -108,4 +108,133 @@ struct SellEtaTests {
         #expect(SellEtaEngine.fmtHours(0) == "—")
         #expect(SellEtaEngine.fmtHours(nil) == "—")
     }
+
+    // MARK: - 全市场日内节律 marketClock（与 shared/js/sellEta.js 同输入同输出对拍）
+    // 下列期望值全部由 node 对 shared/js/sellEta.js 的 marketClock 实跑产出
+    //（见各断言旁注释），Swift 端按相同浮点运算顺序实现，逐位相等。
+
+    @Test("marketClock：逐弹归一——同形不同价（×40）等权、判读 / 窗口 / 数据时刻")
+    func marketClockNormalize() {
+        // 两弹同为「0-11 点 100 / 12-23 点 130」形状，第二弹价格 ×40；
+        // 归一后贡献完全相同的比值 → 聚合不被高价弹垄断
+        let shape = Fixtures.curve(hours: 48) { i in (i % 24) < 12 ? 100 : 130 }
+        let scaled = Fixtures.curve(hours: 48) { i in (i % 24) < 12 ? 4000 : 5200 }
+        let clock = SellEtaEngine.marketClock([
+            Fixtures.item(name: "低价弹", current: nil, targetSell: nil, curve: shape),
+            Fixtures.item(name: "高价弹", current: nil, targetSell: nil, curve: scaled),
+        ])
+        #expect(clock?.counted == 2)
+        // 末点 2026-10-08 23:00 → 数据时刻 23 点，处高位 tertile → 出货
+        #expect(clock?.dataHour == 23)
+        #expect(clock?.verdict == .sell)
+        // 高位窗口 12–15（node 同输入实跑：peak 12-15 / lift 0.29999999999999993）
+        #expect(clock?.peakStart == 12)
+        #expect(clock?.peakEnd == 15)
+        #expect(clock?.liftPct == 0.29999999999999993)
+        #expect(clock?.levels[0] == 0.8695652173913043)   // = 100 / 115
+        #expect(clock?.levels[12] == 1.1304347826086956)  // = 130 / 115
+        #expect(clock?.levels[23] == 1.1304347826086956)
+        // 判读文案（对齐倒卖手册 WINDOWS 用语）
+        #expect(MarketClock.Verdict.buy.label == "扫货")
+        #expect(MarketClock.Verdict.wait.label == "观望")
+        #expect(MarketClock.Verdict.sell.label == "出货")
+    }
+
+    @Test("marketClock：数据时刻取最新末点 key 前缀——跨弹取更晚、双格式通用、不看设备时区")
+    func marketClockDataHourTimezone() {
+        // 弹 A 末点 2026-10-08 23:00、弹 B 末点 2026-10-14 01:00 → 取 01:00。
+        // 若用 Date + 访问者时区（网页端 keyToDate 旧口径）解析，海外设备会把
+        // 「次日 01:00」算成当地前一天的时刻；marketClock 只做 key 数值前缀比较
+        // （API 不收 calendar），任何设备时区下结果一致——海外不错位
+        let a = Fixtures.curve(hours: 48) { _ in 100 }
+        let b = Fixtures.curve(hours: 26, start: (y: 2026, m: 10, d: 13)) { _ in 500 }
+        #expect(a[a.count - 1].key == "202610082300")
+        #expect(b[b.count - 1].key == "202610140100")
+        let clock = SellEtaEngine.marketClock([
+            Fixtures.item(name: "A", current: nil, targetSell: nil, curve: a),
+            Fixtures.item(name: "B", current: nil, targetSell: nil, curve: b),
+        ])
+        #expect(clock?.counted == 2)
+        #expect(clock?.dataHour == 1)
+
+        // kkrb 10 位小时档 key 同样可用：末点 2026101401 → 数据时刻 1 点
+        let c10 = (0..<24).map { CurvePoint(key: String(format: "20261013%02d", $0), price: 100) }
+            + [CurvePoint(key: "2026101401", price: 100)]
+        let clock10 = SellEtaEngine.marketClock([
+            Fixtures.item(name: "A", current: nil, targetSell: nil, curve: a),
+            Fixtures.item(name: "C", current: nil, targetSell: nil, curve: c10),
+        ])
+        #expect(clock10?.dataHour == 1)
+    }
+
+    @Test("marketClock：全天平坦 → 判读观望、lift 为 0、首窗口 0–3")
+    func marketClockFlat() {
+        let clock = SellEtaEngine.marketClock([
+            Fixtures.item(name: "平价弹", current: nil, targetSell: nil, curve: Fixtures.curve(hours: 48) { _ in 777 }),
+        ])
+        #expect(clock?.counted == 1)
+        #expect(clock?.dataHour == 23)
+        #expect(clock?.verdict == .wait)
+        #expect(clock?.liftPct == 0)
+        #expect(clock?.peakStart == 0)
+        #expect(clock?.peakEnd == 3)
+        #expect(clock?.levels[0] == 1)
+    }
+
+    @Test("marketClock：末点处低位 tertile → 判扫货")
+    func marketClockBuy() {
+        // 26 点曲线（2026-10-13 00:00 起）：0-5 点 90、其余 120，末点 10-14 01:00
+        let curve = Fixtures.curve(hours: 26, start: (y: 2026, m: 10, d: 13)) { i in (i % 24) <= 5 ? 90 : 120 }
+        let clock = SellEtaEngine.marketClock([
+            Fixtures.item(name: "晨低弹", current: nil, targetSell: nil, curve: curve),
+        ])
+        #expect(clock?.counted == 1)
+        #expect(clock?.dataHour == 1)
+        #expect(clock?.verdict == .buy)
+        // node 同输入实跑：peak 6-9 / lift 0.33333333333333326 / levels[0]=0.8125 / levels[6]=1.0833333333333333
+        #expect(clock?.peakStart == 6)
+        #expect(clock?.peakEnd == 9)
+        #expect(clock?.liftPct == 0.33333333333333326)
+        #expect(clock?.levels[0] == 0.8125)
+        #expect(clock?.levels[6] == 1.0833333333333333)
+    }
+
+    @Test("marketClock：曲线不足 24 点跳过；全不足 / 空数组返回 nil")
+    func marketClockEdges() {
+        let short = Fixtures.curve(hours: 20) { _ in 100 }
+        #expect(SellEtaEngine.marketClock([Fixtures.item(name: "短曲线", current: nil, targetSell: nil, curve: short)]) == nil)
+        #expect(SellEtaEngine.marketClock([]) == nil)
+        // 有效 + 无效混合：只聚有效的
+        let good = Fixtures.curve(hours: 48) { i in (i % 24) < 12 ? 100 : 130 }
+        let mixed = SellEtaEngine.marketClock([
+            Fixtures.item(name: "好弹", current: nil, targetSell: nil, curve: good),
+            Fixtures.item(name: "短曲线", current: nil, targetSell: nil, curve: short),
+        ])
+        #expect(mixed?.counted == 1)
+    }
+
+    @Test("marketClock：真实样本与网页端同输入同输出（node 预期值逐位对拍）")
+    func marketClockFixtureParity() throws {
+        let snap = try Fixtures.market()
+        let clock = SellEtaEngine.marketClock(snap.items)
+        // node -e "marketClock(require('shared/fixtures/market-sample.json').items)" 实跑：
+        // counted 67 / dataHour 10 / peak 20-23 / liftPct 0.057782738080540026 / verdict "buy"
+        #expect(clock?.counted == 67)
+        #expect(clock?.dataHour == 10)
+        #expect(clock?.peakStart == 20)
+        #expect(clock?.peakEnd == 23)
+        #expect(clock?.liftPct == 0.057782738080540026)
+        #expect(clock?.verdict == .buy)
+        // 24 小时相对水位逐位相等（node JSON.stringify 全精度输出，Double 字面量同值往返）
+        let expected: [Double?] = [
+            0.9826907007281842, 0.9884681914280223, 0.9884681914280223, 0.9893011091700348,
+            0.9891011668162585, 0.9884681914280223, 0.9658360128617363, 0.9573434310024292,
+            0.9646615003522487, 0.9658360128617363, 0.9700787401574803, 0.9783332787220991,
+            0.9892288975294701, 1, 1.0099471990234736, 1.011408445268901,
+            1.0081240279097252, 0.9933313255603837, 0.9892288975294701, 1.0028178085500363,
+            1.0138809962465207, 1.0170522587059692, 1.0070508122350148, 0.9937260861154339,
+        ]
+        #expect(clock?.levels.count == 24)
+        #expect(clock?.levels == expected)
+    }
 }

@@ -1,4 +1,4 @@
-// NotifyPolicyTests.swift — notify-policy.mjs judgeSignals 去抖语义对账
+// NotifyPolicyTests.swift — shared/js/notify-policy.js judgeSignals 去抖语义对账
 import Foundation
 import Testing
 @testable import DeltaForceCore

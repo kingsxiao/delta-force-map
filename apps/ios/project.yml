@@ -2,6 +2,7 @@
 # 生成：cd apps/ios && xcodegen generate   →  DeltaForce.xcodeproj（已提交；改本文件后重新生成）
 # 多端 monorepo 约定：共享数据不复制进 iOS 目录，以文件 / 文件夹引用捆绑：
 #   ../../shared/data/ttk.json           TTK 数据（npm run export:ios 产出）
+#   ../../shared/data/ammo-alias.json    TTK 弹药 ↔ 行情弹名映射（npm run export:ios 产出）
 #   ../web/public/guns                   官方枪械渲染图（文件夹引用，bundle 内保留 guns/ 子目录）
 name: DeltaForce
 options:
@@ -43,6 +44,8 @@ targets:
     sources:
       - path: DeltaForce
       - path: ../../shared/data/ttk.json
+        buildPhase: resources
+      - path: ../../shared/data/ammo-alias.json
         buildPhase: resources
       - path: ../web/public/guns
         type: folder

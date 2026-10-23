@@ -25,6 +25,8 @@ SwiftUI 原生 App，与网页端共用同一个自托管后端（`server/`）�
 - **TTK**：68 枪 × 20 口径 × 93 弹药，兵种 / 部位 / 护甲 / 弹药筛选，逐枪全弹药对比，穿透 × 护甲矩阵（完全离线）
 - **地图**：WebView 载入自托管网页端的高清地图 / 打法页（重内容复用，不重做）
 - **设置**：服务器地址 + 测试连接（探 `/health`）、演示模式（内置 `shared/fixtures` 样本，离线可看）、信号通知
+- **账号**（设置 → 账号与云同步）：注册 / 登录 / 登出（token 存 Keychain），自选星标云同步——登录后云端与本地
+  并集合并、改动防抖上云（契约 `shared/API.md` §6，与网页端 `/#/account` 同一套账号）
 
 实时链路与网页端一致：首拉快照 → SSE ping（`version` 前进）→ 重拉；探不到 `/health` 退 60s 轮询；
 实时在线时轮询放宽到 5 分钟兜底。首次安装默认**演示模式**，填好服务器地址「保存并连接」即切在线。
@@ -37,7 +39,7 @@ apps/ios/
 ├── DeltaForce.xcodeproj             生成产物（已提交，可直接打开）
 ├── DeltaForce/
 │   ├── App/        入口 / Tab 根 / 设计令牌（对齐网页端 base.css）
-│   ├── State/      AppModel（编排）/ FeedModel（快照源）/ LiveChannel（SSE）/ Stores / NotificationManager
+│   ├── State/      AppModel（编排）/ FeedModel（快照源）/ LiveChannel（SSE）/ Stores / AuthStore（账号 + 自选云同步）/ NotificationManager
 │   ├── Features/   Ammo / Radar / TTK / Maps / Settings / Shared（组件、图表）
 │   └── Resources/  Assets.xcassets
 └── Packages/DeltaForceCore/         纯逻辑内核 + 单测

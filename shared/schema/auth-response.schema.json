@@ -1,0 +1,34 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "auth-response",
+  "description": "账号接口响应（契约 shared/API.md §6）。注册 / 登录返回 AuthSession；me 返回其中的 user 部分。",
+  "definitions": {
+    "user": {
+      "type": "object",
+      "required": ["uid", "username", "createdAt"],
+      "properties": {
+        "uid": { "type": "string", "pattern": "^[0-9a-f]{16}$", "description": "用户 ID（8 字节 hex）" },
+        "username": { "type": "string", "minLength": 2, "maxLength": 16 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "oneOf": [
+    {
+      "type": "object",
+      "title": "AuthSession",
+      "required": ["token", "user"],
+      "properties": {
+        "token": {
+          "type": "string",
+          "pattern": "^v1\\.[0-9a-f]{16}\\.[0-9]+\\.[0-9]+\\.[0-9a-f]{64}$",
+          "description": "无状态令牌 v1.<uid>.<tokenVersion>.<expMs>.<hmac>"
+        },
+        "user": { "$ref": "#/definitions/user" }
+      },
+      "additionalProperties": false
+    },
+    { "$ref": "#/definitions/user" }
+  ]
+}
