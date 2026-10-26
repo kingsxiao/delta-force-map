@@ -96,6 +96,45 @@ function historyFixture(basePrice = 100, tailPrice = null) {
   return { status: 'ok', data }
 }
 
+/**
+ * 按价格函数逐点生成的曲线 fixture（i=0 最旧 … 167 最新）。
+ * 用于构造 v2 信号形态（见 analyze.mjs 头注的回测口径）：
+ *   · v2 BUY：高位体制 → ≥48h 前崩到低位 → 底部小周期震荡缓升（末点 74，
+ *     处全周下 1/5、离底 5.7%、低点 47h 前、48h 斜率微正）
+ *   · v2 SELL：60→160 爬升后高位横盘（rank=1.0 且 48h 斜率≈0，动能走弱）
+ *   · 接飞刀：全周期线性阴跌（rank 贴 0、幻影利差巨大——旧口径会误报 BUY）
+ */
+function curveFnFixture(fn) {
+  const now = Date.now()
+  const data = []
+  for (let i = 167; i >= 0; i--) {
+    const price = fn(167 - i)
+    data.push({ time: bjTimeStr(new Date(now - i * 3600 * 1000)), avg: price, min: price, max: price, last: price })
+  }
+  return { status: 'ok', data }
+}
+/** v2 BUY 形态：0..119 高位 120；120 崩至 70；其后底噪小周期缓升（末点 74） */
+const V2_BUY_CURVE = (i) => {
+  if (i < 120) return 120
+  const k = i - 120
+  const base = 70 + Math.floor(k / 12)
+  return k % 2 ? base + 1 : base + 12
+}
+/** v2 SELL 形态：0..119 线性爬升 60→160；其后高位横盘 ±0.5 */
+const V2_SELL_CURVE = (i) => (i < 120 ? 60 + (i * 100) / 119 : 160 + (i % 2 ? 0.5 : -0.5))
+/** 接飞刀形态：130 线性阴跌到 63（每点 −0.4） */
+const KNIFE_CURVE = (i) => 130 - i * 0.4
+/** 强势上冲形态：全程加速上涨到 7 天新高（rank=1.0 且斜率远超 +0.05%/h） */
+const V2_ROCKET_CURVE = (i) => (i < 120 ? 60 + i * 0.5 : 120 + (i - 120))
+/** 价格函数 → analyzeItem 的原始入参（kkrb 形状，168 小时点） */
+function mkCurveItem(fn, name = '形态测试弹') {
+  const keys = hourlyKeys()
+  const priceCurve = {}
+  for (let i = 0; i < 168; i++) priceCurve[keys[i]] = fn(i)
+  const cur = fn(167)
+  return { itemName: name, grade: 4, pic: null, currectPrice: cur, priceCurve }
+}
+
 function catalogFixture({ priceOf = (i) => 100 + i, dayKey = DAY_KEY, lastUpdate = LAST_UPDATE } = {}) {
   return {
     status: 'ok',
@@ -356,16 +395,17 @@ check('auto 模式只补过期/缺失曲线；fast 缺缓存→「数据不足�
 })
 
 /* ============================================================
-   ④ 端到端 analyze（P25 买 / P75 卖口径保留）
+   ④ 端到端 analyze（v2 口径：BUY 五重门槛 / SELL 动量守则 / 接飞刀拒绝）
    ============================================================ */
-check('端到端 analyze：信号值域 / P25≤P75 / 构造 BUY·SELL 命中', async () => {
+check('端到端 analyze：v2 BUY·SELL 命中 / 接飞刀拒绝 / 止损位', async () => {
   clearCurveCache()
   const stub = installStub({
-    catalog: catalogFixture({ priceOf: (i) => (i === 0 ? 40 : i === 1 ? 180 : 100 + i) }),
+    catalog: catalogFixture({ priceOf: (i) => (i === 0 ? 40 : i === 1 ? 160 : i === 2 ? 74 : 100 + i) }),
     histories: (name) => {
       const i = NAMES.indexOf(name)
-      if (i === 0) return historyFixture(100, 40) // 现价 40：贴近 7 天低位 → BUY
-      if (i === 1) return historyFixture(100, 180) // 现价 180：贴近 7 天高位 → SELL
+      if (i === 0) return historyFixture(100, 40) // 末点崩到 40：贴底接飞刀 → 不得 BUY
+      if (i === 1) return curveFnFixture(V2_SELL_CURVE) // 高位横盘动能走弱 → SELL
+      if (i === 2) return curveFnFixture(V2_BUY_CURVE) // 崩后底部企稳缓升 → BUY
       return historyFixture()
     },
   })
@@ -377,14 +417,31 @@ check('端到端 analyze：信号值域 / P25≤P75 / 构造 BUY·SELL 命中', 
       assert(['BUY', 'WATCH', 'SELL', 'WAIT'].includes(it.signal), `信号值域异常：${it.signal}`)
       if (it.rank != null) assert(it.p25 <= it.p75, `${it.name} P25(${it.p25}) 应 ≤ P75(${it.p75})`)
       if (it.signal === 'BUY') {
-        assert(it.rank <= 0.25 && it.profitPct >= 0.08, `BUY 口径不符：${it.name} rank=${it.rank} pct=${it.profitPct}`)
+        // v2 五重门槛（analyze.mjs RULES）：缺一不可
+        assert(it.rank <= 0.2, `BUY rank 应 ≤0.2，实际 ${it.rank}`)
+        assert(it.profitPct >= 0.1, `BUY 净利差应 ≥10%，实际 ${it.profitPct}`)
+        assert(it.curve.length >= 48, `BUY 曲线应 ≥48 点，实际 ${it.curve.length}`)
+        assert(it.bounceOffLow >= 0.03, `BUY 离底应 ≥3%，实际 ${it.bounceOffLow}`)
+        assert(it.lowAgeH >= 12, `BUY 低点年龄应 ≥12h，实际 ${it.lowAgeH}`)
+        assert(it.slope48 >= 0.02, `BUY 48h 斜率应 ≥+0.02%/h，实际 ${it.slope48}`)
+        assert(Number.isFinite(it.stopLoss) && it.stopLoss < it.current, `BUY 应带止损位且低于现价，实际 ${it.stopLoss}`)
       }
     }
-    const buy = analysis.items.find((i) => i.name === NAMES[0])
+    const buy = analysis.items.find((i) => i.name === NAMES[2])
     const sell = analysis.items.find((i) => i.name === NAMES[1])
-    assert(buy.signal === 'BUY', `构造低位弹应 BUY，实际 ${buy.signal}（rank=${buy.rank}）`)
-    assert(sell.signal === 'SELL', `构造高位弹应 SELL，实际 ${sell.signal}（rank=${sell.rank}）`)
+    const knife = analysis.items.find((i) => i.name === NAMES[0])
+    assert(buy.signal === 'BUY', `构造「崩后企稳」弹应 BUY，实际 ${buy.signal}（rank=${buy.rank} slope=${buy.slope48} bounce=${buy.bounceOffLow} lowAge=${buy.lowAgeH} pct=${buy.profitPct}）`)
+    assert(sell.signal === 'SELL', `构造「高位横盘」弹应 SELL，实际 ${sell.signal}（rank=${sell.rank} slope=${sell.slope48}）`)
     assert(buy.taxRate === 0.15, `moligod 无税后字段应回退 15% 税率，实际 ${buy.taxRate}`)
+
+    // 接飞刀回归（旧口径致命伤）：末点崩到 40 贴 7 天新低、幻影利差 >100%，
+    // 但未止跌（bounce=0 / lowAge=0 / 斜率深负）→ 必须 WATCH，绝不 BUY
+    assert(knife.signal !== 'BUY', `贴底阴跌弹不得 BUY（旧口径缺陷回归），实际 ${knife.signal}`)
+    assert(knife.signal === 'WATCH', `贴底但未企稳应 WATCH，实际 ${knife.signal}`)
+
+    // SELL 动量守则：强势上冲的末点（涨势仍陡）不催卖——rank 高但斜率 >0.05%/h
+    const rocket = analyzeItem(mkCurveItem(V2_ROCKET_CURVE))
+    assert(rocket.signal === 'WAIT', `强势上冲弹不应催卖（rank=${rocket.rank} slope=${rocket.slope48}），实际 ${rocket.signal}`)
   } finally {
     stub.restore()
   }

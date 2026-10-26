@@ -36,11 +36,13 @@ jobs:
 
       - run: npm ci
 
-      - name: 离线自测（子弹行情 + 异动雷达 + 特勤处制造 + 账号）
+      - name: 离线自测（子弹行情 + 异动雷达 + 特勤处制造 + 官方源 + TTK 对账 + 账号）
         run: |
           node server/ammo/selftest.mjs
           node server/market/selftest.mjs
           node server/craft/selftest.mjs
+          node server/official/selftest.mjs
+          node server/ttk/selftest.mjs
           node server/auth/selftest.mjs
 
       - run: npm run build

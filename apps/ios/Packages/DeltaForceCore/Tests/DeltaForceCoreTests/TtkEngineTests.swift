@@ -14,7 +14,7 @@ struct TtkEngineTests {
 
     static let expectations: [Expect] = [
         .init(gun: "AKM", cal: "76239", ammo: "BP", al: 4, part: "chest", btk: 4, broke: 3, pass: 0.5, flesh: 40, noArmorBtk: 3, ttk: 300),
-        .init(gun: "M4A1", cal: "556", ammo: "M995", al: 6, part: "head", btk: 4, broke: 2, pass: 0, flesh: 55.1, noArmorBtk: 2, ttk: 225),
+        .init(gun: "M4A1", cal: "556", ammo: "M995", al: 6, part: "head", btk: 4, broke: 2, pass: 0, flesh: 58.9, noArmorBtk: 2, ttk: 225),
         .init(gun: "维克托", cal: "45", ammo: "RIP", al: 2, part: "belly", btk: 3, broke: 0, pass: 1, flesh: 37.44, noArmorBtk: 3, ttk: 109.9908),
         .init(gun: "RM277", cal: "68", ammo: "FMJ", al: 3, part: "belly", btk: 3, broke: 2, pass: 0.75, flesh: 41, noArmorBtk: 3, ttk: 218.1818),
         .init(gun: "AWM", cal: "338", ammo: ".338 AP", al: 6, part: "chest", btk: 2, broke: 2, pass: 0.75, flesh: 100, noArmorBtk: 1, ttk: 1714.2857),

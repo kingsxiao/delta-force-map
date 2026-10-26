@@ -51,20 +51,38 @@ Item 字段：
 | `curve` | [[key, price]] | 近 7 天小时级曲线，按时间键升序。时间键同 `version` 双格式 |
 | `rank` | number \| null | 现价在 7 天曲线中的分位（0=最低 1=最高）；**null = 数据不足**（曲线 <24 点，此时 signal 恒为 WAIT） |
 | `p10 p25 p50 p75 p90` | number | 7 天价格分位（线性插值） |
+| `p75Local` | number | 近 72h 曲线 P75（体制内目标锚） |
 | `weekHigh` `weekLow` | number | 7 天最高 / 最低 |
-| `targetSell` | number | 目标挂卖价 = P75（常规，可达成性高） |
-| `netSell` | number | P75 税后到手 |
+| `targetSell` | number | 目标挂卖价 = 近 72h P75（体制内目标；结构下行里 7 天 P75 是幻影目标） |
+| `netSell` | number | 目标挂卖价税后到手 |
 | `netHigh` | number | 7 天最高税后到手（乐观目标） |
 | `profitPerRound` | number | 每发利润 = netSell − current |
 | `profitPct` | number | 收益率 = 利润 / 现价 |
+| `slope48` | number | 近 48h 回归斜率（%/h，相对区间均值归一） |
+| `lowAgeH` | number | 7 天最低价距今小时数 |
+| `bounceOffLow` | number | 现价相对 7 天低点的离底幅度 |
+| `stopLoss` | number | 止损位 = max(7天低点×0.97, 现价×0.95) |
+| `maxHoldH` | number | 建议最长持有小时数（168） |
 | `signal` | `"BUY" \| "WATCH" \| "SELL" \| "WAIT"` | 见下方信号口径 |
 | `reason` | string | 仅数据不足时出现（"数据不足"） |
 
-**信号口径**（`server/ammo/analyze.mjs`，三端不得另立）：
+**信号口径**（`server/ammo/analyze.mjs`，三端不得另立；参数集中在 `RULES`，
+调参先跑 `server/ammo/backtest.mjs --grid` 回测验证）：
 
-- `BUY`：`rank ≤ 0.25` 且 `profitPerRound > 0` 且 `profitPct ≥ 0.08`（税覆盖不掉的不报）
-- `WATCH`：`rank ≤ 0.35`（接近低位，可挂限价）
-- `SELL`：`rank ≥ 0.80`（贴近 7 天高位，建议出货）
+2026-10-26 起 v2：21 天真实数据 walk-forward 回测，旧口径 284 笔 / 31% 胜率 /
+单笔均 −6.6%（慢性阴跌里「贴 7 天低位」恒真而 7 天 P75 是跌前幻影，信号专挑
+接飞刀）；v2 为 14 笔 / 79% 胜率 / 单笔均 +9.6%——更少但更对。税负数学：
+15% 税下止损 −5% 价差即净亏 −19.3%，止盈需 ≥+17.6% 价差才回本，故宁缺毋滥。
+
+- `BUY`：五重门槛全部满足（缺一降级 WATCH）
+  - `rank ≤ 0.20`（现价处 7 天曲线下 1/5）
+  - 目标挂卖（72h P75）税后 `profitPct ≥ 0.10`
+  - 曲线 ≥ 48 点；`bounceOffLow ≥ 0.03`（离底确认）；`lowAgeH ≥ 12`（近 12h 无新低=止跌确认）
+  - `slope48 ≥ +0.02%/h`（体制不向下）
+  - 随信号给 `stopLoss`（破位离场）与 `maxHoldH`（超时未达目标离场）
+- `WATCH`：`rank ≤ 0.35`（接近低位但未满足 BUY 全部门槛，先挂限价观察）
+- `SELL`：`rank ≥ 0.80` 且 `slope48 ≤ 0.05%/h`（贴近 7 天高位且动能转弱；
+  强势上冲不催卖——守则使信号后 24h 平均跌幅 −0.53%→−0.77%）
 - `WAIT`：其余；曲线不足 24 点时 `rank = null`
 
 ### GET `/market/radar.json` — 全品类异动雷达快照
@@ -203,3 +221,76 @@ Item 字段：
 - iOS 同构实现：`DeltaForceCore/AccountData.swift`（`normalizeAccountDoc` / `mergeStars` / `mergePositions`），单测与 JS 口径逐项对账。
 - 数据落盘：`data/auth/accounts.json`（账号表）+ `data/auth/account-data/<uid>.json`（每用户文档），原子写（tmp+rename），随 `/data/` 整体 gitignore。
 - 隐私边界：文档内容不做加密（自托管单机、明文 http 合法形态下 TLS 由部署侧负责）；不要往里放任何敏感信息，见键名约定。
+
+## 7. 静态附属数据与官方源基础设施（实现方 = 后端）
+
+直连腾讯官方 AMS 的基础设施与静态附属产物：基础库 `server/official/`（`ams-client` 请求客户端 + `object-directory` 物品目录缓存），以及建在其上的 TTK 官方对账 CLI（`server/ttk/official-audit.mjs`）与子弹官方均价锚（`server/official/ammo-anchor.mjs`）——**纯库 / 纯脚本、零 npm 依赖、不起服务**。本节全部内容**不是快照契约变更**（§1 各快照形状不变，不动 schema 与 SSE 事件），**iOS 端无消费方**（不进 `export:ios` 导出面）：目录缓存与均价锚是纯后端 sidecar；TTK 对账报告虽落 `apps/web/public/data/`，但当前前端 / iOS 均不消费，仅供人工复核。
+
+### 7.1 官方接口（免登录公开接口，2026-10-26 双人 curl 复核 + 本仓实测）
+
+| 用途 | 接入点 | 口径 |
+| --- | --- | --- |
+| 物品目录 `dfm/object.list` | `POST https://comm.ams.game.qq.com/ide/`（chartId 352143，token `YWRywA`） | 表单 `source=1` + `param={primary,second,third,objectID}`，primary 逐类单独传（gun/ammo/protect/acc/props）；取值路径 `jData.data.data.list`；实测 gun 68 条全带 gunDetail、ammo 113 条 |
+| 小时均价 | `POST https://dfm.ams.game.qq.com/ide/`（chartId 352246，token `Zek01X`） | 表单直传 `propid=<id,…>` 与 `stat_hour=YYYYMMDDHH`（北京墙钟，必填但值被忽略）；单次 ≤5 个 id；**实测** `jData.data` 为 `{<objectID>:{avg_buyprice:Number}}` 直接映射（并兼容累计数组取末元素口径，两种形状自测均覆盖） |
+
+- 响应 Content-Type 是 `text/html` 但正文 JSON——按 `text()` 读回再解析，不信 Content-Type；`ret≠0` 时错误文案在 `sMsg`（`ret=-11009` = 流程未发布），错误对象带 `.ret` / `.sMsg`
+- 请求带浏览器 UA 与 `Origin/Referer: https://df.qq.com/`，20s 超时；**不登录、不绕风控、不保存任何凭据**
+- `sIdeToken` 随活动配置轮换、非凭据：内置现行表 → 请求失败且症状像 token 问题时 GET 流目录（`comm.ams.game.qq.com/ide/page/21_3LXYAj`；`tokens` 是 token→chartId 映射，反转后使用）刷新模块态并重试一次，每进程至多刷一次
+
+### 7.2 请求预算（如实）
+
+物品目录 TTL 24h，gun/ammo/protect 三类各 1 次即 **约 3 请求/天**；小时均价按需（≤5 物品/批，默认 400ms 批间隔，单批失败跳过不炸整体）；流目录仅在 token 失效兜底时 1 次。`official:selftest --online` 每次运行 2 次真实请求（object.list gun ≥60 条 + 352246 单物品正数均价），离线模式零外网。
+
+### 7.3 目录缓存（`data/official/object-directory.json`，随 `/data/` gitignore）
+
+```json
+{ "fetchedAt": "ISO", "fetchedAtMs": 1798000000000, "ttlMs": 86400000,
+  "primaries": { "gun": [条目…], "ammo": […], "protect": […] } }
+```
+
+条目 = `{objectID(String), objectName, grade, primaryClass, secondClass, avgPrice, pic}`，`gunDetail` / `ammoDetail` / `protectDetail` 仅存在时透传。双层缓存（进程级 + 磁盘原子写），未过期且覆盖所需 primaries 时直接加载**零请求**；`getDirectory({primaries, force, rootDir})` 刷新失败如实抛错，由调用方决定回落（不做静默兜底）。名字匹配 `findByName(name)`：精确 objectName → 归一化（`normalizeName`：去 U+200B 等零宽字符 / 全角转半角 / `*`→`x` / 小写 / 空格折叠——官方名实测有「7.62*39mm AP SUB」星号变体），一对多返回 `{ambiguous:true, matches}` 交调用方裁决。
+
+### 7.4 TTK 官方对账报告 `data/ttk-audit.json`
+
+`npm run ttk:audit`（手动赛季级 CLI，不常驻）产出的静态报告，前端 / iOS 当前不消费，供人工复核 TTK 三件套（`apps/web/src/data/ttk/{guns,calibers,armor}.js`）与官方数据的差异。**只报告，不自动改任何数值。** 产物 `apps/web/public/data/ttk-audit.json`，`apps/web/dist/data` 目录存在时同内容双写。
+
+| 字段 | 说明 |
+| --- | --- |
+| `source.official` | 腾讯官方 AMS `object.list`（chartId 352143，免登录）：`api`、`fetchedAt`（目录缓存时刻，`data/official/` 24h TTL）、`counts.{gun,ammo,protect}`；protect 抓取失败时 `counts.protect=null` 并带 `protectError`（不阻塞 gun/ammo） |
+| `source.dfttk` | DFTTK v3：`manifest` / `weapons` URL、`dataVersion`、`version`、`fetchedAt`（`data/dfttk/` 24h 缓存）、`sha256.{expected,actual,ok}`（weapons.json 按 manifest 校验，不符仅告警）、`weaponCount`；抓取失败为 `null` |
+| `fetchedAt` | 本次审计运行时刻（ISO） |
+| `guns` / `ammo` | `checked` 成功 join 的本地条目数；`matched` 其中 diff 为零者；`diff[]` 可比字段不一致；`noted[]` 口径不同只记录不判错（不影响 `matched`） |
+| `armor` | `checked` / `matched` / `diff[]` 同上（本地逐级满耐久落在官方同级型号区间外才进 diff）；`levels[]` 每级完整记录 `{type:'armor'|'helmet', lv, field:'DUR'|'HEAD_DUR', local, official:{min,max,models:[{objectID,objectName,durability}]}, inRange}` |
+| `unmatched.{guns,ammo,armor}` | `side:'local'`（本地无 img / 官方无同名 / 官方同名多条歧义 / 官方无该级型号）或 `side:'official'`（官方有本地无），各带 `reason` |
+
+`diff` / `noted` 条目：`{zh, objectID, field, local, official, dfttk, note?}`。`official` / `dfttk` 一律已折算到**本地口径**：霰弹枪官方单弹丸 ×弹丸数（取 dfttk `projectileCount`，缺省 8）；弹药 `harmRatio`（百分比）/100 对应 `flesh`；`penetrationLevel` 为 null 视为 pen 0。`dfttk` 列只作参考不参与判定（ammo / armor 条目恒为 null）。
+
+对账字段：枪 `dmg↔meatHarm`、`admg↔armorHarm`、`rpm↔fireSpeed`、`mag↔capacity`、`cal↔caliber`（join 键 `img` = 官方 `objectID`；官方 caliber 为松散字符串，经 `normCaliber` 归一后查 `CAL_OFFICIAL_TOKENS`，编码未登记进 `noted`）；弹 `pen↔penetrationLevel`、`flesh↔harmRatio`（按名匹配：`AMMO_PREFIX[cal] + n` 归一化对官方 `objectName`，不规则命名走 `AMMO_NAME_ALIAS`；12ga 独头 / 单弹丸弹 flesh 口径不同进 `noted`）；甲 `DUR` / `HEAD_DUR` 逐级对官方 `secondClass` `armor` / `helmet` 同级全部型号 `durability` 区间（`bag` / `chest` 无 protectLevel 不参与）。
+
+CLI 末行：`SUMMARY {"guns":{"checked":N,"matched":N,"diff":N},"ammo":{…},"armor":{…},"unmatched":N,"top":["枪名 字段 本地X→官方Y",…]}`（前缀 `SUMMARY ` 后为单行合法 JSON；`top` 取枪→弹→甲 diff 顺序前 10 条；armor 的官方值格式为 `min-max`）。
+
+### 7.5 `data/ammo/official-anchor.json` — 子弹官方均价锚（仅服务端 sidecar，不对外）
+
+> 不经 HTTP / SSE 外发、不进 `apps/web/public`、不在任何快照契约里；随 `/data/` 整体 gitignore。网页端 / iOS 端**不消费**本文件。
+> 由 `server/official/ammo-anchor.mjs` 产出：`npm run anchor:fetch` 单跑，或 `server.mjs` 每 24h 一轮（启动 2 分钟后首跑；`--anchor-interval-hours N` / `ANCHOR_INTERVAL_HOURS` 可调，`--no-anchor` 关闭）。
+
+用途：拿腾讯官方 AMS 352246 的 `avg_buyprice`（「近期平均交易价格」口径，按 objectID 给值、无小时曲线）给 moligod 主源的 67 弹现价做外部参照——**只校验、不替代、不改口径**，绝不写 `market.json`。
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `fetchedAt` | ISO 字串 | 本轮校验时刻 |
+| `total` | number | `market.json` 的 `items` 条数（当前 67） |
+| `joined` | number | 名称映射唯一命中条数（= `items.length`） |
+| `missed` | string[] | 精确 / 归一化 / 别名都没命中的 market 弹名（不猜、不请求均价） |
+| `ambiguous` | `[{name, candidates:[{objectID, officialName, grade}]}]` | 一对多撞名（候选附 grade 供人工裁决；不请求均价） |
+| `items[].name` | string | `market.json` 弹名（主键；源数据原样，含零宽字符） |
+| `items[].objectID` | string | 官方 objectID |
+| `items[].officialName` | string | 官方 `objectName` 原样 |
+| `items[].via` | `exact` / `normalized` / `alias` | 命中路径（用于审计别名表命中） |
+| `items[].moli` | number 或 null | `market.json` 的 `current` |
+| `items[].official` | number 或 null | 官方 `avg_buyprice`（原样浮点）；null = 该批请求失败或未请求（`--limit` 之外） |
+| `items[].dev` | number 或 null | `(moli − official) / official`，保留 4 位小数；`official` 缺失或非正时 null。abs(dev) > 0.15 时服务端逐弹 `console.warn` |
+
+名称映射口径（宁缺毋滥，绝不模糊匹配）：精确 `objectName` → `object-directory.normalizeName` 归一化（去零宽 / 全角转半角 / `*`→`x` / 小写 / 空白折叠）→ 显式别名表 `AMMO_NAME_ALIASES`（market 名 → objectID，运行时再校验 objectID 在目录且 grade 一致，不符记 missed）。一对多进 `ambiguous`，其余进 `missed`，两者都不请求均价。
+
+CLI 末行单行 JSON：`SUMMARY {"total","joined","missed","ambiguous","devOver15","maxDev":{"name","dev"},"requests"}`。`requests` 为 352246 实际批次数（≤5 id/批、串行、≥400ms 间隔，67 弹 ≤14）；官方目录刷新（`object-directory`，TTL 24h，≤1 次/天）不计入。`maxDev` 无任何定价项时为 `{"name":null,"dev":null}`。

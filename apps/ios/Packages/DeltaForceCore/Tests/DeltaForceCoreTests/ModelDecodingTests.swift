@@ -24,13 +24,16 @@ struct ModelDecodingTests {
             let keys = it.curve.map(\.key)
             #expect(keys == keys.sorted())
         }
-        // 信号与分位口径一致（analyze.mjs）
+        // 信号与分位口径一致（analyze.mjs v2：BUY 五重门槛 / SELL 动量守则）
         for it in snap.items {
-            guard let rank = it.rank, let profit = it.profitPerRound, let pct = it.profitPct else { continue }
+            guard let rank = it.rank, let pct = it.profitPct else { continue }
+            let slope = it.slope48 ?? 0
             let expected: Signal
-            if rank >= 0.8 { expected = .sell }
-            else if rank <= 0.25, profit > 0, pct >= 0.08 { expected = .buy }
-            else if rank <= 0.35 { expected = .watch }
+            if rank >= 0.8, !(slope > 0.05) { expected = .sell }
+            else if rank <= 0.2, pct >= 0.10, it.curve.count >= 48,
+                    (it.bounceOffLow ?? 0) >= 0.03, (it.lowAgeH ?? 0) >= 12, slope >= 0.02 {
+                expected = .buy
+            } else if rank <= 0.35 { expected = .watch }
             else { expected = .wait }
             #expect(it.signal == expected, "\(it.name) rank=\(rank)")
         }

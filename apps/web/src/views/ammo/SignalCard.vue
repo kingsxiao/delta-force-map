@@ -80,7 +80,7 @@ function resetCost() {
 }
 
 /* 按成本价重算的两档口径（与囤货台账一致）：
-   现价直出 = current×(1−税率)；挂 P75 到手 = netSell（契约字段） */
+   现价直出 = current×(1−税率)；挂目标价到手 = netSell（契约字段） */
 const netNow = computed(() => props.item.current * (1 - props.item.taxRate))
 const gainNow = computed(() => netNow.value - safeCost.value)
 const gainP75 = computed(() => props.item.netSell - safeCost.value)
@@ -200,20 +200,21 @@ const hideImg = (e) => { e.target.style.display = 'none' }
       <button class="cost-reset" type="button" :title="`回填现价 ${fmt(item.current)}`" @click="resetCost">现价</button>
       <span class="cost-hint">按弹名记住 · 本机存储</span>
     </div>
-    <!-- 试算按成本价重算：总投入 / 挂 P75 利润（收益率 = 到价利润 ÷ 成本） -->
+    <!-- 试算按成本价重算：总投入 / 挂目标价利润（收益率 = 到价利润 ÷ 成本） -->
     <div class="sc-totals">
       <span>总投入 <b>{{ fmt(safeCost * safeQty) }}</b></span>
-      <span class="tot-profit" :class="{ neg: gainP75 < 0 }">挂 P75 利润 {{ fmtSigned(gainP75 * safeQty) }}（{{ pct(costPct) }}）</span>
+      <span class="tot-profit" :class="{ neg: gainP75 < 0 }">挂目标价利润 {{ fmtSigned(gainP75 * safeQty) }}（{{ pct(costPct) }}）</span>
     </div>
-    <!-- 两档到手对比：现价直出（急用钱立卖）vs 挂 P75 等到价，利润均按「我的买入价」口径 -->
+    <!-- 两档到手对比：现价直出（急用钱立卖）vs 挂目标价等到价，利润均按「我的买入价」口径 -->
     <div class="sc-exit">
       <span>现价直出 <b>{{ fmt(netNow * safeQty) }}</b><i :class="gainNow >= 0 ? 'pos' : 'neg'">（利润 {{ fmtSigned(gainNow * safeQty) }}）</i></span>
-      <span>挂 P75 到手 <b>{{ fmt(item.netSell * safeQty) }}</b><i :class="gainP75 >= 0 ? 'pos' : 'neg'">（利润 {{ fmtSigned(gainP75 * safeQty) }}）</i></span>
+      <span>挂目标价到手 <b>{{ fmt(item.netSell * safeQty) }}</b><i :class="gainP75 >= 0 ? 'pos' : 'neg'">（利润 {{ fmtSigned(gainP75 * safeQty) }}）</i></span>
     </div>
 
     <footer class="sc-foot">
-      什么时候卖：价格回到 <b>{{ fmt(item.targetSell) }}</b>（7 天 75 分位）即挂卖；
-      乐观目标 {{ fmt(item.netHigh) }}（7 天高点税后）。税率 {{ (item.taxRate * 100).toFixed(0) }}%。
+      什么时候卖：价格回到 <b>{{ fmt(item.targetSell) }}</b>（近 3 天 75 分位）即挂卖；乐观目标 {{ fmt(item.netHigh) }}（7 天高点税后）。
+      <template v-if="item.stopLoss">破 <b>{{ fmt(item.stopLoss) }}</b> 止损离场。</template>
+      税率 {{ (item.taxRate * 100).toFixed(0) }}%。
     </footer>
   </article>
 </template>
@@ -449,7 +450,7 @@ const hideImg = (e) => { e.target.style.display = 'none' }
 .cost-reset:active { color: var(--tx); border-color: var(--line-hover); }
 .cost-hint { font-size: var(--fs-2xs); color: var(--faint); }
 
-/* ---------- 两档到手对比：现价直出 vs 挂 P75（同成本口径，双列 hairline 分隔） ---------- */
+/* ---------- 两档到手对比：现价直出 vs 挂目标价（同成本口径，双列 hairline 分隔） ---------- */
 .sc-exit {
   display: grid; grid-template-columns: 1fr 1fr;
   border-top: 1px dashed var(--line2); padding-top: 8px;

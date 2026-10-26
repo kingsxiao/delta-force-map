@@ -225,7 +225,7 @@ struct ItemDetailView: View {
             Divider().overlay(Theme.line2)
             statGroup("交易测算") {
                 StatQuadRow(
-                    StatCell(label: "目标挂卖 (P75)", value: Fmt.price(it.targetSell), color: Theme.danger),
+                    StatCell(label: "目标挂卖 (近3天P75)", value: Fmt.price(it.targetSell), color: Theme.danger),
                     StatCell(label: "税后到手", value: Fmt.price(it.netSell)),
                     StatCell(label: "预赚 / 发", value: Fmt.price(it.profitPerRound), color: (it.profitPerRound ?? 0) > 0 ? Theme.ok : Theme.faint),
                     StatCell(label: "收益率", value: Fmt.pct(it.profitPct), color: (it.profitPct ?? 0) > 0 ? Theme.ok : Theme.faint)

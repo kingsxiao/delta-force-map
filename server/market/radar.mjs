@@ -8,7 +8,15 @@
        小时级 168 点 + 分钟级尾点（现价取 1m 尾点，比榜单小时曲线新鲜）
      · 双源交叉：同一物品 kkrb 与 moligod 曲线在重叠小时上的中位偏差；
        >15% 判「双源异常」——信号强制观望不发通知（口径分歧时宁可漏报）
-   分析复用 scripts/ammo/analyze.mjs 的分位数回归（analyzeItem 纯函数，
+     · 名称校验（server/official/object-directory，TTL 24h 自维护，雷达零
+       新增官方请求）：榜单名登记 objectID 与官方均价；仅当 1h 曲线为空且
+       官方名与榜单名归一化同名而写法不同时用官方名重查一次曲线，其余
+       moligod 查询仍用榜单原名。审计落 data/market/radar-name-audit.json
+       （绝不写 radar.json / radar-state.json 契约）；misses 只记目录域
+       （gun/ammo/protect）内的未命中——榜单全品类里 props/acc 等域外物品
+       目录本就不收录，登记只会是噪音；目录不可用 → 打一行日志整轮跳过
+       校验，行为与现状零差异。
+   分析复用 server/ammo/analyze.mjs 的信号口径（analyzeItem 纯函数，
    适配 kkrb 原始形状；非子弹无税后字段，税率走 15% 兜底）。
    产物 apps/web/public/market/radar.json（+ 其 dist 联动）；通知去重复用
    notify-policy.judgeSignals，state 落 data/market/radar-state.json。
@@ -27,11 +35,14 @@ import { analyzeItem, fmtPrice, fmtPct } from '../ammo/analyze.mjs'
 import { judgeSignals, emptyState } from '../../shared/js/notify-policy.js'
 import { notify } from '../ammo/notify.mjs'
 import { writeJsonAtomic } from '../ammo/fetch-once.mjs'
+import { getDirectory, findByName, normalizeName, DIRECTORY_PRIMARIES } from '../official/object-directory.mjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const WEB_DIR = path.join(ROOT, 'apps', 'web')
 const OUT_PATH = path.join(WEB_DIR, 'public', 'market', 'radar.json')
 const STATE_PATH = path.join(ROOT, 'data', 'market', 'radar-state.json')
+/** 名称校验审计文件（相对 rootDir；writeJsonAtomic 自建缺失目录） */
+const AUDIT_REL = path.join('data', 'market', 'radar-name-audit.json')
 const HI_REFERER = 'https://www.kkrb.net/?viewpage=view%2Fmarket%2Fall_item_price_curve'
 
 /** 双源一致性门槛：重叠小时中位偏差超过该值判异常（信号压为观望） */
@@ -128,27 +139,91 @@ async function loadState() {
   }
 }
 
-/** 抓一轮榜单 + 逐物品补 moligod 曲线/现价，返回完整雷达条目（涨幅榜原序） */
-async function fetchRadarItems({ paceMs = PACE_MS } = {}) {
-  const hi = await kkrbRequest('getHIPriceCurveData', {
+/** 官方名重查判定：目录唯一命中、官方写法与榜单名不同但归一化同名
+ *  （如官方「7.62*39mm」↔ 社区「7.62x39mm」）时返回官方名，否则 null */
+function officialRetryName(listName, hit) {
+  if (!hit || !hit.objectName || hit.objectName === listName) return null
+  return normalizeName(hit.objectName) === normalizeName(listName) ? hit.objectName : null
+}
+
+/**
+ * 抓一轮榜单 + 逐物品补 moligod 曲线/现价，返回完整雷达条目（涨幅榜原序）。
+ * 目录可用时逐项 findByName 登记 hits/misses，1h 曲线为空且官方名仅写法
+ * 不同时用官方名重查一次；目录不可用整轮跳过——查询序与产物和现状一致。
+ * @param {{paceMs?:number, rootDir?:string, deps?:object}} opts
+ *   rootDir 审计文件所挂仓库根；deps 供 selftest 注桩
+ *   （kkrbRequest / fetchHistory / getDirectory / findByName，缺省走真实实现）
+ */
+export async function fetchRadarItems({ paceMs = PACE_MS, rootDir = ROOT, deps = {} } = {}) {
+  const {
+    kkrbRequest: kkrbReq = kkrbRequest,
+    fetchHistory: fetchHist = fetchHistory,
+    getDirectory: getDir = getDirectory,
+    findByName: findName = findByName,
+  } = deps
+  const hi = await kkrbReq('getHIPriceCurveData', {
     body: { globalData: 'false' },
     referer: HI_REFERER,
   })
   const list = Array.isArray(hi.data?.cn) ? hi.data.cn : []
   if (!list.length) throw new Error('涨幅榜为空（上游形状异常？）')
 
+  // 目录只做名称存在性校验与 objectID 登记（官方无涨幅榜/小时曲线）；
+  // 未就绪/失败打一行日志后本轮完全跳过校验（audit 为 null 即零介入）
+  let audit = null
+  try {
+    await getDir({ rootDir }) // 预热进程缓存：后续逐项 findByName 零请求
+    audit = { fetchedAt: new Date().toISOString(), hits: [], misses: [], retried: [] }
+  } catch (e) {
+    console.error(`[radar] 官方目录不可用，本轮跳过名称校验: ${e.message}`)
+  }
+
   const items = []
   for (let i = 0; i < list.length; i++) {
     const hiItem = list[i]
+    const name = hiItem.objectName
+    // 涨幅榜是全品类，目录只收 gun/ammo/protect：域外（props/acc…）必然查不到，
+    // 登记为未命中只会用结构性噪音淹没真信号（如护甲的「（破损）」变体名），
+    // 故逐项仍查（零请求，保留跨词汇命中）但 misses 只记目录域内的物品
+    const inDomain = DIRECTORY_PRIMARIES.includes(hiItem.objectType)
+    let hit = null
+    if (audit) {
+      try {
+        const found = await findName(name, { rootDir })
+        if (found && !found.ambiguous) {
+          hit = found
+          audit.hits.push({ name, objectID: found.objectID, officialAvgPrice: found.avgPrice })
+        } else if (inDomain) {
+          audit.misses.push(name) // 域内未命中 / 一名多物（ambiguous 登记不了唯一 objectID）
+        }
+      } catch (e) {
+        console.error(`[radar] 目录查询失败${inDomain ? '，按未命中登记' : ''}: ${name} — ${e.message}`)
+        if (inDomain) audit.misses.push(name)
+      }
+    }
     let moliCurve = []
     let minuteTail = null
+    let curveEmpty = false // 仅「查到但为空」视为名称对不上；请求失败不算、不重查
     try {
-      moliCurve = await fetchHistory(hiItem.objectName, { interval: '1h', limit: 168 })
+      moliCurve = await fetchHist(name, { interval: '1h', limit: 168 })
+      curveEmpty = moliCurve.length === 0
     } catch (e) {
-      console.error(`[radar] moligod 曲线失败（仅用榜单曲线）: ${hiItem.objectName} — ${e.message}`)
+      console.error(`[radar] moligod 曲线失败（仅用榜单曲线）: ${name} — ${e.message}`)
+    }
+    const altName = curveEmpty ? officialRetryName(name, hit) : null
+    if (altName) {
+      try {
+        const alt = await fetchHist(altName, { interval: '1h', limit: 168 })
+        if (alt.length) {
+          moliCurve = alt
+          audit.retried.push({ from: name, to: altName, points: alt.length })
+        }
+      } catch (e) {
+        console.error(`[radar] 官方名重查失败（回退榜单曲线）: ${altName} — ${e.message}`)
+      }
     }
     try {
-      const tail = await fetchHistory(hiItem.objectName, { interval: '1m', limit: 10 })
+      const tail = await fetchHist(name, { interval: '1m', limit: 10 })
       if (tail.length) minuteTail = tail[tail.length - 1][1]
     } catch {
       /* 分钟尾点失败不致命：现价回退曲线尾点 */
@@ -157,12 +232,21 @@ async function fetchRadarItems({ paceMs = PACE_MS } = {}) {
     if (i < list.length - 1 && paceMs > 0) await new Promise((r) => setTimeout(r, paceMs))
   }
   for (let i = 0; i < items.length; i++) items[i].hiRank = i + 1
+
+  if (audit) {
+    try {
+      await writeJsonAtomic(path.join(rootDir, AUDIT_REL), JSON.stringify(audit))
+    } catch (e) {
+      console.error(`[radar] 名称审计落盘失败（不影响雷达产物）: ${e.message}`)
+    }
+  }
   return items
 }
 
-/** 雷达通知正文（与子弹通知同骨架；非子弹按「每件」计利润） */
+/** 雷达通知正文（与子弹通知同骨架；非子弹按「每件」计利润，含止损位） */
 function radarBuyLine(i) {
-  return `${i.name} 买入≤${fmtPrice(i.current)} → 挂卖${fmtPrice(i.targetSell)}(到手${fmtPrice(i.netSell)}) 预赚${fmtPrice(i.profitPerRound)}/件(${fmtPct(i.profitPct)})`
+  const stopTxt = Number.isFinite(i.stopLoss) ? `，破${fmtPrice(i.stopLoss)}止损` : ''
+  return `${i.name} 买入≤${fmtPrice(i.current)} → 挂卖${fmtPrice(i.targetSell)}(到手${fmtPrice(i.netSell)}) 预赚${fmtPrice(i.profitPerRound)}/件(${fmtPct(i.profitPct)})${stopTxt}`
 }
 function radarSellLine(i) {
   return `${i.name} 现价${fmtPrice(i.current)}，处7天${Math.round(i.rank * 100)}%高位，建议挂卖`
@@ -195,7 +279,7 @@ async function sendRadarNotifications(buys, sells, notifyFn) {
  * @returns {Promise<{version:string, items:Array, stats:object}>}
  */
 export async function runRadarCycle({ rootDir = ROOT, webDir = rootDir, notifyFn = notify, noNotify = false, state } = {}) {
-  const items = await fetchRadarItems()
+  const items = await fetchRadarItems({ rootDir })
   const stats = { total: items.length, anomaly: items.filter((i) => i.anomaly).length }
   for (const s of ['BUY', 'SELL', 'WATCH']) stats[s.toLowerCase()] = items.filter((i) => i.signal === s).length
   const out = {

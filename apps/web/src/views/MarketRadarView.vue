@@ -378,7 +378,7 @@ onBeforeUnmount(() => {
                     <button class="exp-close" @click="expanded = null">收起</button>
                     <PriceChart :curve="i.curve" :p25="i.p25" :p75="i.p75" :current="i.current" />
                     <p class="exp-note">
-                      口径：买入参考 {{ fmt(i.p25) }}（P25）/ 目标挂卖 {{ fmt(i.targetSell) }}（P75，税后到手 {{ fmt(i.netSell) }}）/
+                      口径：买入参考 {{ fmt(i.p25) }}（7 天 P25）/ 目标挂卖 {{ fmt(i.targetSell) }}（近 3 天 75 分位，税后到手 {{ fmt(i.netSell) }}）/
                       税率 {{ (i.taxRate * 100).toFixed(0) }}%（非子弹无税后字段，按兜底税率）。
                       <template v-if="i.anomaly">双源中位偏差 {{ crossLabel(i) }}，原始信号 {{ SIGNAL_META[i.rawSignal]?.label || i.rawSignal }} 已压制为观望。</template>
                     </p>

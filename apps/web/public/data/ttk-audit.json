@@ -1,0 +1,1062 @@
+{
+  "source": {
+    "official": {
+      "api": "AMS object.list（chartId 352143，免登录）",
+      "fetchedAt": "2026-10-26T06:08:02.797Z",
+      "counts": {
+        "gun": 68,
+        "ammo": 113,
+        "protect": 98
+      }
+    },
+    "dfttk": {
+      "manifest": "https://dfttk.com/data/v3/manifest.json",
+      "weapons": "https://dfttk.com/data/v3/catalog/weapons.json",
+      "dataVersion": "20261025-ammo-effects.2",
+      "version": "da900d3e5d54f8d1",
+      "fetchedAt": "2026-10-26T06:18:39.596Z",
+      "sha256": {
+        "expected": "6719573ebf9509d90d66e8eb59c24c582a73859a3b95989844be05eb366aebfa",
+        "actual": "6719573ebf9509d90d66e8eb59c24c582a73859a3b95989844be05eb366aebfa",
+        "ok": true
+      },
+      "weaponCount": 68
+    }
+  },
+  "fetchedAt": "2026-10-26T07:18:24.605Z",
+  "guns": {
+    "checked": 67,
+    "matched": 44,
+    "diff": [
+      {
+        "zh": "M16A4",
+        "objectID": "18010000014",
+        "field": "rpm",
+        "local": 672,
+        "official": 508,
+        "dfttk": 508,
+        "note": "三连发：官方面板为含 burst 间隔的持续均值；dfttk burst 内 ≈896 RPM"
+      },
+      {
+        "zh": "K437",
+        "objectID": "18010000040",
+        "field": "dmg",
+        "local": 34,
+        "official": 36,
+        "dfttk": 36
+      },
+      {
+        "zh": "K437",
+        "objectID": "18010000040",
+        "field": "admg",
+        "local": 35,
+        "official": 32,
+        "dfttk": 32
+      },
+      {
+        "zh": "KC17",
+        "objectID": "18010000042",
+        "field": "dmg",
+        "local": 30,
+        "official": 31,
+        "dfttk": 31
+      },
+      {
+        "zh": "AK-12",
+        "objectID": "18010000018",
+        "field": "dmg",
+        "local": 29,
+        "official": 30,
+        "dfttk": 30
+      },
+      {
+        "zh": "AK-12",
+        "objectID": "18010000018",
+        "field": "admg",
+        "local": 41,
+        "official": 42,
+        "dfttk": 42
+      },
+      {
+        "zh": "SG552",
+        "objectID": "18010000017",
+        "field": "dmg",
+        "local": 24,
+        "official": 25,
+        "dfttk": 25
+      },
+      {
+        "zh": "SG552",
+        "objectID": "18010000017",
+        "field": "admg",
+        "local": 31,
+        "official": 34,
+        "dfttk": 34
+      },
+      {
+        "zh": "AUG",
+        "objectID": "18010000015",
+        "field": "dmg",
+        "local": 35,
+        "official": 32,
+        "dfttk": 32
+      },
+      {
+        "zh": "PTR-32",
+        "objectID": "18010000024",
+        "field": "dmg",
+        "local": 34,
+        "official": 36,
+        "dfttk": 36
+      },
+      {
+        "zh": "PTR-32",
+        "objectID": "18010000024",
+        "field": "admg",
+        "local": 36,
+        "official": 37,
+        "dfttk": 37
+      },
+      {
+        "zh": "MK47",
+        "objectID": "18010000043",
+        "field": "dmg",
+        "local": 40,
+        "official": 42,
+        "dfttk": 42
+      },
+      {
+        "zh": "MCX LT",
+        "objectID": "18010000044",
+        "field": "admg",
+        "local": 35,
+        "official": 29,
+        "dfttk": 26
+      },
+      {
+        "zh": "MCX LT",
+        "objectID": "18010000044",
+        "field": "rpm",
+        "local": 750,
+        "official": 840,
+        "dfttk": 840
+      },
+      {
+        "zh": "M7",
+        "objectID": "18010000016",
+        "field": "dmg",
+        "local": 38,
+        "official": 37,
+        "dfttk": 37
+      },
+      {
+        "zh": "SCAR-H",
+        "objectID": "18010000021",
+        "field": "dmg",
+        "local": 40,
+        "official": 41,
+        "dfttk": 40
+      },
+      {
+        "zh": "AS Val",
+        "objectID": "18010000037",
+        "field": "dmg",
+        "local": 29,
+        "official": 28,
+        "dfttk": 28
+      },
+      {
+        "zh": "AS Val",
+        "objectID": "18010000037",
+        "field": "admg",
+        "local": 48,
+        "official": 44,
+        "dfttk": 44
+      },
+      {
+        "zh": "SKS",
+        "objectID": "18050000006",
+        "field": "dmg",
+        "local": 44,
+        "official": 48,
+        "dfttk": 48
+      },
+      {
+        "zh": "SKS",
+        "objectID": "18050000006",
+        "field": "admg",
+        "local": 42,
+        "official": 49,
+        "dfttk": 49
+      },
+      {
+        "zh": "Mini-14",
+        "objectID": "18050000002",
+        "field": "dmg",
+        "local": 32,
+        "official": 34,
+        "dfttk": 34
+      },
+      {
+        "zh": "VSS",
+        "objectID": "18050000003",
+        "field": "dmg",
+        "local": 35,
+        "official": 40,
+        "dfttk": 40
+      },
+      {
+        "zh": "SVD",
+        "objectID": "18050000004",
+        "field": "admg",
+        "local": 52,
+        "official": 56,
+        "dfttk": 56
+      },
+      {
+        "zh": "SVCH",
+        "objectID": "18050000033",
+        "field": "dmg",
+        "local": 48,
+        "official": 47,
+        "dfttk": 47
+      },
+      {
+        "zh": "SVCH",
+        "objectID": "18050000033",
+        "field": "admg",
+        "local": 48,
+        "official": 46,
+        "dfttk": 46
+      },
+      {
+        "zh": "R93",
+        "objectID": "18060000008",
+        "field": "dmg",
+        "local": 55,
+        "official": 61,
+        "dfttk": 61
+      },
+      {
+        "zh": "R93",
+        "objectID": "18060000008",
+        "field": "admg",
+        "local": 53,
+        "official": 58,
+        "dfttk": 58
+      },
+      {
+        "zh": "R93",
+        "objectID": "18060000008",
+        "field": "rpm",
+        "local": 50,
+        "official": 56,
+        "dfttk": 56
+      },
+      {
+        "zh": "M700",
+        "objectID": "18060000009",
+        "field": "dmg",
+        "local": 55,
+        "official": 61,
+        "dfttk": 61
+      },
+      {
+        "zh": "M700",
+        "objectID": "18060000009",
+        "field": "admg",
+        "local": 53,
+        "official": 58,
+        "dfttk": 58
+      },
+      {
+        "zh": "SV-98",
+        "objectID": "18060000007",
+        "field": "dmg",
+        "local": 55,
+        "official": 60,
+        "dfttk": 60
+      },
+      {
+        "zh": "SV-98",
+        "objectID": "18060000007",
+        "field": "admg",
+        "local": 53,
+        "official": 58,
+        "dfttk": 58
+      },
+      {
+        "zh": "SV-98",
+        "objectID": "18060000007",
+        "field": "rpm",
+        "local": 40,
+        "official": 44,
+        "dfttk": 44
+      },
+      {
+        "zh": "M870",
+        "objectID": "18030000004",
+        "field": "dmg",
+        "local": 112,
+        "official": 136,
+        "dfttk": 136,
+        "note": "霰弹枪本地为 8 弹丸合计；官方单弹丸 17、dfttk 17 已 ×8"
+      },
+      {
+        "zh": "93R",
+        "objectID": "18070000006",
+        "field": "rpm",
+        "local": 672,
+        "official": 508,
+        "dfttk": 508,
+        "note": "三连发：官方面板为含 burst 间隔的持续均值；dfttk burst 内 ≈896 RPM"
+      },
+      {
+        "zh": "沙漠之鹰",
+        "objectID": "18070000004",
+        "field": "dmg",
+        "local": 50,
+        "official": 56,
+        "dfttk": 56
+      },
+      {
+        "zh": "沙漠之鹰",
+        "objectID": "18070000004",
+        "field": "admg",
+        "local": 34,
+        "official": 53,
+        "dfttk": 53
+      }
+    ],
+    "noted": []
+  },
+  "ammo": {
+    "checked": 90,
+    "matched": 86,
+    "diff": [
+      {
+        "zh": ".300 BLK V 亚音速",
+        "objectID": "37280300002",
+        "field": "flesh",
+        "local": 1.05,
+        "official": 1.1,
+        "dfttk": null,
+        "note": "官方 harmRatio 为百分比，已 /100 折算到 flesh 系数"
+      },
+      {
+        "zh": ".300 BLK BCP 亚音速",
+        "objectID": "37280400002",
+        "field": "flesh",
+        "local": 1.05,
+        "official": 1.1,
+        "dfttk": null,
+        "note": "官方 harmRatio 为百分比，已 /100 折算到 flesh 系数"
+      },
+      {
+        "zh": "5.56×45mm M855 APC",
+        "objectID": "37100300002",
+        "field": "flesh",
+        "local": 1,
+        "official": 1.1,
+        "dfttk": null,
+        "note": "官方 harmRatio 为百分比，已 /100 折算到 flesh 系数"
+      },
+      {
+        "zh": ".45-70 Govt RN",
+        "objectID": "37290300001",
+        "field": "pen",
+        "local": 1,
+        "official": 0,
+        "dfttk": null,
+        "note": "官方 penetrationLevel 为 null，按 0 计"
+      }
+    ],
+    "noted": [
+      {
+        "zh": "12 号霰弹 独头 GT",
+        "objectID": "37250200002",
+        "field": "flesh",
+        "local": 0.44,
+        "official": 2.5,
+        "dfttk": null,
+        "note": "独头/单弹丸：本地 flesh 相对 8 弹丸合计面板（折算单弹丸 ×8 ≈ 3.52），官方 harmRatio 相对单弹丸；口径不同仅记录"
+      },
+      {
+        "zh": "12 号霰弹 独头 FTX",
+        "objectID": "37250300002",
+        "field": "flesh",
+        "local": 0.44,
+        "official": 2.5,
+        "dfttk": null,
+        "note": "独头/单弹丸：本地 flesh 相对 8 弹丸合计面板（折算单弹丸 ×8 ≈ 3.52），官方 harmRatio 相对单弹丸；口径不同仅记录"
+      },
+      {
+        "zh": "12 号霰弹 独头 AP-20",
+        "objectID": "37250400002",
+        "field": "flesh",
+        "local": 0.44,
+        "official": 2.5,
+        "dfttk": null,
+        "note": "独头/单弹丸：本地 flesh 相对 8 弹丸合计面板（折算单弹丸 ×8 ≈ 3.52），官方 harmRatio 相对单弹丸；口径不同仅记录"
+      },
+      {
+        "zh": "12 号霰弹 独头 APX",
+        "objectID": "37250400004",
+        "field": "flesh",
+        "local": 0.25,
+        "official": 1,
+        "dfttk": null,
+        "note": "独头/单弹丸：本地 flesh 相对 8 弹丸合计面板（折算单弹丸 ×8 ≈ 2），官方 harmRatio 相对单弹丸；口径不同仅记录"
+      },
+      {
+        "zh": "12 号霰弹 独头 RIP",
+        "objectID": "37250000002",
+        "field": "flesh",
+        "local": 0.44,
+        "official": 2.5,
+        "dfttk": null,
+        "note": "独头/单弹丸：本地 flesh 相对 8 弹丸合计面板（折算单弹丸 ×8 ≈ 3.52），官方 harmRatio 相对单弹丸；口径不同仅记录"
+      },
+      {
+        "zh": "12 号霰弹 DART",
+        "objectID": "37250400005",
+        "field": "flesh",
+        "local": 0.23,
+        "official": 0.85,
+        "dfttk": null,
+        "note": "独头/单弹丸：本地 flesh 相对 8 弹丸合计面板（折算单弹丸 ×8 ≈ 1.84），官方 harmRatio 相对单弹丸；口径不同仅记录"
+      }
+    ]
+  },
+  "armor": {
+    "checked": 12,
+    "matched": 10,
+    "diff": [
+      {
+        "zh": "头盔 1 级",
+        "objectID": null,
+        "field": "HEAD_DUR",
+        "local": 15,
+        "official": {
+          "min": 10,
+          "max": 12
+        },
+        "dfttk": null,
+        "note": "官方同级 4 型号耐久区间外（老式钢盔 10 / 安保头盔 10 / 奔尼帽 10 / 户外棒球帽 12）"
+      },
+      {
+        "zh": "头盔 2 级",
+        "objectID": null,
+        "field": "HEAD_DUR",
+        "local": 25,
+        "official": {
+          "min": 12,
+          "max": 20
+        },
+        "dfttk": null,
+        "note": "官方同级 4 型号耐久区间外（H01 战术头盔 12 / DRO 战术头盔 15 / 复古摩托头盔 18 / MC防弹头盔 20）"
+      }
+    ],
+    "levels": [
+      {
+        "type": "armor",
+        "lv": 1,
+        "field": "DUR",
+        "local": 25,
+        "official": {
+          "min": 20,
+          "max": 30,
+          "models": [
+            {
+              "objectID": "11050001001",
+              "objectName": "摩托马甲",
+              "durability": 20
+            },
+            {
+              "objectID": "11050001002",
+              "objectName": "安保防弹衣",
+              "durability": 20
+            },
+            {
+              "objectID": "11050001003",
+              "objectName": "尼龙防弹衣",
+              "durability": 25
+            },
+            {
+              "objectID": "11050001004",
+              "objectName": "轻型防弹衣",
+              "durability": 30
+            }
+          ]
+        },
+        "inRange": true
+      },
+      {
+        "type": "armor",
+        "lv": 2,
+        "field": "DUR",
+        "local": 40,
+        "official": {
+          "min": 30,
+          "max": 50,
+          "models": [
+            {
+              "objectID": "11050002001",
+              "objectName": "简易防刺服",
+              "durability": 30
+            },
+            {
+              "objectID": "11050002002",
+              "objectName": "HT战术背心",
+              "durability": 35
+            },
+            {
+              "objectID": "11050002003",
+              "objectName": "TG战术防弹衣",
+              "durability": 40
+            },
+            {
+              "objectID": "11050002004",
+              "objectName": "通用战术背心",
+              "durability": 50
+            }
+          ]
+        },
+        "inRange": true
+      },
+      {
+        "type": "armor",
+        "lv": 3,
+        "field": "DUR",
+        "local": 75,
+        "official": {
+          "min": 50,
+          "max": 85,
+          "models": [
+            {
+              "objectID": "11050003001",
+              "objectName": "制式防弹背心",
+              "durability": 50
+            },
+            {
+              "objectID": "11050003002",
+              "objectName": "Hvk快拆防弹衣",
+              "durability": 60
+            },
+            {
+              "objectID": "11050003003",
+              "objectName": "TG-H防弹衣",
+              "durability": 75
+            },
+            {
+              "objectID": "11050003004",
+              "objectName": "射手战术背心",
+              "durability": 85
+            }
+          ]
+        },
+        "inRange": true
+      },
+      {
+        "type": "armor",
+        "lv": 4,
+        "field": "DUR",
+        "local": 110,
+        "official": {
+          "min": 80,
+          "max": 110,
+          "models": [
+            {
+              "objectID": "11050004001",
+              "objectName": "武士防弹背心",
+              "durability": 80
+            },
+            {
+              "objectID": "11050004007",
+              "objectName": "HMP特勤防弹衣",
+              "durability": 80
+            },
+            {
+              "objectID": "11050004002",
+              "objectName": "突击手防弹背心",
+              "durability": 90
+            },
+            {
+              "objectID": "11050004003",
+              "objectName": "DT-AVS防弹衣",
+              "durability": 100
+            },
+            {
+              "objectID": "11050004004",
+              "objectName": "MK-2战术背心",
+              "durability": 110
+            }
+          ]
+        },
+        "inRange": true
+      },
+      {
+        "type": "armor",
+        "lv": 5,
+        "field": "DUR",
+        "local": 125,
+        "official": {
+          "min": 95,
+          "max": 125,
+          "models": [
+            {
+              "objectID": "11050005001",
+              "objectName": "精英防弹背心",
+              "durability": 95
+            },
+            {
+              "objectID": "11050005003",
+              "objectName": "FS复合防弹衣",
+              "durability": 105
+            },
+            {
+              "objectID": "11050005007",
+              "objectName": "赤枭重装突击背心",
+              "durability": 105
+            },
+            {
+              "objectID": "11050005002",
+              "objectName": "Hvk-2防弹衣",
+              "durability": 115
+            },
+            {
+              "objectID": "11050005004",
+              "objectName": "重型突击背心",
+              "durability": 125
+            }
+          ]
+        },
+        "inRange": true
+      },
+      {
+        "type": "armor",
+        "lv": 6,
+        "field": "DUR",
+        "local": 150,
+        "official": {
+          "min": 115,
+          "max": 150,
+          "models": [
+            {
+              "objectID": "11050006002",
+              "objectName": "HA-2防弹装甲",
+              "durability": 115
+            },
+            {
+              "objectID": "11050006003",
+              "objectName": "特里克MAS2.0装甲",
+              "durability": 125
+            },
+            {
+              "objectID": "11050006001",
+              "objectName": "金刚防弹衣",
+              "durability": 140
+            },
+            {
+              "objectID": "11050006004",
+              "objectName": "泰坦防弹装甲",
+              "durability": 150
+            }
+          ]
+        },
+        "inRange": true
+      },
+      {
+        "type": "helmet",
+        "lv": 1,
+        "field": "HEAD_DUR",
+        "local": 15,
+        "official": {
+          "min": 10,
+          "max": 12,
+          "models": [
+            {
+              "objectID": "11010001001",
+              "objectName": "老式钢盔",
+              "durability": 10
+            },
+            {
+              "objectID": "11010001002",
+              "objectName": "安保头盔",
+              "durability": 10
+            },
+            {
+              "objectID": "11010001003",
+              "objectName": "奔尼帽",
+              "durability": 10
+            },
+            {
+              "objectID": "11010001004",
+              "objectName": "户外棒球帽",
+              "durability": 12
+            }
+          ]
+        },
+        "inRange": false
+      },
+      {
+        "type": "helmet",
+        "lv": 2,
+        "field": "HEAD_DUR",
+        "local": 25,
+        "official": {
+          "min": 12,
+          "max": 20,
+          "models": [
+            {
+              "objectID": "11010002002",
+              "objectName": "H01 战术头盔",
+              "durability": 12
+            },
+            {
+              "objectID": "11010002003",
+              "objectName": "DRO 战术头盔",
+              "durability": 15
+            },
+            {
+              "objectID": "11010002001",
+              "objectName": "复古摩托头盔",
+              "durability": 18
+            },
+            {
+              "objectID": "11010002004",
+              "objectName": "MC防弹头盔",
+              "durability": 20
+            }
+          ]
+        },
+        "inRange": false
+      },
+      {
+        "type": "helmet",
+        "lv": 3,
+        "field": "HEAD_DUR",
+        "local": 40,
+        "official": {
+          "min": 20,
+          "max": 40,
+          "models": [
+            {
+              "objectID": "11010003002",
+              "objectName": "H07 战术头盔",
+              "durability": 20
+            },
+            {
+              "objectID": "11010003001",
+              "objectName": "防暴头盔",
+              "durability": 28
+            },
+            {
+              "objectID": "11010003004",
+              "objectName": "MC201 头盔",
+              "durability": 34
+            },
+            {
+              "objectID": "11010003003",
+              "objectName": "DAS 防弹头盔",
+              "durability": 40
+            }
+          ]
+        },
+        "inRange": true
+      },
+      {
+        "type": "helmet",
+        "lv": 4,
+        "field": "HEAD_DUR",
+        "local": 48,
+        "official": {
+          "min": 30,
+          "max": 55,
+          "models": [
+            {
+              "objectID": "11010004002",
+              "objectName": "MHS 战术头盔",
+              "durability": 30
+            },
+            {
+              "objectID": "11010004003",
+              "objectName": "DICH 训练头盔",
+              "durability": 35
+            },
+            {
+              "objectID": "11010004004",
+              "objectName": "GT1 战术头盔",
+              "durability": 48
+            },
+            {
+              "objectID": "11010004001",
+              "objectName": "D6 战术头盔",
+              "durability": 55
+            }
+          ]
+        },
+        "inRange": true
+      },
+      {
+        "type": "helmet",
+        "lv": 5,
+        "field": "HEAD_DUR",
+        "local": 50,
+        "official": {
+          "min": 20,
+          "max": 75,
+          "models": [
+            {
+              "objectID": "11010005010",
+              "objectName": "GN 久战重型夜视头盔",
+              "durability": 20
+            },
+            {
+              "objectID": "11010005003",
+              "objectName": "DICH-1战术头盔",
+              "durability": 40
+            },
+            {
+              "objectID": "11010005002",
+              "objectName": "H09 防暴头盔",
+              "durability": 45
+            },
+            {
+              "objectID": "11010005004",
+              "objectName": "GN 重型头盔",
+              "durability": 50
+            },
+            {
+              "objectID": "11010005009",
+              "objectName": "GN 重型夜视头盔",
+              "durability": 50
+            },
+            {
+              "objectID": "11010005001",
+              "objectName": "Mask-1铁壁头盔",
+              "durability": 75
+            },
+            {
+              "objectID": "11010005011",
+              "objectName": "赤枭装甲防弹面具",
+              "durability": 75
+            }
+          ]
+        },
+        "inRange": true
+      },
+      {
+        "type": "helmet",
+        "lv": 6,
+        "field": "HEAD_DUR",
+        "local": 60,
+        "official": {
+          "min": 50,
+          "max": 60,
+          "models": [
+            {
+              "objectID": "11010006003",
+              "objectName": "DICH-9重型头盔",
+              "durability": 50
+            },
+            {
+              "objectID": "11010006002",
+              "objectName": "H70 精英头盔",
+              "durability": 55
+            },
+            {
+              "objectID": "11010006007",
+              "objectName": "H70 夜视精英头盔",
+              "durability": 55
+            },
+            {
+              "objectID": "11010006004",
+              "objectName": "GT5 指挥官头盔",
+              "durability": 60
+            }
+          ]
+        },
+        "inRange": true
+      }
+    ]
+  },
+  "unmatched": {
+    "guns": [
+      {
+        "side": "local",
+        "zh": "AA-12",
+        "img": null,
+        "reason": "本地无 img（官方 objectID）"
+      },
+      {
+        "side": "official",
+        "objectID": "18150000001",
+        "objectName": "复合弓",
+        "reason": "官方有本地无"
+      }
+    ],
+    "ammo": [
+      {
+        "side": "local",
+        "zh": "5.8×42mm SBP-10",
+        "cal": "58",
+        "n": "SBP-10",
+        "reason": "官方无同名条目"
+      },
+      {
+        "side": "local",
+        "zh": ".300 BLK 超音速",
+        "cal": "300",
+        "n": "超音速",
+        "reason": "官方无同名条目"
+      },
+      {
+        "side": "local",
+        "zh": ".300 BLK 超压 +P",
+        "cal": "300",
+        "n": "超压 +P",
+        "reason": "官方无同名条目"
+      },
+      {
+        "side": "official",
+        "objectID": "37130500002",
+        "objectName": "5.8*42mm DVC12+P",
+        "reason": "官方有本地无"
+      },
+      {
+        "side": "official",
+        "objectID": "37150500002",
+        "objectName": "6.8*51mm PLY-III",
+        "reason": "官方有本地无"
+      },
+      {
+        "side": "official",
+        "objectID": "37170500002",
+        "objectName": "7.62 x 51mm LS",
+        "reason": "官方有本地无"
+      },
+      {
+        "side": "official",
+        "objectID": "37190500001",
+        "objectName": ".45 ACP Super​",
+        "reason": "官方有本地无"
+      },
+      {
+        "side": "official",
+        "objectID": "37260500002",
+        "objectName": "4.6 x 30mm AP ST",
+        "reason": "官方有本地无"
+      },
+      {
+        "side": "official",
+        "objectID": "37270500001",
+        "objectName": "碳纤维穿甲箭矢",
+        "reason": "官方有本地无"
+      },
+      {
+        "side": "official",
+        "objectID": "37270500002",
+        "objectName": "碳纤维散射箭矢",
+        "reason": "官方有本地无"
+      },
+      {
+        "side": "official",
+        "objectID": "37280500001",
+        "objectName": ".300BLK",
+        "reason": "官方有本地无"
+      },
+      {
+        "side": "official",
+        "objectID": "37120400002",
+        "objectName": "5.45x39mm BT +P",
+        "reason": "官方有本地无"
+      },
+      {
+        "side": "official",
+        "objectID": "37130400001",
+        "objectName": "5.8x42mm DBP10",
+        "reason": "官方有本地无"
+      },
+      {
+        "side": "official",
+        "objectID": "37130400002",
+        "objectName": "5.8*42mm DBP10+P",
+        "reason": "官方有本地无"
+      },
+      {
+        "side": "official",
+        "objectID": "37150400002",
+        "objectName": "6.8*51mm PLY-II",
+        "reason": "官方有本地无"
+      },
+      {
+        "side": "official",
+        "objectID": "37160400002",
+        "objectName": "12.7x55mm PD12双头弹",
+        "reason": "官方有本地无"
+      },
+      {
+        "side": "official",
+        "objectID": "37190000002",
+        "objectName": ".45 ACP CT",
+        "reason": "官方有本地无"
+      },
+      {
+        "side": "official",
+        "objectID": "37200000002",
+        "objectName": "9*19mm CT",
+        "reason": "官方有本地无"
+      },
+      {
+        "side": "official",
+        "objectID": "37210400002",
+        "objectName": "5.7 x 28mm HT+",
+        "reason": "官方有本地无"
+      },
+      {
+        "side": "official",
+        "objectID": "37260000002",
+        "objectName": "4.6 x 30mm CT",
+        "reason": "官方有本地无"
+      },
+      {
+        "side": "official",
+        "objectID": "37260400002",
+        "objectName": "4.6 x 30mm FMJ ST",
+        "reason": "官方有本地无"
+      },
+      {
+        "side": "official",
+        "objectID": "37270400001",
+        "objectName": "碳纤维刺骨箭矢",
+        "reason": "官方有本地无"
+      },
+      {
+        "side": "official",
+        "objectID": "37280400001",
+        "objectName": ".300BLK",
+        "reason": "官方有本地无"
+      },
+      {
+        "side": "official",
+        "objectID": "37150300002",
+        "objectName": "6.8*51mm PLY-I",
+        "reason": "官方有本地无"
+      },
+      {
+        "side": "official",
+        "objectID": "37270300001",
+        "objectName": "玻纤柳叶箭矢",
+        "reason": "官方有本地无"
+      },
+      {
+        "side": "official",
+        "objectID": "37280300001",
+        "objectName": ".300BLK",
+        "reason": "官方有本地无"
+      }
+    ],
+    "armor": []
+  }
+}

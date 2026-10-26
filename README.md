@@ -82,6 +82,12 @@ node server/smoke.mjs http://localhost:4173/ shots/vue-smoke
 - **68 把武器 × 20 种口径 × 93 种弹药**的 TTK / BTK 排行（步枪 / 冲锋枪 / 射手步枪 / 狙击枪 / 轻机枪 / 霰弹枪 / 手枪），可切目标部位（胸 / 腹 / 头）、护甲等级（无甲 ~ 6 级）与子弹筛选（每枪最佳 / 全部组合 / 按穿透等级 0-7 级），每枪可展开全部弹药的逐发模拟对比
 - **穿透 × 护甲判定矩阵**（0% / 50% / 75% / 100% 国服社区实测口径）与弹药库全表
 - 计算口径：100 血单血池、部位倍率、碎甲 k 值规则、TTK = (BTK−1)×60000/RPM，全部假设与来源在页内注明
+- **官方对账（`npm run ttk:audit`）**：TTK 三件套（`apps/web/src/data/ttk/{guns,calibers,armor}.js`）从「无对账纯人工」升级为「官方 diff 驱动」：
+  - `npm run ttk:audit`：手动赛季级 CLI（不常驻）。拉官方 AMS `object.list` 的 gun / ammo / protect（3 请求，免登录，`data/official/` 24h 缓存）与 DFTTK v3 manifest + `catalog/weapons.json`（2 请求，sha256 校验不符只告警，`data/dfttk/` 24h 缓存），逐条 diff 本地枪械（dmg / admg / rpm / mag / cal，join 键 `img` = 官方 objectID）、弹药（pen / flesh，按名匹配）、护甲（DUR / HEAD_DUR 对官方同级型号耐久区间）。**只报告，绝不改任何数值文件**；`--force` 绕过两处缓存重抓；protect 失败不阻塞枪 / 弹。
+  - 产物：`apps/web/public/data/ttk-audit.json`（`apps/web/dist/data` 存在时同内容双写），末行打印单行 JSON `SUMMARY {...}`；字段说明见 [shared/API.md](shared/API.md) §7.4「TTK 官方对账报告」。霰弹枪（官方单弹丸 ×8）、三连发（官方面板 = 含 burst 间隔持续均值）等口径差异已折算到本地口径；独头弹 flesh、未登记 caliber 编码归入 `noted` 只记录不判错。
+  - `npm run ttk:selftest`：离线桩自测 13 项（注入官方 fixture 与故意不一致的枪，覆盖 diff 字段 / matched 计数 / protect 失败不阻塞 / unmatched 归集 / SUMMARY 可 parse / dist 双写），零外网。
+  - 2026-10-26 已按官方把 M4A1 面板改为 `dmg 31 / admg 33`（官方 object.list `meatHarm=31 / armorHarm=33` 两名核验员各自 curl 复现，dfttk v3 亦 31/33），iOS `TtkEngineTests` 的 M4A1 期望同步（`flesh 55.1 → 58.9`，btk / ttk 不变）。审计首跑的其余差异（枪 37 条 / 弹 4 条 / 甲 2 条 / 未匹配 28）只记录在报告中，待人工逐条裁决。
+  - **改三件套任一数值后必须**先 `npm run export:ios` 重生成 `shared/data/ttk.json`，再在 `apps/ios/Packages/DeltaForceCore` 跑 `swift test`——iOS 期望值与网页端 `model.js` 逐发对账，任一值漂移即失败。
 
 ## 子弹行情监控页（/#/ammo）
 
@@ -99,7 +105,9 @@ npm run auth:selftest   # 账号体系离线自测（注册 / 登录 / 令牌 / 
 - **数据链路**：主源 moligod.com（分钟级，无鉴权）→ 本机 live / monitor / 手动 fetch 抓取并**原子落盘** `apps/web/public/ammo/market.json`（`apps/web/dist/ammo/` 存在时联动，vite preview 同样吃新数据）→ dev 实时读盘 / SSE 广播 → 页面。主源故障自动回落 kkrb.net（小时级，88 种兜底），页面来源标签如实切换
 - **更新时效（如实）**：全网无秒级公开源，分钟级已是上限。主源 moligod 为分钟粒度（数据侧约 1–2.5 分钟滞后），端到端典型 2–3.5 分钟 = 源分钟粒度 + live 60s 快轮询 + SSE ≤5s（无 live 服务时页面 60s 轮询兜底）；「≤5s」只是本地腿（落盘→页面），端到端由源的更新粒度决定
 - **请求量（按实现核算）**：fast 轮询每轮只打 1 次 catalog（对齐 ttl 60s，周期 ≈61s，约 59 次/小时）；slow 环每轮刷新曲线缓存（计时在本轮完成后重启，下轮曲线必已过 30min TTL，故稳态每轮全量 67 条 history + 1 次 catalog，实际周期 ≈31 分钟，约 132 次/小时）——稳态合计约 190 请求/小时（≈3.2 次/分钟），负载温和，不对源施压；429/5xx 时 fetch-once 内部重试 + live 指数退避（cap 10min）
-- **买卖口径（不变）**：近 7 天每小时价格曲线分位数回归——当前价 ≤ P25 且税后收益率 ≥ 8% 判「买入」，≥ P80 判「卖出」；目标挂卖价取 P75，税率按税后价实测反推（约 15%，逐弹计算；moligod 无税后字段时回退 15%）
+- **官方数据源（腾讯 AMS）**：`server/official/` 直连官方免登录 AMS 接口（object.list 物品目录 chartId 352143 + 小时均价 chartId 352246，2026-10-26 实测复核），为名称解析（`findByName`：官方「7.62*39mm」星号变体等写法归一化）与价格核对提供官方口径。物品目录 24h TTL 缓存在 `data/official/object-directory.json`（gitignore，未过期零请求），稳态仅约 **3 次请求/天**（三类目录各 1 次）；小时均价按需 ≤5 物品/次。token 随活动配置轮换，失败自动经官方流目录刷新重试（token 非凭据；不登录、不绕风控）。自测：`npm run official:selftest`（离线零外网），`--online` 追加 2 次真实请求检查
+- **官方均价锚（只校验不改口径）**：`server/official/ammo-anchor.mjs` 每天 1 轮（随 `npm run serve` 常驻，启动 2 分钟后首跑；`--anchor-interval-hours` / `ANCHOR_INTERVAL_HOURS` 可调、`--no-anchor` 关闭；`npm run anchor:fetch` 单跑）拿腾讯官方 AMS 352246 的「近期平均交易价格」给 67 弹现价做外部参照：弹名精确 → 归一化 → 显式别名表三步映射，一对多与未命中一律不猜（2026-10-26 实测命中 66/67，唯一未命中 `5.7x28mm HT` 因官方目录只有 `HT+` 无同名条目），逐弹算 `(moli − official)/official`，**|偏差| > 15% 逐弹告警**。每轮 ≤15 请求（目录 ≤1 次 + 均价 ≤14 批 ×5 id，串行 400ms 间隔），产物只落服务端 `data/ammo/official-anchor.json`（gitignore；不对外、不进快照、不广播）。官方口径是近期均价、无小时曲线，与 moligod 分钟级现价不是同一个量——所以只做校验，不替代主源、不改任何买卖口径
+- **买卖口径（2026-10-26 v2 回测定稿，`server/ammo/backtest.mjs` 21 天 walk-forward：旧口径 284 笔 / 31% 胜率 / 单笔均 −6.6% → v2 14 笔 / 79% 胜率 / 单笔均 +9.6%）**：买入五重门槛——现价 ≤ 7 天 20% 分位、离 7 天低点 ≥3%、低点距今 ≥12h、48h 回归斜率 ≥ 0、按近 3 天 P75 挂卖税后收益率 ≥ 10%（缺一降级 WATCH）；随信号给止损位 max(7 天低点×0.97, 现价×0.95) 与 168h 持有上限。卖出：≥ 80% 分位且 48h 斜率 ≤ +0.05%/h（强势上冲不催卖）。税率按税后价实测反推（约 15%，逐弹计算；moligod 无税后字段时回退 15%）。15% 税下止盈需 ≥ +17.6% 价差才回本，宁缺毋滥；历史统计不代表未来
 - **通知去重**（notify-policy，live/monitor 共用）：首次出现立即通知；信号切换需连续 2 轮确认（分钟级数据在分位边界抖动防刷屏）；同信号 6 小时冷却；BUY 冷却期内价格再跌 5% 立即再报
 - **纯静态部署不白屏**：页面吃构建时快照并如实标注「数据已 X 分钟未更新」与来源；时效阈值按 source 分档（moligod 10/30 分钟，kkrb 沿用 60/360 分钟）。静态环境（探测不到服务端）自动轮询退回 30 分钟、且仅在版本前进时才提示「已更新」，不对静态主机打每分钟无效流量。线上快照由 CI 定时任务自动刷新（见「部署」）；要 SSE 级实时用 `npm run serve` 自托管模式
 - 页面含：买入信号卡（买入价 / 挂卖价 / 税后到手 / 预赚每发与收益率）、卖出高位简表、全表筛选排序、自选星标、每行 7 天走势 sparkline、点击行展开大图（P25/P75 参考线）；本地 dev 且 live 服务在跑时页头显示「实时通道已连接」
@@ -117,7 +125,7 @@ npm run radar:monitor   # 常驻监控（默认 30 分钟一轮，--interval N �
 npm run radar:selftest  # 纯逻辑离线自测（不打外网）
 ```
 
-- **扩品类数据源（2026-10-14 实测验证）**：异动清单来自 kkrb `getHIPriceCurveData`（免登录免配额，自带 7 天小时曲线）；曲线主源 moligod `/api/market/history?lookup=name` **不限品类**（航天冷却剂 / 雷达侧门钥匙等均返回 168 点小时曲线，`interval=1m` 可拿到分钟级现价）。moligod 的全物品快照 `trade-house-snapshot` 为前端加密接口，未使用；kkrb 单物品曲线查询未登录配额为 0，同样未使用
+- **扩品类数据源（2026-10-14 实测验证）**：异动清单来自 kkrb `getHIPriceCurveData`（免登录免配额，自带 7 天小时曲线）；曲线主源 moligod `/api/market/history?lookup=name` **不限品类**（航天冷却剂 / 雷达侧门钥匙等均返回 168 点小时曲线，`interval=1m` 可拿到分钟级现价）。moligod 的全物品快照 `trade-house-snapshot` 为前端加密接口，未使用；kkrb 单物品曲线查询未登录配额为 0，同样未使用。榜单物品名另经**官方物品目录**（`server/official/object-directory.mjs`：腾讯 AMS `object.list` 缓存，TTL 24h，仅 gun/ammo/protect 三类）做存在性校验并登记 objectID 与官方均价，审计落 `data/market/radar-name-audit.json`（`{fetchedAt, hits:[{name,objectID,officialAvgPrice}], misses:[name], retried:[{from,to,points}]}`，随 `data/` 已 gitignore）；仅当 moligod 1h 曲线为空且官方名与榜单名归一化同名而写法不同（如官方 `7.62*39mm` ↔ 社区 `7.62x39mm`）时用官方名重查一次曲线，其余查询仍用榜单原名；目录不可用整轮跳过校验，`radar.json` 契约、双源异常判定与通知行为零变化，雷达自身零新增官方请求。注意目录域（枪/弹/甲）窄于涨幅榜的全品类，物资 / 配件 / 钥匙类未命中属预期
 
 ## 特勤处制造页（/#/craft）
 

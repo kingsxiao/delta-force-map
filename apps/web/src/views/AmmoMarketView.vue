@@ -16,8 +16,9 @@
    时效阈值按 source 分档（moligod 10/30min，kkrb 沿用 60/360min）。
    后台跑 live / monitor 时，出现买入/卖出信号会弹 macOS 系统通知
    （哪种子弹 / 什么价买 / 挂多少钱卖 / 预赚多少）。
-   口径与 scripts/ammo/analyze.mjs 一致：7 天小时级曲线分位数回归，
-   P25 以下买入、P75 以上卖出，利润为税后到手价减买入价。
+   口径与 server/ammo/analyze.mjs 一致（v2 回测定稿）：低位企稳才买
+   （分位 + 止跌 + 趋势三重确认）、目标挂卖近 3 天 P75、利润为税后
+   到手价减买入价，随信号给止损位与最长持有时长。
    版本展示 / 阈值分档 / 通道门槛等纯逻辑在 ./ammo/marketMeta.js（自测共用）。
    页尾 PLAYBOOK 倒卖手册（./ammo/Playbook.vue，静态）：社区攻略整理的
    买卖时段 / 挂单定价 / 版本窗口 / 卡邮件要点与风险红线，与信号区互补。
@@ -339,7 +340,7 @@ const { user: accountUser } = useAccount() // 仅用于台账区块的云同步�
 const positionRows = computed(() =>
   positions.value.map((p) => {
     const item = items.value.find((i) => i.name === p.name) || null
-    const netSell = item?.netSell ?? null // 挂 P75 税后到手 / 发
+    const netSell = item?.netSell ?? null // 挂目标价税后到手 / 发
     const netNow = item && item.current != null && Number.isFinite(item.taxRate)
       ? item.current * (1 - item.taxRate) : null // 现价直出税后 / 发
     return {
@@ -347,7 +348,7 @@ const positionRows = computed(() =>
       item,
       netSell,
       netNow,
-      /* 到价浮盈（挂 P75 口径）与现价浮盈（直出口径） */
+      /* 到价浮盈（挂目标价口径）与现价浮盈（直出口径） */
       gainNet: netSell != null ? (netSell - p.cost) * p.qty : null,
       gainNow: netNow != null ? (netNow - p.cost) * p.qty : null,
       atTarget: !!(item && item.current != null && item.targetSell != null && item.current >= item.targetSell),
@@ -584,7 +585,7 @@ function etaLine(i) {
   if (e.medianH == null || e.episodes < 2) return null
   const clock = e.etaLabel ? `（${e.etaLabel} 前后）` : ''
   const base =
-    `按近 7 天 ${e.episodes} 次同类上涨，从现价涨到 ${fmt(i.targetSell)}（P75）` +
+    `按近 7 天 ${e.episodes} 次同类上涨，从现价涨到 ${fmt(i.targetSell)}（近 3 天 75 分位）` +
     `中位约 ${fmtHours(e.medianH)}、最快 ${fmtHours(e.fastestH)}${clock}`
   return peak ? `${base}；该弹种日内高位通常在 ${peak}。` : `${base}。`
 }
@@ -709,7 +710,7 @@ onUnmounted(() => {
       </section>
 
       <!-- 我的囤货台账：纯本地 localStorage（不上传不同步），有持仓才显示。
-           浮盈按「挂 P75 税后到手」口径；现价已达挂卖价的行高亮可出 -->
+           浮盈按「挂目标价税后到手」口径；现价已达挂卖价的行高亮可出 -->
       <section v-if="positions.length" ref="posSecRef" class="block reveal pos-block" aria-label="我的囤货台账">
         <div class="block-h">
           <span class="bht">MY POSITIONS</span><span class="bhline"></span>
@@ -717,7 +718,7 @@ onUnmounted(() => {
         </div>
         <div class="pos-sum">
           <span class="ps-item">总投入 <b>{{ fmt(posTotals.invest) }}</b></span>
-          <span class="ps-item">到价浮盈（挂 P75）<b :class="posTotals.gainNet >= 0 ? 'pos-pos' : 'pos-neg'">{{ fmtSigned(posTotals.gainNet) }}</b><template v-if="posTotals.pct != null">（{{ pct(posTotals.pct) }}）</template></span>
+          <span class="ps-item">到价浮盈（挂目标价）<b :class="posTotals.gainNet >= 0 ? 'pos-pos' : 'pos-neg'">{{ fmtSigned(posTotals.gainNet) }}</b><template v-if="posTotals.pct != null">（{{ pct(posTotals.pct) }}）</template></span>
           <span class="ps-item">现价直出浮盈 <b :class="posTotals.gainNow >= 0 ? 'pos-pos' : 'pos-neg'">{{ fmtSigned(posTotals.gainNow) }}</b></span>
         </div>
         <ul class="pos-list">
@@ -969,8 +970,8 @@ onUnmounted(() => {
                       </div>
                       <PriceChart :curve="i.curve" :p25="i.p25" :p75="i.p75" :current="i.current" />
                       <p class="exp-note">
-                        口径：买入参考 {{ fmt(i.p25) }}（P25）/ 目标挂卖 {{ fmt(i.targetSell) }}（P75，税后到手 {{ fmt(i.netSell) }}）/
-                        税率 {{ (i.taxRate * 100).toFixed(0) }}%。价格回到 P75 即可挂卖；急用钱可按现价直接出。
+                        口径：买入参考 {{ fmt(i.p25) }}（7 天 P25）/ 目标挂卖 {{ fmt(i.targetSell) }}（近 3 天 75 分位，税后到手 {{ fmt(i.netSell) }}）/
+                        税率 {{ (i.taxRate * 100).toFixed(0) }}%。价格回到目标价即可挂卖<template v-if="i.stopLoss">，破 {{ fmt(i.stopLoss) }} 止损离场</template>；急用钱可按现价直接出。
                       </p>
                       <p v-if="etaLine(i)" class="exp-note eta-note">
                         <b>预计卖出</b>：{{ etaLine(i) }}（历史统计，不代表未来）。
@@ -991,9 +992,9 @@ onUnmounted(() => {
           <section class="block reveal">
             <div class="block-h"><span class="bht">METHOD</span><span class="bhline"></span></div>
             <ul class="method">
-              <li><b>买入条件</b>：当前价处近 7 天价格曲线 ≤ 25% 分位，且按 P75 挂卖、扣除交易税后收益率 ≥ 8%。</li>
-              <li><b>卖出条件</b>：当前价处 ≥ 80% 分位（贴近 7 天高位）。</li>
-              <li><b>预计卖出</b>：统计近 7 天小时曲线——「从当前价位档涨到 P75 挂卖价」的完整上涨段给出中位/最快历时；同小时均价聚合给出日内高位时段。历史统计不代表未来。</li>
+              <li><b>买入条件</b>（五重门槛，缺一不报）：现价处近 7 天曲线下 1/5 分位；已止跌企稳（高于 7 天低点 ≥3%、近 12 小时无新低、近 48 小时趋势斜率 ≥ 0）；按近 3 天 75 分位挂卖、扣除交易税后收益率 ≥ 10%；曲线 ≥ 2 天。随信号给止损位（破 7 天低点 3% 或单笔 −5% 风险上限）。</li>
+              <li><b>卖出条件</b>：现价处 ≥ 80% 分位且动能转弱（48 小时斜率不陡增）；强势上冲不催卖。</li>
+              <li><b>预计卖出</b>：统计近 7 天小时曲线——「从当前价位档涨到目标挂卖价」的完整上涨段给出中位/最快历时；同小时均价聚合给出日内高位时段。历史统计不代表未来。</li>
               <li><b>能赚多少</b>：每发利润 = 目标挂卖价 × (1−税率) − 当前买入价；税率按税后价实测反推（约 15%，逐弹计算）。</li>
               <li><b>穿透</b>：来自 TTK 弹药数据（穿透等级决定对各级护甲的伤害通过率，判定矩阵见 TTK 页）。「—」= 无穿透数据（弓弩用弹 / 国服与通用命名差异 / 一名多弹无法确定对应），宁缺勿错。</li>
               <li><b>数据</b>：{{ dataLine }}</li>

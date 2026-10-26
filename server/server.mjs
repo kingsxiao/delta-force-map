@@ -5,6 +5,9 @@
    制造循环，均复用既有抓取器与 kkrb 兜底）→ 原子写快照（apps/web/public
    与其 dist 联动）→ SSE 推送（event:market / event:radar / event:craft）
    → 静态托管 apps/web/dist。
+   另挂一个日级 sidecar：官方均价锚（server/official/ammo-anchor.mjs，默认
+   24h 一轮、启动 2 分钟后首跑、每轮 ≤15 请求）只拿官方均价校验 moligod
+   现价并落 data/ammo/official-anchor.json——不改口径、不写快照、不广播。
    多端 monorepo 布局：Node 后端在 server/，网页端在 apps/web（vite 构建），
    iOS 原生端 apps/ios 只消费本服务的 HTTP + SSE 接口（契约 shared/API.md）。
    站点与 /events 同源是关键：https 部署下无 mixed content、无 CORS，
@@ -19,8 +22,8 @@
               缓存；*.json 数据与 html 走 no-cache；路径归一化防目录穿越）
    通知默认关闭（部署形态通常无桌面）；--notify 开启。
    用法：npm run build && npm run serve [--port 8080] [--host 0.0.0.0] [--notify]
-         [--radar-interval 10] [--trust-proxy[=N]]
-   环境变量 PORT / HOST / RADAR_INTERVAL_MIN 与参数同义。上 https 用
+         [--radar-interval 10] [--anchor-interval-hours 24] [--no-anchor] [--trust-proxy[=N]]
+   环境变量 PORT / HOST / RADAR_INTERVAL_MIN / ANCHOR_INTERVAL_HOURS 与参数同义。上 https 用
    nginx/caddy 反代即可；限速 IP 取 XFF 从右数第 N 跳：--trust-proxy 为
    单层反代（1 跳），多级链（CDN→nginx→node 等）须 --trust-proxy=N 指明。
    注意：与 ammo:live / ammo:monitor / radar:monitor / 手动 fetch 同为写盘者，
@@ -34,6 +37,7 @@ import { fileURLToPath } from 'node:url'
 import { createLiveServer } from './ammo/live.mjs'
 import { runRadarCycle } from './market/radar.mjs'
 import { runCraftCycle } from './craft/snapshot.mjs'
+import { runAnchorCycle } from './official/ammo-anchor.mjs'
 import { createAuthApi } from './auth/api.mjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -58,11 +62,13 @@ const MIME = {
  * 创建同源站点服务（不 listen；selftest 用 port 0 自取临时端口）。
  * @param {{rootDir?:string, webDir?:string, noNotify?:boolean,
  *          radarCycle?:Function, radarMs?:number,
- *          craftCycle?:Function, craftMs?:number}} opts
+ *          craftCycle?:Function, craftMs?:number,
+ *          anchorCycle?:Function|null, anchorMs?:number, anchorDelayMs?:number}} opts
  *   rootDir 仓库根（data/ 留档与监控 state 挂这里）；webDir 网页端目录
- *   （public/dist 写入与静态托管，默认 = rootDir，selftest 传临时目录即原行为）
+ *   （public/dist 写入与静态托管，默认 = rootDir，selftest 传临时目录即原行为）；
+ *   anchorCycle 官方均价锚（null 关闭），首跑延迟 anchorDelayMs 后每 anchorMs 一轮
  * @returns {{server:http.Server, live:object, start:Function, close:Function,
- *            triggerRadarCycle:Function, triggerCraftCycle:Function}}
+ *            triggerRadarCycle:Function, triggerCraftCycle:Function, triggerAnchorCycle:Function}}
  */
 export function createSiteServer({
   rootDir = ROOT,
@@ -72,6 +78,11 @@ export function createSiteServer({
   radarMs = 10 * 60 * 1000,
   craftCycle = runCraftCycle,
   craftMs = 10 * 60 * 1000,
+  /** 官方均价锚 sidecar：日级只读校验；默认延迟 2 分钟首跑，离线自测在 close()
+      前不会打网（selftest 不注入也安全） */
+  anchorCycle = runAnchorCycle,
+  anchorMs = 24 * 60 * 60 * 1000,
+  anchorDelayMs = 2 * 60 * 1000,
   /** true = 单层反代（XFF 末段）；正整数 N = 多级反代从右数第 N 跳 */
   trustProxy = false,
 } = {}) {
@@ -84,6 +95,7 @@ export function createSiteServer({
   const auth = createAuthApi({ rootDir, trustProxy })
   let radarTimer = null
   let craftTimer = null
+  let anchorTimer = null
   let closing = false
 
   /* 雷达循环：失败只记日志不重试加速（榜单小时级滚动，下一轮自然补）；
@@ -136,6 +148,27 @@ export function createSiteServer({
     await cycleCraft()
     if (closing) return
     craftTimer = setTimeout(craftLoop, craftMs)
+  }
+
+  /* 官方均价锚（日级 sidecar，同雷达范式）：只读校验、失败只记日志；不广播、不写快照 */
+  async function cycleAnchor() {
+    if (!anchorCycle) return null
+    try {
+      const out = await anchorCycle({ rootDir, webDir })
+      const s = out?.summary ?? {}
+      log(`[anchor] 官方均价锚 · 映射 ${s.joined}/${s.total} · 未命中 ${s.missed} · 歧义 ${s.ambiguous} · 偏差>15% ${s.devOver15} · 请求 ${s.requests}`)
+      return out
+    } catch (e) {
+      console.error(`[${new Date().toLocaleString('zh-CN')}] [anchor] 校验失败：${e.message}`)
+      return null
+    }
+  }
+
+  async function anchorLoop() {
+    if (closing) return
+    await cycleAnchor()
+    if (closing) return
+    anchorTimer = setTimeout(anchorLoop, anchorMs)
   }
 
   function cacheControlFor(pathname) {
@@ -201,17 +234,28 @@ export function createSiteServer({
     closing = true
     clearTimeout(radarTimer)
     clearTimeout(craftTimer)
+    clearTimeout(anchorTimer)
     await live.close()
     await new Promise((resolve) => server.close(resolve))
   }
   /** 启动序列：弹药（live.start 自带冷启动 + 双循环）与雷达 / 特勤处初始轮并行；
-      雷达 / 特勤处失败不阻塞（catch 在各自 cycle 内），下一轮计时照常 */
+      雷达 / 特勤处失败不阻塞（catch 在各自 cycle 内），下一轮计时照常；
+      官方均价锚不参与启动并行，延迟 anchorDelayMs 后首跑再按 anchorMs 循环 */
   async function start() {
     await Promise.all([live.start(), cycleRadar(), cycleCraft()])
     radarTimer = setTimeout(radarLoop, radarMs)
     craftTimer = setTimeout(craftLoop, craftMs)
+    if (anchorCycle) anchorTimer = setTimeout(anchorLoop, anchorDelayMs)
   }
-  return { server, live, start, close, triggerRadarCycle: cycleRadar, triggerCraftCycle: cycleCraft }
+  return {
+    server,
+    live,
+    start,
+    close,
+    triggerRadarCycle: cycleRadar,
+    triggerCraftCycle: cycleCraft,
+    triggerAnchorCycle: cycleAnchor,
+  }
 }
 
 // ---- CLI 直跑 ----
@@ -229,6 +273,11 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   const craftIntervalMin = Number(
     argOf('craft-interval') || process.env.CRAFT_INTERVAL_MIN || 10
   )
+  // 官方均价锚：--no-anchor 关闭；小时数非法回落 24，并钳在 [1, 500]——
+  // setTimeout 上限 2^31-1 ms（≈596h），超出会被 Node 当 1ms 立即触发
+  const noAnchor = argv.includes('--no-anchor')
+  const anchorHoursRaw = Number(argOf('anchor-interval-hours') || process.env.ANCHOR_INTERVAL_HOURS || 24)
+  const anchorHours = Number.isFinite(anchorHoursRaw) ? Math.min(500, Math.max(1, anchorHoursRaw)) : 24
   if (!existsSync(path.join(WEB_DIR, 'dist', 'index.html'))) {
     console.error('缺少 apps/web/dist/index.html：先运行 npm run build，再启动服务')
     process.exit(1)
@@ -248,11 +297,13 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     noNotify: !notify,
     radarMs: Math.max(1, radarIntervalMin) * 60 * 1000,
     craftMs: Math.max(1, craftIntervalMin) * 60 * 1000,
+    anchorCycle: noAnchor ? null : runAnchorCycle,
+    anchorMs: anchorHours * 60 * 60 * 1000,
     trustProxy,
   })
   site.server.listen(port, host, () => {
     log(`站点已启动：http://${host}:${port}/ · SSE /events · health /health（Ctrl+C 退出）`)
-    log(`静态目录 apps/web/dist/ · 雷达每 ${radarIntervalMin} 分钟 · 特勤处制造每 ${craftIntervalMin} 分钟 · 系统通知${notify ? '开启' : '关闭（--notify 可开启）'} · 上游抓取循环随服务常驻`)
+    log(`静态目录 apps/web/dist/ · 雷达每 ${radarIntervalMin} 分钟 · 特勤处制造每 ${craftIntervalMin} 分钟 · 官方均价锚${noAnchor ? '关闭' : `每 ${anchorHours} 小时（启动 2 分钟后首跑）`} · 系统通知${notify ? '开启' : '关闭（--notify 可开启）'} · 上游抓取循环随服务常驻`)
   })
   await site.start()
   const shutdown = (sig) => {

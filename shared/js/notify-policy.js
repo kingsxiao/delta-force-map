@@ -32,14 +32,15 @@ export function emptyState() {
 const fmtPrice = (n) => (Number.isFinite(n) ? Math.round(n).toLocaleString('zh-CN') : '—')
 const fmtPct = (n) => (Number.isFinite(n) ? `${n >= 0 ? '+' : ''}${(n * 100).toFixed(1)}%` : '—')
 
-/** 买入通知正文：哪种子弹 / 多少价格买 / 什么时候卖 / 能赚多少
+/** 买入通知正文：哪种子弹 / 多少价格买 / 什么时候卖 / 能赚多少 / 破哪里止损
     （预计到价历时吃条目自带 curve 统计，曲线不足时自动省略该段） */
 export function buyLine(i) {
   const high = `7天高点到手${fmtPrice(i.netHigh)}`
   const eta = predictSellEta(i)
   // 历时展示门槛：至少 2 次完整上涨样本，单样本中位不进通知
   const etaTxt = eta && eta.medianH != null && eta.episodes >= 2 ? ` 预计${fmtHours(eta.medianH)}到价` : ''
-  return `${i.name} 买入≤${fmtPrice(i.current)} → 挂卖${fmtPrice(i.targetSell)}(到手${fmtPrice(i.netSell)})${etaTxt} 预赚${fmtPrice(i.profitPerRound)}/发(${fmtPct(i.profitPct)})，${high}`
+  const stopTxt = Number.isFinite(i.stopLoss) ? `，破${fmtPrice(i.stopLoss)}止损` : ''
+  return `${i.name} 买入≤${fmtPrice(i.current)} → 挂卖${fmtPrice(i.targetSell)}(到手${fmtPrice(i.netSell)})${etaTxt} 预赚${fmtPrice(i.profitPerRound)}/发(${fmtPct(i.profitPct)})，${high}${stopTxt}`
 }
 
 export function sellLine(i) {

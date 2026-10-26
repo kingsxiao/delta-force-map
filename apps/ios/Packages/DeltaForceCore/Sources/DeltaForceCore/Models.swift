@@ -73,11 +73,22 @@ public struct MarketItem: Codable, Sendable, Hashable, Identifiable {
     public let p90: Double?
     public let weekHigh: Double?
     public let weekLow: Double?
+    public let p75Local: Double?
     public let targetSell: Double?
     public let netSell: Double?
     public let netHigh: Double?
     public let profitPerRound: Double?
     public let profitPct: Double?
+    /// 近 48h 回归斜率（%/h）；BUY 需 ≥ +0.02，SELL 动量守则 > 0.05 不催卖
+    public let slope48: Double?
+    /// 7 天最低价距今小时数（BUY 需 ≥12：止跌确认）
+    public let lowAgeH: Double?
+    /// 现价相对 7 天低点离底幅度（BUY 需 ≥ 0.03）
+    public let bounceOffLow: Double?
+    /// 止损位：跌破 7 天低点 3% 或离场风险上限（现价 −5%）的大者；nil = 旧快照无此字段
+    public let stopLoss: Double?
+    /// 建议最长持有小时数（回测口径 168h = 7 天）；nil = 旧快照无此字段
+    public let maxHoldH: Double?
     public let signal: Signal
     public let reason: String?
 
@@ -94,8 +105,10 @@ public struct MarketItem: Codable, Sendable, Hashable, Identifiable {
         name: String, grade: Int? = nil, pic: String? = nil, current: Double?, taxRate: Double = 0.15,
         curve: [CurvePoint], rank: Double? = nil, p10: Double? = nil, p25: Double? = nil, p50: Double? = nil,
         p75: Double? = nil, p90: Double? = nil, weekHigh: Double? = nil, weekLow: Double? = nil,
-        targetSell: Double? = nil, netSell: Double? = nil, netHigh: Double? = nil,
-        profitPerRound: Double? = nil, profitPct: Double? = nil, signal: Signal, reason: String? = nil,
+        p75Local: Double? = nil, targetSell: Double? = nil, netSell: Double? = nil, netHigh: Double? = nil,
+        profitPerRound: Double? = nil, profitPct: Double? = nil, slope48: Double? = nil, lowAgeH: Double? = nil,
+        bounceOffLow: Double? = nil, stopLoss: Double? = nil, maxHoldH: Double? = nil,
+        signal: Signal, reason: String? = nil,
         hiRank: Int? = nil, category: String? = nil, crossDev: Double? = nil, crossOverlap: Int? = nil,
         anomaly: Bool? = nil, rawSignal: Signal? = nil, curveSource: String? = nil
     ) {
@@ -113,11 +126,17 @@ public struct MarketItem: Codable, Sendable, Hashable, Identifiable {
         self.p90 = p90
         self.weekHigh = weekHigh
         self.weekLow = weekLow
+        self.p75Local = p75Local
         self.targetSell = targetSell
         self.netSell = netSell
         self.netHigh = netHigh
         self.profitPerRound = profitPerRound
         self.profitPct = profitPct
+        self.slope48 = slope48
+        self.lowAgeH = lowAgeH
+        self.bounceOffLow = bounceOffLow
+        self.stopLoss = stopLoss
+        self.maxHoldH = maxHoldH
         self.signal = signal
         self.reason = reason
         self.hiRank = hiRank

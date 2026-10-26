@@ -105,7 +105,8 @@ public enum NotifyEngine {
         return NotifyVerdict(buys: buys, sells: sells)
     }
 
-    /// 买入通知正文：哪种子弹 / 多少价格买 / 什么时候卖 / 能赚多少（历时需 ≥2 次完整上涨样本）
+    /// 买入通知正文：哪种子弹 / 多少价格买 / 什么时候卖 / 能赚多少 / 破哪里止损
+    /// （历时需 ≥2 次完整上涨样本；stopLoss 为旧快照缺失字段时省略止损段）
     public static func buyLine(_ i: MarketItem, now: Date = .now) -> String {
         let high = "7天高点到手\(Fmt.price(i.netHigh))"
         let eta = SellEtaEngine.predict(item: i, now: now)
@@ -113,7 +114,11 @@ public enum NotifyEngine {
         if let eta, let med = eta.medianH, eta.episodes >= 2 {
             etaTxt = " 预计\(SellEtaEngine.fmtHours(med))到价"
         }
-        return "\(i.name) 买入≤\(Fmt.price(i.current)) → 挂卖\(Fmt.price(i.targetSell))(到手\(Fmt.price(i.netSell)))\(etaTxt) 预赚\(Fmt.price(i.profitPerRound))/发(\(Fmt.pct(i.profitPct)))，\(high)"
+        var stopTxt = ""
+        if let stop = i.stopLoss, stop.isFinite {
+            stopTxt = "，破\(Fmt.price(stop))止损"
+        }
+        return "\(i.name) 买入≤\(Fmt.price(i.current)) → 挂卖\(Fmt.price(i.targetSell))(到手\(Fmt.price(i.netSell)))\(etaTxt) 预赚\(Fmt.price(i.profitPerRound))/发(\(Fmt.pct(i.profitPct)))，\(high)\(stopTxt)"
     }
 
     public static func sellLine(_ i: MarketItem, now: Date = .now) -> String {

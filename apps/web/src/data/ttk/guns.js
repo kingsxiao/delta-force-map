@@ -13,7 +13,7 @@
    ============================================================ */
 
 export const GUNS = [
-  {zh:"M4A1",     en:"M4A1",            cls:"ar", dmg:29, admg:32, rpm:800,  cal:"556",   mag:30, note:"全能新手枪，配件生态最丰富", img:"18010000001"},
+  {zh:"M4A1",     en:"M4A1",            cls:"ar", dmg:31, admg:33, rpm:800,  cal:"556",   mag:30, note:"全能新手枪，配件生态最丰富", img:"18010000001"},
   {zh:"M16A4",    en:"M16A4",           cls:"ar", dmg:33, admg:39, rpm:672,  cal:"556",   mag:20, burst:true, note:"仅三连发 / 单发；面板射速为含 burst 间隔的均值，burst 内更快", img:"18010000014"},
   {zh:"CAR-15",   en:"CAR-15",          cls:"ar", dmg:27, admg:32, rpm:632,  cal:"556",   mag:20, note:"Model 723，强度平平常作高级弹发射器", img:"18010000031"},
   {zh:"K416",     en:"K416 (HK416)",    cls:"ar", dmg:31, admg:35, rpm:880,  cal:"556",   mag:30, note:"小口径高射速主力，双模式强势", img:"18010000013"},
