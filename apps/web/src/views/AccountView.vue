@@ -334,7 +334,7 @@ const lastSyncText = computed(() => {
         </div>
         <p class="sync-detail">
           自选 {{ stars.size }} 项 · 囤货台账 {{ ledgerCount }} 条 · 买入价 {{ mycostCount }} 条已并入云端
-          （星标并集 / 台账按弹名合并·同名本机优先）· 上次同步 {{ lastSyncText }}
+          （星标并集 / 台账按弹名合并·同名本机优先）· <span class="sync-last">上次同步 {{ lastSyncText }}</span>
         </p>
         <p v-if="syncState === 'error'" class="sync-err">{{ syncError }}。可点「立即同步」重试，本地功能不受影响。</p>
       </div>
@@ -654,6 +654,11 @@ form { margin-top: var(--sp-5); display: flex; flex-direction: column; }
 .sync-btn:active:not(:disabled) { transform: translateY(1px); }
 .sync-btn:disabled { opacity: .55; cursor: default; }
 .sync-detail { margin-top: var(--sp-3); color: var(--faint); font-size: var(--fs-xs); }
+/* 「上次同步 + 时间戳」整段不断行：sync-detail 是一整段内联文本，断行点随机，
+   桌面下四字词组曾拦腰拆到两行（首行末「上次」、次行起「同步 …」）；nowrap 后
+   要么整段留在行尾、要么整体换到下一行，且整段约 20 字符远窄于移动端 sync-box
+   内宽，不会引入横向溢出 */
+.sync-last { white-space: nowrap; }
 .sync-err { margin-top: var(--sp-2); color: var(--danger); font-size: var(--fs-xs); }
 
 .hint { margin-top: var(--sp-4); color: var(--faint); font-size: var(--fs-xs); line-height: 1.7; }
@@ -668,8 +673,13 @@ form { margin-top: var(--sp-5); display: flex; flex-direction: column; }
 @media (max-width: 680px) {
   /* iOS Safari 聚焦 <16px 输入框会强制放大页面；手机档升到 fs-lg(16px) 消除跳变 */
   .f-in { font-size: var(--fs-lg); }
-  /* 长用户名 + 退出按钮：允许换行，按钮折到第二行靠右（margin-left:auto 仍生效） */
+  /* 长用户名 + 退出按钮：极窄屏挤不下时允许换行兜底（margin-left:auto 仍生效）。
+     关键在 who-main 基准宽归零（flex:1 1 0）：wrap 布局里项目按固有宽参与折行、
+     放不下是整块换行而非收缩——16 字中文长名（约 256px）会把 who-main 整块
+     挤到第二行，头像独占首行右侧大片空白、退出按钮再折一行，摊成松散三行；
+     归零后 who-main 恒与头像同行、按剩余宽收缩，.name 的 ellipsis 兜底截断 */
   .who { flex-wrap: wrap; row-gap: var(--sp-3); }
+  .who-main { flex: 1 1 0; }
 }
 @media (max-width: 480px) {
   .auth-hero { padding: var(--sp-5); }

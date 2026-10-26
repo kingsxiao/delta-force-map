@@ -96,8 +96,11 @@ const CATEGORY_LABEL = { props: '物资', protect: '护甲', gun: '枪械', acc:
 const categoryLabel = (c) => CATEGORY_LABEL[c] || c || '—'
 const gradeVar = (g) => (g >= 2 && g <= 6 ? `var(--lv${g})` : 'var(--faint)')
 const hideImg = (e) => { e.target.style.display = 'none' }
+/* 双源列两种取值混排：有偏差 → 中位偏差百分比；重叠不足（<24h）无偏差 → 重叠
+   小时数。原先无数据行显示「样本 0」无单位不自明，且解释只在 hover title 里
+   （触屏够不着）——带 h 单位自明，口径另在列头 title 与页脚 src-note 常驻说明 */
 const crossLabel = (i) =>
-  i.crossDev == null ? `样本 ${i.crossOverlap ?? 0}` : `${(i.crossDev * 100).toFixed(1)}%`
+  i.crossDev == null ? `重叠 ${i.crossOverlap ?? 0}h` : `${(i.crossDev * 100).toFixed(1)}%`
 
 /* ---------- 筛选与排序 ---------- */
 const SIGNALS = [
@@ -297,7 +300,8 @@ onBeforeUnmount(() => {
               <th class="num">7天分位</th>
               <th class="num c-range">周区间</th>
               <th>走势</th>
-              <th class="num">双源</th>
+              <!-- 双源列头带 title：列内「百分比 / 重叠 Nh」两种取值的含义，桌面 hover 可查 -->
+              <th class="num" title="两路独立曲线的中位偏差，越低越一致；无偏差数据时显示两路重叠小时数（不足 24h 不下双源结论）">双源</th>
             </tr>
           </thead>
           <tbody>
@@ -358,7 +362,7 @@ onBeforeUnmount(() => {
                     :title="i.anomaly
                       ? `两路独立曲线在重叠 ${i.crossOverlap} 小时的中位偏差 ${crossLabel(i)}——口径分歧，信号已压制为观望`
                       : i.crossDev == null
-                        ? `重叠小时不足 24，未做双源结论`
+                        ? `双路曲线重叠仅 ${i.crossOverlap ?? 0} 小时，不足 24 小时未做双源结论`
                         : `两路独立曲线的中位偏差（越低越一致）`"
                     ><!-- 双源异常标记（inline SVG）：警示三角 + 叹号，随 .cross.anomaly 染 --warn -->
                     <svg v-if="i.anomaly" class="warn-ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.4 14.4 13.6H1.6Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M8 6.2v3.2M8 11.7v.1" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>{{ crossLabel(i) }}</span>
@@ -366,26 +370,36 @@ onBeforeUnmount(() => {
               </tr>
               <tr v-if="expanded === i.name" class="expander">
                 <td colspan="9">
-                  <button class="exp-close" @click="expanded = null">收起</button>
-                  <PriceChart :curve="i.curve" :p25="i.p25" :p75="i.p75" :current="i.current" />
-                  <p class="exp-note">
-                    口径：买入参考 {{ fmt(i.p25) }}（P25）/ 目标挂卖 {{ fmt(i.targetSell) }}（P75，税后到手 {{ fmt(i.netSell) }}）/
-                    税率 {{ (i.taxRate * 100).toFixed(0) }}%（非子弹无税后字段，按兜底税率）。
-                    <template v-if="i.anomaly">双源中位偏差 {{ crossLabel(i) }}，原始信号 {{ SIGNAL_META[i.rawSignal]?.label || i.rawSignal }} 已压制为观望。</template>
-                  </p>
+                  <!-- 展开内容装进 sticky 视口容器：这个 td 跟随 .tbl 的 min-width:980，
+                       移动端 900px 图表、「收起」按钮、口径说明都会被排到横滚深处首屏
+                       不可见；.exp-hold 按滚动视口宽（100cqw）渲染并左贴滚动视口，
+                       三者恒在可视区（数据行仍可再点收起，属兜底而非正道） -->
+                  <div class="exp-hold">
+                    <button class="exp-close" @click="expanded = null">收起</button>
+                    <PriceChart :curve="i.curve" :p25="i.p25" :p75="i.p75" :current="i.current" />
+                    <p class="exp-note">
+                      口径：买入参考 {{ fmt(i.p25) }}（P25）/ 目标挂卖 {{ fmt(i.targetSell) }}（P75，税后到手 {{ fmt(i.netSell) }}）/
+                      税率 {{ (i.taxRate * 100).toFixed(0) }}%（非子弹无税后字段，按兜底税率）。
+                      <template v-if="i.anomaly">双源中位偏差 {{ crossLabel(i) }}，原始信号 {{ SIGNAL_META[i.rawSignal]?.label || i.rawSignal }} 已压制为观望。</template>
+                    </p>
+                  </div>
                 </td>
               </tr>
             </template>
-            <tr v-if="!filtered.length">
-              <td colspan="9" class="empty-cell">没有符合当前筛选的物品　<button class="retry" @click="clearFilters">清除全部筛选</button></td>
-            </tr>
           </tbody>
         </table>
+        <!-- 空态提示放表外：表内 td 跟随 .tbl 的 min-width:980，文案会居中在横滚表格
+             中央，移动端首屏只剩表头、按钮也点不到；改为表格兄弟 div，块级宽度取
+             滚动容器内容宽，天然锚在可视区内（表头保留，宽屏观感与原行式空态一致） -->
+        <div v-if="!filtered.length" class="empty-cell">
+          没有符合当前筛选的物品　<button class="retry" @click="clearFilters">清除全部筛选</button>
+        </div>
       </div>
 
       <p class="src-note">
         榜单为全品类涨幅榜 Top10（钥匙/护甲/配件/物资等，子弹走
         <router-link to="/ammo">子弹行情</router-link>页）；信号口径与子弹页一致：P25 买入 / P80 卖出 / 税后 ≥8% 才报买入。
+        「双源」列为两路独立曲线的中位偏差（越低越一致）；显示「重叠 Nh」表示两路重叠不足 24 小时、未做双源结论。
         非子弹单笔金额大、流动性差，挂单深度游戏内自查。
       </p>
     </template>
@@ -438,6 +452,7 @@ onBeforeUnmount(() => {
 .retry:hover { background: var(--accent-soft); }
 .retry:active { background: var(--accent-soft); transform: scale(.98); }
 .retry:disabled { opacity: .45; cursor: default; }
+/* 空态容器（表格兄弟 div，非 td）：宽度自适应滚动容器内容宽，居中即居中在可视区 */
 .empty-cell { text-align: center; color: var(--dim); padding: var(--sp-6) 0; }
 
 /* 控制条（榜单仅 10 行，不做吸顶机械） */
@@ -497,6 +512,9 @@ onBeforeUnmount(() => {
   overflow-x: auto;
   border: 1px solid var(--line);
   border-radius: var(--radius);
+  /* 声明 inline-size 容器：给 .exp-hold 的 100cqw 提供基准（滚动视口的内容宽，
+     随断点水槽/渐隐槽自适应），展开行内容按可视宽而非 980px 表宽渲染 */
+  container-type: inline-size;
 }
 .tbl-scroll .tbl { min-width: 980px; }
 /* 窄屏横滚提示：右缘 32px 渐隐（mask 固定于滚动视口、内容从其下滚过，零 DOM、
@@ -592,6 +610,12 @@ td.profit { color: var(--ok); font-weight: 600; }
 .cross.anomaly { color: var(--warn); font-weight: 600; }
 
 .expander td { position: relative; background: var(--card2); border-top: 1px solid var(--accent-dim); }
+/* 展开行视口容器：sticky 左贴滚动视口 + 宽取 100cqw（= .tbl-scroll 内容宽）再让出
+   td 左右 padding（base.css .tbl td 各 10px）——不减会把表撑出容器、宽屏展开时
+   平白多出横向滚动；图表/收起/说明不随 980px 表格横滚跑出首屏。sticky 自身是
+   定位元素，绝对定位的 .exp-close 直接锚它右缘。不支持 cqw 的引擎整条声明被
+   丢弃，退回旧的整格宽渲染，不比现状差 */
+.exp-hold { position: sticky; left: 0; width: calc(100cqw - 20px); }
 .exp-close {
   position: absolute; top: 10px; right: 10px;
   font-family: var(--mono); font-size: var(--fs-xs); color: var(--dim);

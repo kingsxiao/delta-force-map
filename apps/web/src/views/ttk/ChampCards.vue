@@ -14,8 +14,9 @@ defineProps({
 <template>
   <!-- .champ 挂 --ri 供容器级级联错峰（§7.3）；picks 为空（搜索/筛选无结果）时整组收起不留空隙。
        用 display 折叠而非 v-if：useReveal 只在挂载时观察一次，v-if 卸载重挂的新节点
-       不会再被观察、会卡在入场前的 opacity:0；display 变化 IO 会正常补触发 -->
-  <div class="champs" :class="{ empty: !picks.length }">
+       不会再被观察、会卡在入场前的 opacity:0；display 变化 IO 会正常补触发。
+       --champ-n = 实际卡数（≤4）：列数随卡数收紧，类别只选 1 类时仅 2 卡，固定 4 列右侧会整行空白 ~50% -->
+  <div class="champs" :class="{ empty: !picks.length }" :style="{ '--champ-n': Math.min(picks.length, 4) }">
     <div v-for="(p, i) in picks" :key="p.label" class="champ" :class="{ top: p.top }" :style="{ '--ri': i }">
       <div class="champ-label">{{ p.label }}</div>
       <div class="champ-gun">{{ p.c.gun.zh }}</div>
@@ -29,10 +30,11 @@ defineProps({
 </template>
 
 <style scoped>
-/* 一行 4 卡（§6.3：repeat(4) 治 auto-fit 末行参差）；≤820 两列、≤680 单列；上距 12 促排行表进首屏 */
+/* 一行 ≤4 卡（§6.3：repeat(N) 治 auto-fit 末行参差）；列数 = 卡数（--champ-n，模板按 picks 注入，
+   兜底 4），类别筛选少于 3 类时 2-3 卡各占等分、不再留整行空白；≤820 两列、≤680 单列；上距 12 促排行表进首屏 */
 .champs {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(var(--champ-n, 4), minmax(0, 1fr));
   gap: var(--sp-3);
   margin: var(--sp-3) 0 var(--sp-2);
 }

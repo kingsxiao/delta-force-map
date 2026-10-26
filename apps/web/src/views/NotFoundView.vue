@@ -39,7 +39,9 @@ onBeforeUnmount(() => { document.title = prevTitle })
 .nf { padding: var(--sp-8) 0 var(--sp-7); }
 .nf-card {
   background: var(--card);
-  border: 1px dashed var(--line2);
+  /* 虚线用 --line2 画在 --bg 上对比度仅约 1.25:1，轮廓几乎不可见、卡片失去结构感；
+     提一档到全站卡片描边规格 --line，虚线「未完成感」样式保持不变 */
+  border: 1px dashed var(--line);
   border-radius: var(--radius);
   padding: var(--sp-6);
   color: var(--tx);
@@ -47,9 +49,10 @@ onBeforeUnmount(() => { document.title = prevTitle })
 .nf-title { margin: 0 0 var(--sp-3); font-size: var(--fs-xl); color: var(--tx-strong); }
 .nf-desc { margin: 0 0 var(--sp-4); color: var(--dim); font-size: var(--fs-sm); line-height: 1.7; }
 .nf-links { display: flex; flex-wrap: wrap; gap: 8px; }
-/* 入口 chips：胶囊描边，hover 提亮（规格同台账/信号卡的 chip 族） */
+/* 入口 chips：胶囊描边，hover 提亮。底面用 --card2 而非 --card：本 chips 落在
+   --card 卡片内，同色叠加会融进卡面只剩细边框，提一档恢复面差（同分段控件选中面） */
 .nf-link {
-  background: var(--card);
+  background: var(--card2);
   border: 1px solid var(--line);
   border-radius: var(--radius-pill);
   padding: 5px 16px;

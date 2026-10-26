@@ -228,7 +228,9 @@ const TIER_DEFS = [
   { t: 'T0', label: '顶级', cut: 0.08, color: 'var(--lv5)' },
   { t: 'T1', label: '强势', cut: 0.25, color: 'var(--accent)' },
   { t: 'T2', label: '主流', cut: 0.60, color: 'var(--lv3)' },
-  { t: 'T3', label: '入门', cut: 1, color: 'var(--lv0)' },
+  /* T3 文字色用 --dim 不用 --lv0：--lv0(#79828b) 在卡片底 --card(#171d24) 上 4.35:1 < AA 4.5，
+     .tb-t（16px/700）不到 18.66px 大字豁免线；--dim 全场景 ≥6.1:1。--lv0 语义留给护甲等级 0 不动 */
+  { t: 'T3', label: '入门', cut: 1, color: 'var(--dim)' },
 ]
 const tierBase = computed(() => {
   const rows = []
@@ -810,10 +812,11 @@ onBeforeUnmount(() => {
   background: var(--card);
   overflow: hidden;
 }
-/* 表头（§5.4：底色 card2 比行亮、padding 与行 11px 对齐消除基线错位；栅格值与 RankRow 内 .rk-row 保持同值） */
+/* 表头（§5.4：底色 card2 比行亮、padding 与行 11px 对齐消除基线错位；栅格值与 RankRow 内 .rk-row 保持同值，
+   枪名/TTK 轨配比随 RankRow 同步调整为 1.35fr/1fr——枪名副行 302px 全显） */
 .rk-head {
   display: grid;
-  grid-template-columns: 40px 52px minmax(138px, 1.1fr) minmax(126px, 1fr) 52px 60px 62px minmax(140px, 1.2fr);
+  grid-template-columns: 40px 52px minmax(138px, 1.35fr) minmax(126px, 1fr) 52px 60px 62px minmax(140px, 1fr);
   gap: 12px;
   align-items: center;
   padding: 10px 34px 10px 16px;

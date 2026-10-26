@@ -40,7 +40,13 @@ const peak = computed(() => {
     </span>
     <span class="sl-body">
       <b class="sl-name">{{ item.name }}</b>
-      <span class="sl-sub">7 天 {{ Math.round(item.rank * 100) }}% 高位<template v-if="peak"> · {{ peak }} 宜出</template><template v-else> · 建议出货</template></span>
+      <!-- 副行拆成两段各自不折行：四列网格（卡 ~287px、副行可用 ~170px）下
+           「· 20–23 点 宜出」类长变体放不下时整段换到第二行，而不是被省略号吃掉 -->
+      <span class="sl-sub">
+        <span class="sl-seg">7 天 {{ Math.round(item.rank * 100) }}% 高位</span>
+        <span v-if="peak" class="sl-seg">· {{ peak }} 宜出</span>
+        <span v-else class="sl-seg">· 建议出货</span>
+      </span>
     </span>
     <span class="sl-price">
       <i>现价</i>
@@ -93,11 +99,15 @@ const peak = computed(() => {
   font-size: var(--fs-sm); font-weight: 600; color: var(--tx-strong);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
+/* 两段 flex 可换行：放得下并排一行（视觉同旧版单行），放不下整段落到第二行；
+   不再 nowrap+ellipsis——截掉的恰是「何时宜出」这条卡的核心信息 */
 .sl-sub {
+  display: flex; flex-wrap: wrap; column-gap: 4px;
   font-family: var(--mono); font-size: var(--fs-2xs);
   color: var(--danger); opacity: .85;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  overflow: hidden;
 }
+.sl-seg { white-space: nowrap; }
 .sl-price {
   flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: 1px;
 }

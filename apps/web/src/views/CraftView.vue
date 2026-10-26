@@ -66,11 +66,12 @@ const ageMin = computed(() => {
   const t = Date.parse(market.value?.fetchedAt)
   return Number.isFinite(t) ? (nowTs.value - t) / 60000 : null
 })
+/* 输出时长（不带「前」）：模板拼接为「数据已 3 小时未更新」——时间点表述会拼出语病 */
 const ageLabel = computed(() => {
   if (ageMin.value == null) return ''
   return ageMin.value < 60
-    ? `${Math.round(ageMin.value)} 分钟前`
-    : `${Math.round(ageMin.value / 60)} 小时前`
+    ? `${Math.round(ageMin.value)} 分钟`
+    : `${Math.round(ageMin.value / 60)} 小时`
 })
 const versionLabel = computed(() => formatVersionLabel(market.value?.version))
 const STALE_DOT_MIN = 10
@@ -229,7 +230,7 @@ onBeforeUnmount(() => {
     </header>
 
     <p v-if="ageMin !== null && ageMin > STALE_TIP_MIN" class="state-tip stale-tip" role="status">
-      数据已 {{ ageLabel }} 未更新，利润估算可能已变化，可稍后回来查看。
+      数据已 {{ ageLabel }}未更新，利润估算可能已变化，可稍后回来查看。
     </p>
     <p v-if="loadState === 'loading'" class="state-tip" role="status">正在加载特勤处制造数据…</p>
     <div v-else-if="loadState === 'empty'" class="state-card">
@@ -416,7 +417,9 @@ onBeforeUnmount(() => {
                     </div>
                   </div>
                 </td>
-                <td class="mono dimtx num c-today" :title="'今日按现价估算的最高利润（乐观参照，非承诺）'">{{ i.todayMaxProfit != null ? fmt(i.todayMaxProfit) : '—' }}</td>
+                <!-- 同 408 行时利列：缺价行 todayMaxProfit 服务端降级为 0 而非 null，
+                     按 missingPriceCount 门槛显示 —，不与成本/净利润/时利三列口径打架 -->
+                <td class="mono dimtx num c-today" :title="'今日按现价估算的最高利润（乐观参照，非承诺）'">{{ i.todayMaxProfit != null && !i.missingPriceCount ? fmt(i.todayMaxProfit) : '—' }}</td>
               </tr>
               <tr v-if="expanded === i.id" class="expander">
                 <td colspan="8">
@@ -429,7 +432,8 @@ onBeforeUnmount(() => {
                         <span class="mat-name">{{ m.name }}</span>
                         <span class="mat-count">×{{ m.count }}</span>
                         <span class="mat-price mono">{{ m.price == null ? '无价' : `单价 ${fmt(m.price)}` }}</span>
-                        <span class="mat-cost mono">{{ m.cost != null ? fmt(m.cost) : '—' }}</span>
+                        <!-- 无价材料 cost 服务端为 0：与左侧「无价」呼应显示 —，避免把 0 当真实成本 -->
+                        <span class="mat-cost mono">{{ m.price == null ? '—' : fmt(m.cost) }}</span>
                       </li>
                     </ul>
                   </div>
@@ -439,10 +443,12 @@ onBeforeUnmount(() => {
                     − 手续费 {{ fmt(i.fee) }}（{{ Math.round((i.feeRate ?? 0) * 100) }}%）
                     = 净利润 <b :class="{ neg: i.profit < 0 }">{{ fmtProfit(i.profit) }}</b>
                   </p>
-                  <p v-else class="exp-formula dimtx">有 {{ i.missingPriceCount }} 项材料或产出缺价，利润无法估算；产出单价 {{ i.output.price != null ? fmt(i.output.price) : '—' }}。</p>
+                  <!-- 缺价行的产出单价 / 7 日最高利润服务端均为 0 而非 null：0 与 null 同等降级为 —，
+                       避免「利润无法估算」旁边站着假数字 0（完整行不受影响，可照常显示含 0/负值） -->
+                  <p v-else class="exp-formula dimtx">有 {{ i.missingPriceCount }} 项材料或产出缺价，利润无法估算；产出单价 {{ i.output.price > 0 ? fmt(i.output.price) : '—' }}。</p>
                   <p class="exp-note">
                     估算口径：材料按现价全部买入、产出按现价即时挂卖并扣手续费；制造期间价格波动、挂单深度与实际成交均会造成偏差。
-                    7 日最高利润 {{ i.sevenDayMaxProfit != null ? fmt(i.sevenDayMaxProfit) : '—' }} 为乐观参照，不构成承诺。
+                    7 日最高利润 {{ !i.missingPriceCount && i.sevenDayMaxProfit != null ? fmt(i.sevenDayMaxProfit) : '—' }} 为乐观参照，不构成承诺。
                   </p>
                 </td>
               </tr>

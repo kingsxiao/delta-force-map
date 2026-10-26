@@ -1,4 +1,5 @@
 <script setup>
+import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAccount } from '../composables/useAccount'
 
@@ -13,6 +14,34 @@ const tabs = [
   { to: '/craft', label: '特勤处制造' },
   { to: '/ttk', label: 'TTK 排行' },
 ]
+
+// 溢出提示：tabs 横向滚动承接时滚动条被藏掉，「右边还有 tab」必须另有可感信号。
+// 纯 CSS 感知不了 scrollWidth>clientWidth，只能在尺寸/滚动变化时手动挂摘 .can-scroll
+// （驱动右缘渐隐 mask）；滚到最右即摘除，渐隐不会一直压着最后一个 tab。
+const tabsEl = ref(null)
+let tabsRO = null
+function syncTabsOverflow() {
+  const el = tabsEl.value
+  if (!el) return
+  const more = el.scrollWidth - el.clientWidth > 1
+  const atEnd = el.scrollLeft + el.clientWidth >= el.scrollWidth - 1
+  el.classList.toggle('can-scroll', more && !atEnd)
+}
+onMounted(() => {
+  const el = tabsEl.value
+  if (!el) return
+  syncTabsOverflow()
+  tabsRO = new ResizeObserver(syncTabsOverflow)
+  tabsRO.observe(el)
+  // 逐个 tab 也观察：登录后「登录」换成用户名、字体晚加载改宽，都不动容器盒宽，
+  // 只盯容器会漏刷新
+  el.querySelectorAll('.tab').forEach((t) => tabsRO.observe(t))
+  el.addEventListener('scroll', syncTabsOverflow, { passive: true })
+})
+onBeforeUnmount(() => {
+  if (tabsRO) tabsRO.disconnect()
+  if (tabsEl.value) tabsEl.value.removeEventListener('scroll', syncTabsOverflow)
+})
 </script>
 
 <template>
@@ -24,7 +53,7 @@ const tabs = [
         <span class="brand-sub">delta force hub</span>
       </router-link>
 
-      <nav class="tabs" aria-label="站点导航">
+      <nav class="tabs" ref="tabsEl" aria-label="站点导航">
         <router-link
           v-for="t in tabs"
           :key="t.to"
@@ -34,9 +63,18 @@ const tabs = [
         >
           {{ t.label }}
         </router-link>
-        <!-- 账号入口与主 tab 同样式：登录后显示用户名，未登录显示「登录」 -->
-        <router-link to="/account" class="tab" :class="{ active: route.path === '/account' }">
-          {{ user ? user.username : '登录' }}
+        <!-- 账号入口与主 tab 同样式：登录后显示用户名，未登录显示「登录」。
+             用户名规则允许 16 字符（全中文常态比 4 个主 tab 加起来还宽），原样显示
+             会把顶栏需求宽撑出 701~880px 长尾区间：tabs 被迫滚动、账号 tab 只露
+             几个字。入口的可点价值高于完整展示价值 → 按宽截断（见 .acct-name），
+             全名保留在 title（hover 可见）与 DOM 文本（读屏器不受 CSS 截断影响） -->
+        <router-link
+          to="/account"
+          class="tab"
+          :class="{ active: route.path === '/account' }"
+          :title="user ? user.username : undefined"
+        >
+          <span class="acct-name">{{ user ? user.username : '登录' }}</span>
         </router-link>
       </nav>
     </div>
@@ -103,6 +141,33 @@ const tabs = [
   align-self: stretch; /* 拉通顶栏全高：tab 触达区 44 → 56px，且 ::after 指示条
                            （bottom:-1px）贴住顶栏下边线，激活态与分隔线连续成一体 */
   gap: var(--sp-5);
+  /* 溢出承接常开：顶栏未压缩自然需求宽约 664px（brand+gap+tabs），561~663px 一带
+     曾经既放不下又没有滚动，页面被撑出横向滚动条、「登录」被裁出视口；任何宽度
+     统一交给横向滚动承接（min-width:0 让 tabs 可在 brand 旁收缩出滚动空间）。
+     滚动条本身藏掉（复用全站 pills 的 overflow-x 范式），溢出信号由 .can-scroll
+     右缘渐隐承担 */
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding-bottom: 1px; /* 给 ::after 指示条的 -1px 底部溢出留位，防滚动容器裁剪 */
+}
+.tabs::-webkit-scrollbar { display: none; }
+/* 右缘渐隐 = 「右边还有 tab」的唯一可感信号（滚动条已藏）；class 由 JS 按真实
+   溢出挂摘（见 syncTabsOverflow），不溢出/已滚到最右时绝不出现 */
+.tabs.can-scroll {
+  -webkit-mask-image: linear-gradient(90deg, #000 0, #000 calc(100% - 24px), transparent 100%);
+  mask-image: linear-gradient(90deg, #000 0, #000 calc(100% - 24px), transparent 100%);
+}
+/* 账号 tab 文字按宽截断：8em（fs-sm 13px ≈ 104px）= 中文 8 字 / 英文约 14 字符，
+   超出显示省略号。span 作为 .tab（inline-flex）的 flex item 自动块化，ellipsis 生效；
+   侧限 8em 是平衡点：12~16 字长名下 820px 级视口 tabs 不再溢出，727px 级溢出减半，
+   而短名/「登录」不受影响（内容窄于上限时 max-width 不介入） */
+.acct-name {
+  max-width: 8em;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 /* 下划线式 tab：文字 + 底部指示条，与页内胶囊 chips 拉开层级 */
 .tab {
@@ -150,19 +215,14 @@ const tabs = [
 .hero-slot > :deep(*) {
   pointer-events: auto;
 }
-/* 窄屏（--bp-mini 480px）：brand 收缩 + tabs 改横向滚动条（复用全站 pills 的 overflow-x 范式），
-   五个整词 tab 逐字折行竖排的问题随之消除；min-width:0 让 .tabs 可在 brand 旁收缩出滚动空间 */
-@media (max-width: 560px) {
+/* 窄屏（≤700px）：brand 收缩（藏副标、字距减半）+ tabs gap 收窄。门槛不是拍脑袋：
+   未压缩时顶栏自然需求宽约 664px，旧门槛 560px 之上的 561~663px 一带既放不下又
+   无承接（横向滚动承接旧只在 ≤560px 生效）；直接抬过 664px 需求线（+36px 余量），
+   让这一带压缩后全部 tab 无需滚动即可见，彻底消灭「无承接区间」 */
+@media (max-width: 700px) {
   .brand-sub { display: none; }
   .brand-mark { letter-spacing: .12em; }
-  .tabs {
-    gap: var(--sp-4);
-    min-width: 0;
-    overflow-x: auto;
-    scrollbar-width: none;
-    padding-bottom: 1px; /* 给 ::after 指示条的 -1px 底部溢出留位，防滚动容器裁剪 */
-  }
-  .tabs::-webkit-scrollbar { display: none; }
+  .tabs { gap: var(--sp-4); }
 }
 @media (prefers-reduced-motion: reduce) {
   .tab, .tab::after, .brand, .brand-sub { transition: none; }

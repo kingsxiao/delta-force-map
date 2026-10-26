@@ -28,9 +28,11 @@ const router = useRouter()
 const gunsOf = computed(() => {
   const names = GUNS.filter((g) => g.cal === props.calKey).map((g) => g.zh)
   /* 头注长枪名列表截断：CollapseCol 的 .col-note 不换行，9x19（9 把）/7.62×51（9 把）
-     的全量列表在窄屏会被容器 overflow 硬裁成半截字；收成前 4 把 + 总数 */
-  return names.length > 4
-    ? names.slice(0, 4).join(' / ') + ' 等 ' + names.length + ' 把'
+     的全量列表在窄屏会被裁。总数「共 N 把」前置、枪名列表放尾部交给省略号收口——
+     总数恒在裁剪区之前（「前 3 把 + 等 N 把」的尾部总数写法 390px 下仍会截掉，
+     如 .45「大口径手枪弹 · 5 弹 · 维克托 / SMG-45 / 汤姆逊 等 4 把」298 > 286px） */
+  return names.length > 3
+    ? '共 ' + names.length + ' 把 · ' + names.join(' / ')
     : names.join(' / ')
 })
 

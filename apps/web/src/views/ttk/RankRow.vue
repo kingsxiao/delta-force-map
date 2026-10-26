@@ -46,8 +46,10 @@ defineEmits(['toggle'])
 const gunImg = (img) => `${import.meta.env.BASE_URL}guns/${img}.webp`
 const hideImg = (e) => { e.target.style.display = 'none' }
 
-/* 分档徽标配色（与 TierBoard 卡片同色）：T0 金 / T1 主色 / T2 蓝 / T3 灰 */
-const TIER_COLORS = { T0: 'var(--lv5)', T1: 'var(--accent)', T2: 'var(--lv3)', T3: 'var(--lv0)' }
+/* 分档徽标配色（与 TierBoard 卡片同色）：T0 金 / T1 主色 / T2 蓝 / T3 灰。
+   T3 不用 --lv0（#79828b 在 --card 上仅 4.35:1，10px/600 小徽标不够大字豁免线），
+   局部提亮到 --dim（≥6.1:1）；--lv0 语义留给护甲等级 0，全局不动 */
+const TIER_COLORS = { T0: 'var(--lv5)', T1: 'var(--accent)', T2: 'var(--lv3)', T3: 'var(--dim)' }
 const tierColor = computed(() => TIER_COLORS[props.tier] || 'var(--faint)')
 
 const rowClass = computed(() => ({
@@ -109,8 +111,10 @@ const detail = computed(() => {
       </span>
       <span class="rk-gun">
         <span class="n"><em v-if="tier" class="tier-b" :style="{ color: tierColor }">{{ tier }}</em>{{ c.gun.zh }}</span>
+        <!-- 场景标注放行首：副行 nowrap+ellipsis，标注放尾部时多场景叠加（页面主推交互）
+             会被整个裁掉（列表无其他行级场景指示，归属信息全丢），前置保证「N 级头/胸」恒可见 -->
         <span class="s">
-          <em>{{ CAL[c.gun.cal].label }}</em> · {{ c.gun.rpm }} RPM · 面板 {{ c.gun.dmg }}/{{ c.gun.admg }}<template v-if="c.gun.burst"> · 三连发</template><template v-if="showScen"> · <b class="scen">{{ scenLabel(c) }}</b></template>
+          <template v-if="showScen"><b class="scen">{{ scenLabel(c) }}</b> · </template><em>{{ CAL[c.gun.cal].label }}</em> · {{ c.gun.rpm }} RPM · 面板 {{ c.gun.dmg }}/{{ c.gun.admg }}<template v-if="c.gun.burst"> · 三连发</template>
         </span>
       </span>
       <span class="rk-ammo">
@@ -228,10 +232,13 @@ const detail = computed(() => {
 }
 /* 斑马纹（.rk-head 是第 1 个子元素，odd 子位恰好落在第 2/4/6…行） */
 .rk-row-wrap:nth-child(odd) { background: var(--zebra); }
-/* 行栅格（legacy L95，与 TtkView 内 .rk-head 保持同值） */
+/* 行栅格（legacy L95，与 TtkView 内 .rk-head 保持同值）。
+   枪名轨 1.1→1.35fr、TTK 轨 1.2→1fr（弹药轨不变）：1.1fr 时枪名轨在 1440 下仅 ~261px，
+   副行最长「.338 Lapua Magnum · 35 RPM · 面板 100/10」≈302px 与三连发枪的「· 三连发」尾标
+   都被省略号裁掉；从 TTK 轨匀 ~50px 给枪名轨后 ~315px 全显，TTK 条仍有 ~165px 可读 */
 .rk-row {
   display: grid;
-  grid-template-columns: 40px 52px minmax(138px, 1.1fr) minmax(126px, 1fr) 52px 60px 62px minmax(140px, 1.2fr);
+  grid-template-columns: 40px 52px minmax(138px, 1.35fr) minmax(126px, 1fr) 52px 60px 62px minmax(140px, 1fr);
   gap: 12px;
   align-items: center;
   width: 100%;
@@ -728,10 +735,22 @@ const detail = computed(() => {
     text-overflow: clip;
     line-height: 1.5;
   }
+  /* 副行同 .an 口径放开换行：两行式枪名 1fr 轨在 390 视口仅 ~150px，副行内容却要 247-302px
+     （如「.338 Lapua Magnum · 35 RPM · 面板 100/10」），nowrap+ellipsis 会把「面板 x/y」整段裁掉；
+     RPM/面板两列在 ≤820 已随 .hide-m 隐藏，副行是移动端唯一载体，必须全显——
+     宁可副行折到两行（行高约 +17px），不做省略号截断 */
+  .rk-gun .s {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+    line-height: 1.5;
+  }
   .rk-ta {
     grid-column: 4;
     grid-row: 2;
-    width: 112px;
+    /* 不定固定宽（原 112px）：第 4 轨为 auto，按内容收敛到 ~88px（条 30 + 间距 10 + TTK 值 48），
+       省下的宽度全让给第 3 轨的枪名 1fr（固定 112px 时第一行「N 发」只需 ~35px 却撑满 112px，
+       390 视口下枪名轨被压到 126px）。但省到 150px 也装不下 247-302px 的副行，全显靠上面 .s 放开换行 */
   }
   .rk-bar { min-width: 30px; }
   .rk-ttv { min-width: 48px; }

@@ -25,7 +25,7 @@
    「— = 无穿透数据」口径见 src/data/ttk/ammo-market-alias.js）；进入时
    消费 /ammo?q=弹名 深链回填搜索框（TTK 页「现价」入口）。
    ============================================================ */
-import { computed, nextTick, onMounted, onUnmounted, reactive, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useReveal } from '../composables/useReveal'
 import { useStars } from '../composables/useStars'
@@ -146,7 +146,10 @@ const tblAtEnd = ref(false)
 function syncTblFade() {
   const el = tblRef.value
   if (!el) return
-  tblCanScroll.value = el.scrollWidth > el.clientWidth + 2
+  /* 空态（无符合筛选的行）时表格只剩表头 nowrap 撑出的最小宽溢出，渐隐
+     只会罩淡空态行右侧的「清除全部筛选」按钮——没有数据行就没有可横滑的内容 */
+  const noRows = !filtered.value.length
+  tblCanScroll.value = !noRows && el.scrollWidth > el.clientWidth + 2
   tblAtEnd.value = el.scrollLeft + el.clientWidth >= el.scrollWidth - 2
 }
 
@@ -510,6 +513,10 @@ const filtered = computed(() => {
   return [...list].sort((a, b) => pin(a, b) || (hasDir ? m * base(a, b) : base(a, b)))
 })
 
+/* 筛选/排序/自选变化也重算横滑渐隐：行数增减会改变 scrollWidth，不重算的话
+   有行→空态的切换会残留 can-scroll（渐隐罩住空态行的「清除全部筛选」按钮） */
+watch(filtered, () => nextTick(syncTblFade))
+
 /* ---------- 行展开 ---------- */
 const expanded = ref(null)
 const toggle = (name) => {
@@ -765,7 +772,7 @@ onUnmounted(() => {
             <option v-for="i in items" :key="i.name" :value="i.name" />
           </datalist>
           <input v-model.number="posForm.qty" class="pos-in" type="number" min="1" placeholder="数量" aria-label="数量" required>
-          <input v-model.number="posForm.cost" class="pos-in" type="number" min="1" step="any" placeholder="成本/发（空=现价）" aria-label="成本单价，留空按现价记入">
+          <input v-model.number="posForm.cost" class="pos-in pos-add-cost" type="number" min="1" step="any" placeholder="成本/发（空=现价）" aria-label="成本单价，留空按现价记入">
           <button class="pos-add-btn" type="submit">{{ positions.some((p) => p.name === posForm.name) ? '更新' : '记入囤货' }}</button>
           <p v-if="posFormErr" class="pos-err" role="alert">{{ posFormErr }}</p>
         </form>
@@ -1188,6 +1195,9 @@ onUnmounted(() => {
    锁了伤无障碍）：移动端把本页输入临时升到 16px，桌面视觉不变 */
 @media (max-width: 680px) {
   .search, .pos-in { font-size: var(--fs-lg); }
+  /* 添加表单的成本框单独放宽：16px 防缩放字号下 placeholder「成本/发（空=现价）」
+     需 ~147px，96px 固定宽会截成「成本/发（空=现…」，丢掉「留空按现价记入」提示 */
+  .pos-add-cost { width: 168px; }
 }
 
 .pos-add { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: var(--sp-3); }
@@ -1380,6 +1390,13 @@ onUnmounted(() => {
   .c-range { display: none; }
   /* 穿透列与 7 天区间列同法降级：移动端窄屏隐藏（穿透徽标仍可见于 TTK 页与详情） */
   .c-pen { display: none; }
+  /* 弹种列整格不折行：容器窄于表格时 auto 布局按「最长不可断单词」压缩首列，
+     弹名几乎全被拆成两三行（行高 83/62px 参差）；表格本就横向滚动，让首列
+     按完整内容定宽（星标+图标+弹名+箭头一行放下），借用滚动即可 */
+  .row td:first-child { white-space: nowrap; }
+  /* 同步收窄走势图与分位条补偿列宽，缩短横滑距离（比例不变仅等比缩小） */
+  .tbl .spark { width: 100px; height: 23px; }
+  .rank-bar { width: 72px; }
 }
 
 /* 信号徽章：彩色文字 + 同色系淡底（color-mix 派生，rgba 真值兜底，写法同 ttk PenMatrix），
@@ -1444,6 +1461,17 @@ td.profit { color: var(--ok); font-weight: 600; }
   color: var(--dim);
 }
 .eta-note b { color: var(--accent); }
+
+/* 移动端展开面板：td 跨满表格内容宽（横滑容器下 >600px），绝对定位在宽 td
+   右缘的按钮带与自适应到 600px 宽的图表右半都会落到视口外，点开行首屏看不到
+   「收起」与现价标注。图与脚注按视口宽封顶渲染（PriceChart 的 ResizeObserver
+   随之收窄 viewBox 基准），按钮带改流式置顶、不再钉死在 td 右上角。
+   本块须置于 .expander td / .exp-actions 基础规则之后——同特异性靠源序覆盖 */
+@media (max-width: 680px) {
+  .expander td { padding-top: 12px; }
+  .exp-actions { position: static; margin: 0 0 10px; max-width: calc(100vw - 56px); }
+  .expander .pchart, .expander .exp-note { max-width: calc(100vw - 56px); }
+}
 
 .method {
   background: var(--card); border: 1px solid var(--line); border-radius: var(--radius-lg);
