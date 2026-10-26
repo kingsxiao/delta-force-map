@@ -812,15 +812,16 @@ onUnmounted(() => {
         </div>
       </section>
 
-      <!-- 全量表（控制条吸顶，表容器联动粘其下方，表头 sticky） -->
+      <!-- 全量表（控制条吸顶，表容器内滚 + 表头 sticky） -->
       <section ref="allSecRef" class="block reveal">
         <div class="block-h">
           <span class="bht">ALL AMMO</span><span class="bhline"></span>
           <span class="bhc">{{ filtered.length }} / {{ items.length }} 种</span>
         </div>
 
-        <!-- .tbl-zone：sticky 包含块贯穿到页尾——表容器在其中的滑动余量 = METHOD 区高度，
-             页滚时表格锁定在吸顶条正下方，直到 METHOD 滚入才自然释放 -->
+        <!-- .tbl-zone：只包控制条 + 表容器（控制条吸顶的包含块）。
+             曾把 METHOD 区留在里面给表容器 sticky 当「滑动余量」——页滚时后续
+             内容会从吸顶表格背后穿过（行底半透明，文字叠印），已废弃该结构 -->
         <div class="tbl-zone">
           <div ref="ctlRef" class="sticky-bar ctl-sticky">
             <div class="ctl-bar">
@@ -987,21 +988,21 @@ onUnmounted(() => {
               </tbody>
             </table>
           </div>
-
-          <!-- 方法与免责（留在 .tbl-zone 内：为表容器 sticky 提供包含块余量） -->
-          <section class="block reveal">
-            <div class="block-h"><span class="bht">METHOD</span><span class="bhline"></span></div>
-            <ul class="method">
-              <li><b>买入条件</b>（五重门槛，缺一不报）：现价处近 7 天曲线下 1/5 分位；已止跌企稳（高于 7 天低点 ≥3%、近 12 小时无新低、近 48 小时趋势斜率 ≥ 0）；按近 3 天 75 分位挂卖、扣除交易税后收益率 ≥ 10%；曲线 ≥ 2 天。随信号给止损位（破 7 天低点 3% 或单笔 −5% 风险上限）。</li>
-              <li><b>卖出条件</b>：现价处 ≥ 80% 分位且动能转弱（48 小时斜率不陡增）；强势上冲不催卖。</li>
-              <li><b>预计卖出</b>：统计近 7 天小时曲线——「从当前价位档涨到目标挂卖价」的完整上涨段给出中位/最快历时；同小时均价聚合给出日内高位时段。历史统计不代表未来。</li>
-              <li><b>能赚多少</b>：每发利润 = 目标挂卖价 × (1−税率) − 当前买入价；税率按税后价实测反推（约 15%，逐弹计算）。</li>
-              <li><b>穿透</b>：来自 TTK 弹药数据（穿透等级决定对各级护甲的伤害通过率，判定矩阵见 TTK 页）。「—」= 无穿透数据（弓弩用弹 / 国服与通用命名差异 / 一名多弹无法确定对应），宁缺勿错。</li>
-              <li><b>数据</b>：{{ dataLine }}</li>
-              <li><b>提醒</b>：交易行价格受版本、活动与大盘供需影响，历史分位不代表未来走势；利润测算未计挂单时间成本。</li>
-            </ul>
-          </section>
         </div>
+
+        <!-- 方法与免责（.tbl-zone 之外：常规文档流，不会再钻进吸顶表格背后） -->
+        <section class="block reveal">
+          <div class="block-h"><span class="bht">METHOD</span><span class="bhline"></span></div>
+          <ul class="method">
+            <li><b>买入条件</b>（五重门槛，缺一不报）：现价处近 7 天曲线下 1/5 分位；已止跌企稳（高于 7 天低点 ≥3%、近 12 小时无新低、近 48 小时趋势斜率 ≥ 0）；按近 3 天 75 分位挂卖、扣除交易税后收益率 ≥ 10%；曲线 ≥ 2 天。随信号给止损位（破 7 天低点 3% 或单笔 −5% 风险上限）。</li>
+            <li><b>卖出条件</b>：现价处 ≥ 80% 分位且动能转弱（48 小时斜率不陡增）；强势上冲不催卖。</li>
+            <li><b>预计卖出</b>：统计近 7 天小时曲线——「从当前价位档涨到目标挂卖价」的完整上涨段给出中位/最快历时；同小时均价聚合给出日内高位时段。历史统计不代表未来。</li>
+            <li><b>能赚多少</b>：每发利润 = 目标挂卖价 × (1−税率) − 当前买入价；税率按税后价实测反推（约 15%，逐弹计算）。</li>
+            <li><b>穿透</b>：来自 TTK 弹药数据（穿透等级决定对各级护甲的伤害通过率，判定矩阵见 TTK 页）。「—」= 无穿透数据（弓弩用弹 / 国服与通用命名差异 / 一名多弹无法确定对应），宁缺勿错。</li>
+            <li><b>数据</b>：{{ dataLine }}</li>
+            <li><b>提醒</b>：交易行价格受版本、活动与大盘供需影响，历史分位不代表未来走势；利润测算未计挂单时间成本。</li>
+          </ul>
+        </section>
       </section>
 
       <!-- 全市场日内节律（数据驱动的「现在几点该买该卖」，插在倒卖手册之上：
@@ -1233,7 +1234,8 @@ onUnmounted(() => {
 .sell-more:hover,
 .sell-more:active { color: var(--tx); border-color: var(--line-hover); }
 
-/* ---------- 吸顶控制条（复用 base.css .sticky-bar，高度经 RO 写入 --ctl-h 联动表容器） ---------- */
+/* ---------- 吸顶控制条（复用 base.css .sticky-bar；高度经 RO 写入 --ctl-h，
+   供 .tbl-scroll 的 max-height 按视口净高封顶） ---------- */
 .ctl-sticky { padding: var(--sp-2) 0; margin-bottom: var(--sp-4); }
 .ctl-bar {
   display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-4);
@@ -1285,11 +1287,10 @@ onUnmounted(() => {
 .search-clear:hover,
 .search-clear:active { color: var(--tx); background: var(--line); }
 
-/* ---------- 全表：容器粘在吸顶条正下方（.tbl-zone 为包含块并贯穿到 METHOD 之后，
-   页滚时表格锁定，直到 METHOD 滚入视口才随包含块自然释放） ---------- */
+/* ---------- 全表：内滚容器（max-height + overflow + 表头 sticky）。
+   不做页级 sticky：吸顶的表容器会让后续区块从其背后穿过（行底半透明 →
+   文字叠印），常规文档流 + 控制条吸顶即够用（同 radar / craft 页口径） ---------- */
 .tbl-scroll {
-  position: sticky;
-  top: var(--ctl-h, 72px);
   max-height: max(50vh, calc(100vh - var(--ctl-h, 72px) - 96px));
   overflow: auto;
   border: 1px solid var(--line);
@@ -1313,8 +1314,8 @@ onUnmounted(() => {
 }
 
 /* 移动端：控制条全量换行高达 280px+，吸顶会占视口 1/3——取消吸顶还原为常规块
-   （去掉 sticky-bar 的实底/边框/阴影），表容器自身吸顶 top:0；
-   表头 sticky 在内滚容器里不受影响，浏览主路径不变 */
+   （去掉 sticky-bar 的实底/边框/阴影）；表容器按视口净高封顶，表头 sticky
+   在内滚容器里不受影响，浏览主路径不变 */
 @media (max-width: 680px) {
   .ctl-sticky {
     position: static;
@@ -1324,7 +1325,6 @@ onUnmounted(() => {
     padding: 0;
   }
   .tbl-scroll {
-    top: 0;
     max-height: max(50vh, calc(100vh - 96px));
   }
 }
