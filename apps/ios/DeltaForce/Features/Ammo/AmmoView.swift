@@ -35,6 +35,50 @@ struct AmmoView: View {
     /// 筛选/排序切换后滚回榜首的锚点 id（§4.1-4，对齐 TTK topAnchor 方案）
     private static let topAnchor = "ammo-top"
 
+    /// 买入信号卡数据源（卖出简表同源过滤）：从 body 局部 let 提为计算属性，
+    /// 供 Section 渲染与 anchorHost 宿主判定共用同一份数据，避免两处口径漂移
+    private var buys: [MarketItem] { app.market.items.filter { $0.signal == .buy } }
+
+    /// 卖出信号（按分位降序，越贴近 7 天高位越靠前——与网页端「卖出高位简表」同口径）
+    private var sells: [MarketItem] {
+        app.market.items
+            .filter { $0.signal == .sell }
+            .sorted { ($0.rank ?? 0) > ($1.rank ?? 0) }
+    }
+
+    /// 数据源错误横幅文案：有快照的后台刷新失败才在此提示，正常态 nil
+    /// （首拉失败由全表区 RetryErrorRow 承担，见 body 内注释）
+    private var bannerMessage: String? {
+        app.market.snapshot != nil ? app.market.lastError : nil
+    }
+
+    /// 回顶锚点宿主：锚点行必须常驻且永远在列表最顶部（§4.1-4 scrollTo 落点 = 真顶）。
+    /// banner 态随 banner Section；正常态随「首个真实渲染的 Section」首行
+    /// （囤货 > 买入信号 > 卖出信号 > 全表）——省去原先独占一节的空 banner 行
+    private enum AnchorHost { case banner, positions, buys, sells, table }
+
+    private var anchorHost: AnchorHost {
+        if bannerMessage != nil { return .banner }
+        if !app.positions.positions.isEmpty { return .positions }
+        if filter == .all, query.isEmpty {
+            if !buys.isEmpty { return .buys }
+            if !sells.isEmpty { return .sells }
+        }
+        return .table
+    }
+
+    /// 筛选回顶锚点：零高度隐形行（同一时刻仅 anchorHost 命中的一处渲染，id 不冲突），
+    /// 保证 scrollTo(ammo-top) 永远有目标
+    private var topAnchorRow: some View {
+        Color.clear
+            .frame(height: 0)
+            .accessibilityHidden(true)
+            .listRowInsets(EdgeInsets())
+            .listRowSeparator(.hidden)
+            .listRowBackground(Color.clear)
+            .id(Self.topAnchor)
+    }
+
     /// 信号卡入口（§4.1-7）：可点卡片按压态——lift 按压面由本样式承担、lineHover 描边由
     /// SignalCard 的 card(hoverable:) 常驻给出；拆独立函数避免链式修饰符撑爆 ForEach 闭包的 type-checker
     private func signalCardLink(_ item: MarketItem) -> some View {
@@ -56,25 +100,24 @@ struct AmmoView: View {
         NavigationStack(path: $path) {
             ScrollViewReader { proxy in
                 List {
-                    Section {
-                        // 数据源错误横幅（有快照的后台刷新失败提示；正常态整行退场）。
-                        // 无快照的首拉失败由下方全表区的 RetryErrorRow 承担（带重试出口），不同屏双份
-                        FeedErrorBanner(message: app.market.snapshot != nil ? app.market.lastError : nil)
-                        // 筛选回顶锚点：零高度隐形行，常驻保证 scrollTo(ammo-top) 永远有目标
-                        Color.clear
-                            .frame(height: 0)
-                            .accessibilityHidden(true)
-                            .listRowInsets(EdgeInsets())
-                            .listRowSeparator(.hidden)
-                            .listRowBackground(Color.clear)
-                            .id(Self.topAnchor)
+                    // 数据源错误横幅（有快照的后台刷新失败提示）。无快照的首拉失败由下方
+                    // 全表区的 RetryErrorRow 承担（带重试出口），不同屏双份。
+                    // 正常态整个 Section 条件退场：原先 banner（if let 空渲染）+ 零高锚点独占
+                    // 一节，无内容仍占 List 行壳 + 节距，实测搜索栏下多出 ~92pt 死空间
+                    // （其余三 Tab 仅 ~13pt——它们把 banner 嵌在有内容的行内）
+                    if bannerMessage != nil {
+                        Section {
+                            FeedErrorBanner(message: bannerMessage)
+                            if anchorHost == .banner { topAnchorRow }
+                        }
+                        .listRowBackground(Theme.card)
                     }
-                    .listRowBackground(Theme.card)
 
                     // 我的囤货（纯本地台账，有持仓才显示）：页头总览之下、买入信号之上，
                     // 不新增筛选档位；浮盈 / 到价状态随行情快照实时 join，左滑移出
                     if !app.positions.positions.isEmpty {
                         Section("我的囤货 · \(app.positions.positions.count)") {
+                            if anchorHost == .positions { topAnchorRow }
                             ForEach(app.positions.positions) { pos in
                                 positionRow(pos)
                                     .swipeActions(edge: .trailing) {
@@ -91,9 +134,9 @@ struct AmmoView: View {
                     }
 
                     if filter == .all, query.isEmpty {
-                        let buys = app.market.items.filter { $0.signal == .buy }
                         if !buys.isEmpty {
                             Section("买入信号 · \(buys.count)") {
+                                if anchorHost == .buys { topAnchorRow }
                                 ScrollView(.horizontal, showsIndicators: false) {
                                     HStack(spacing: 10) {
                                         ForEach(buys) { item in
@@ -114,11 +157,9 @@ struct AmmoView: View {
 
                         // 卖出信号（与网页端「卖出高位简表」对齐）：按分位降序（越贴近 7 天
                         // 高位越靠前）；买入区块之下、全表之上，同款横滑卡与出血口径
-                        let sells = app.market.items
-                            .filter { $0.signal == .sell }
-                            .sorted { ($0.rank ?? 0) > ($1.rank ?? 0) }
                         if !sells.isEmpty {
                             Section("卖出信号 · \(sells.count)") {
+                                if anchorHost == .sells { topAnchorRow }
                                 ScrollView(.horizontal, showsIndicators: false) {
                                     HStack(spacing: 10) {
                                         ForEach(sells) { item in
@@ -135,6 +176,7 @@ struct AmmoView: View {
                     }
 
                     Section("\(filter.rawValue) · \(rows.count) 种") {
+                        if anchorHost == .table { topAnchorRow }
                         if rows.isEmpty {
                             if app.market.snapshot == nil, let err = app.market.lastError {
                                 // 首拉失败：换共享 RetryErrorRow（§4.1-6 / C10）——busy 时禁用重试 + 内联进度，消除空转
@@ -260,7 +302,33 @@ struct AmmoView: View {
                     }
                 }
                 .sheet(isPresented: $showPlaybook) { PlaybookView() }
+                // UI 巡检钩子（同 RootView -startTab 模式，生产无此参数）：-openDetailFirst
+                // 等首个快照落地后 push 首行详情、-openPlaybook 直达倒卖手册、
+                // -wfScrollEnd 滚到列表末尾补拍折叠区
+                .task { await shotHook(proxy) }
             }
+        }
+    }
+
+    /// UI 巡检钩子：等首个快照落地（最多 10s，网络快照非即时）再执行，避免深链
+    /// 落在空列表上；详情 push 与行内 NavigationLink 同轨（path.append）
+    @MainActor
+    private func shotHook(_ proxy: ScrollViewProxy) async {
+        let args = ProcessInfo.processInfo.arguments
+        guard args.contains("-openDetailFirst") || args.contains("-openPlaybook") || args.contains("-wfScrollEnd") else { return }
+        for _ in 0..<100 {
+            if !app.market.items.isEmpty { break }
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+        if args.contains("-openDetailFirst"), let first = app.market.items.first {
+            path.append(first)
+        }
+        if args.contains("-openPlaybook") { showPlaybook = true }
+        if args.contains("-wfScrollEnd") {
+            // List 懒加载行首次布局完成前 scrollTo 会落空，数据就绪后再等一拍才滚；
+            // 目标取最后一行自己的 id——滚 topAnchor 只能把首 Section 对进首屏，到不了列表末尾
+            try? await Task.sleep(for: .milliseconds(800))
+            if let last = rows.last { proxy.scrollTo(last.id, anchor: .bottom) }
         }
     }
 
@@ -341,6 +409,30 @@ struct AmmoRow: View {
     var pen: Int? = nil
     var starred = false
 
+    /// 等级 / 穿透 / 信号三枚徽章（全部 fixedSize，恒保理想宽）
+    @ViewBuilder
+    private var badgeTray: some View {
+        GradeBadge(grade: item.grade)
+        if let pen { PenBadge(pen: pen) }
+        SignalChip(signal: item.signal, anomaly: item.isAnomaly)
+    }
+
+    /// 徽章行第 4 元素：有分位读「分位 N%」（含中文默认 design + 等宽数字），无分位给原因说明
+    @ViewBuilder
+    private var rankOrReason: some View {
+        if let rank = item.rank {
+            Text("分位 \(Fmt.rankPercent(rank))")
+                .font(Theme.font(.xs)).monospacedDigit()
+                .lineLimit(1)
+                .foregroundStyle(Theme.faint)
+        } else {
+            Text(item.reason ?? "数据不足")
+                .font(Theme.font(.xs))
+                .lineLimit(1)
+                .foregroundStyle(Theme.faint)
+        }
+    }
+
     var body: some View {
         HStack(spacing: 10) {
             ItemThumb(pic: item.pic, size: 40)
@@ -350,21 +442,17 @@ struct AmmoRow: View {
                     Text(item.name).font(Theme.font(.md, weight: .semibold)).foregroundStyle(Theme.txStrong).lineLimit(1)
                 }
                 .layoutPriority(1) // 名称行优先保住单行高度，宽度不足时由本行截断承担
-                HStack(spacing: 6) {
-                    GradeBadge(grade: item.grade)
-                    if let pen { PenBadge(pen: pen) }
-                    SignalChip(signal: item.signal, anomaly: item.isAnomaly)
-                    if let rank = item.rank {
-                        // 含中文（「分位」）：默认 design + 等宽数字
-                        Text("分位 \(Fmt.rankPercent(rank))")
-                            .font(Theme.font(.xs)).monospacedDigit()
-                            .lineLimit(1) // 徽章行统一单行：此文本先于徽标截断
-                            .foregroundStyle(Theme.faint)
-                    } else {
-                        Text(item.reason ?? "数据不足")
-                            .font(Theme.font(.xs))
-                            .lineLimit(1) // 同上：徽章行统一单行
-                            .foregroundStyle(Theme.faint)
+                // 徽章行：三枚 fixedSize 徽章恒保理想宽（§7-3），第 4 元素（分位 / 原因）
+                // 放不下时整体省略而非压成墨团——原实现它是行内唯一可压缩元素，实测被挤成
+                // 「分位」墨团 + 数字竖痕（全部行不可读）。候选内的文本也 fixedSize：
+                // 可截断的文本会让 ViewThatFits 的适配判定永远命中候选 1，省略退化失效
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 6) {
+                        badgeTray
+                        rankOrReason.fixedSize()
+                    }
+                    HStack(spacing: 6) {
+                        badgeTray
                     }
                 }
             }
@@ -373,14 +461,21 @@ struct AmmoRow: View {
             // 现价降次级（sub + tx）在下；无收益率数据（曲线不足）时现价即本行主数字、占 lead（§1.3 档位跟层级走）
             VStack(alignment: .trailing, spacing: Theme.Space.xs) {
                 if let p = item.profitPerRound, item.rank != nil {
-                    Mono("\(p >= 0 ? "+" : "")\(Fmt.price(p)) \(Fmt.pct(item.profitPct))", step: .lead, color: p > 0 ? Theme.ok : Theme.faint)
-                    Mono(Fmt.price(item.current), step: .sub, color: Theme.tx)
+                    // minScale 直接传给每枚 Mono（T3 通道）：容器级 .minimumScaleFactor 不会
+                    // 传播到子 Text（实测截断成「-851 -…」），长串必须在 Text 自身随宽缩放
+                    Mono("\(p >= 0 ? "+" : "")\(Fmt.price(p)) \(Fmt.pct(item.profitPct))", step: .lead, color: p > 0 ? Theme.ok : Theme.faint, minScale: 0.75)
+                    Mono(Fmt.price(item.current), step: .sub, color: Theme.tx, minScale: 0.75)
                 } else {
-                    Mono(Fmt.price(item.current), step: .lead)
+                    Mono(Fmt.price(item.current), step: .lead, minScale: 0.75)
                 }
             }
-            .lineLimit(1)
-            .minimumScaleFactor(0.75) // 徽标保理想宽后溢压移到价格列：随行内可用宽缩一档，不折行（同 StatCell 兜底）
+            .lineLimit(1) // 徽标保理想宽后溢压移到价格列：缩放由各 Mono 的 minScale(0.75) 承担（T3）
+            // 右列提优先权（§1.1 主数字立权）：HStack 空间谈判对「可截断名称+fixedSize 徽章」的
+            // 左列天然让步过度——实测双源异常等宽徽章行右列被压到 0.75 缩放后仍截断（「-292 -…」），
+            // 左列徽章行右侧却仍有余量。提权后右列先于左列取足缩放下限以上的宽度，长串整体缩放到
+            // 放得下为止（不再截断），名称行承担截断（§7-3）；徽章超宽时绘制进列间空白，
+            // 与数字不同层（徽章在下、主数字在上）且现价左缘远于徽章右缘，不重叠
+            .layoutPriority(1)
             Sparkline(curve: item.curve, color: Theme.signal(item.signal))
                 .frame(width: 56, height: 26)
         }
@@ -419,7 +514,11 @@ struct SignalCard: View {
         VStack(alignment: .leading, spacing: Theme.Space.sm) {
             HStack(spacing: Theme.Space.sm) {
                 ItemThumb(pic: item.pic, size: 30)
-                Text(item.name).font(Theme.font(.sm, weight: .bold)).foregroundStyle(Theme.txStrong).lineLimit(1)
+                // 弹名允许折两行：卡宽 250 固定，缩略图 + fixedSize 等级徽章挤压后单行可用
+                // 仅 ~139pt，长弹名（12.7x55mm PD12双头弹 / .357 Magnum 9号霰射"鼠弹"）
+                // 单行截断过半失去识别信息（终验实测「12 Ga…」「12.7x5…」）；两行全名可读，
+                // 头行增高 ~2pt（两行 footnote ≈ 32pt ≈ 缩略图 30pt），横滑轨齐高几乎不受影响
+                Text(item.name).font(Theme.font(.sm, weight: .bold)).foregroundStyle(Theme.txStrong).lineLimit(2)
                 Spacer()
                 GradeBadge(grade: item.grade)
             }
@@ -484,7 +583,8 @@ struct SellSignalCard: View {
         VStack(alignment: .leading, spacing: Theme.Space.sm) {
             HStack(spacing: Theme.Space.sm) {
                 ItemThumb(pic: item.pic, size: 30)
-                Text(item.name).font(Theme.font(.sm, weight: .bold)).foregroundStyle(Theme.txStrong).lineLimit(1)
+                // 与买入卡同款：折两行保全名（卖出 19 张同款卡，长弹名单行截断过半失去识别）
+                Text(item.name).font(Theme.font(.sm, weight: .bold)).foregroundStyle(Theme.txStrong).lineLimit(2)
                 Spacer()
                 GradeBadge(grade: item.grade)
             }

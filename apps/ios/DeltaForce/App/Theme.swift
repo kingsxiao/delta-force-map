@@ -228,7 +228,21 @@ extension View {
 
     /// 列表统一底色（去掉系统分组背景）
     func themedList() -> some View {
-        self.scrollContentBackground(.hidden).background(Theme.bg)
+        self
+            .scrollContentBackground(.hidden)
+            // 悬浮 Tab 栏让位（DESIGN.md §6.2 悬浮玻璃形态）：iOS 26 悬浮胶囊不产生
+            // 安全区 inset，列表滚到底时末段（「口径」页脚等）会停在玻璃层之下被压住。
+            // 统一垫高底部安全区，让末段完整悬于胶囊（含选中凸钮，顶距屏底实测 ≈121pt）
+            // 之上再停。取值 186+24：121pt 凸钮 + 24pt(Space.xl) 留白 + ≈65pt 补偿——
+            // 四页口径 footer 长短不一且长列表（TTK 200+ 行）scrollTo 落点有 ±10pt 级
+            // 懒布局噪声，按最差页实测校准保证全部让位。选 safeAreaPadding 而非
+            // contentMargins：实测（600pt 探针对拍）scrollTo 落点不包含末尾 contentMargin，
+            // 巡检钩子 -wfScrollEnd 拍不出让位效果；safeAreaPadding 参与滚动落点计算且
+            // 落点随 padding 1:1 移动（260pt 探针复验），滚动中内容仍可滚入胶囊后方
+            // （穿透保留）。本样式全部调用点都在 TabView 层级内（5 个 Tab 根列表 +
+            // push 详情页），sheet 内列表不走本样式、不受影响。
+            .safeAreaPadding(.bottom, 186 + Theme.Space.xl)
+            .background(Theme.bg)
     }
 }
 

@@ -81,13 +81,16 @@ struct CraftDetailView: View {
                 Section("利润拆解") {
                     StatQuadRow(
                         StatCell(label: "产出收入", value: Fmt.price(it.revenue), color: Theme.txStrong),
-                        StatCell(label: "手续费", value: feeText, color: Theme.dim),
+                        // 费率并入标签而非拼进数值：全角括号后缀曾把本格值撑宽 ~20pt，
+                        // 与「材料成本」的列距被挤到其余两列的 1/3（§1.3 同层级同档，四格值宽须同量级）
+                    StatCell(label: feeLabel, value: Fmt.price(it.fee), color: Theme.dim),
                         StatCell(label: "材料成本", value: Fmt.price(it.cost), color: Theme.dim),
                         StatCell(label: "净利润", value: Fmt.price(it.profit), color: profitColor, emphasis: .hero)
                     )
                     .padding(.vertical, Theme.Space.xs)
-                    // 公式行：与网页端展开区同文案；正文含实义金额，走等宽数字（同 MethodNote 口径）
-                    Text("利润 = 收入 \(Fmt.price(it.revenue)) − 手续费 \(Fmt.price(it.fee)) − 材料 \(Fmt.price(it.cost))；收入 = 产出单价 \(Fmt.price(it.output.price)) × \(it.output.count)。")
+                    // 公式行：与网页端展开区同文案；正文含实义金额，走等宽数字（同 MethodNote 口径）。
+                    // 「；」后强制换行：自然折行时「＝」可能恰好落在第二行行首（SwiftUI 不做中文避头尾），分段后行首恒为「收入」
+                    Text("利润 = 收入 \(Fmt.price(it.revenue)) − 手续费 \(Fmt.price(it.fee)) − 材料 \(Fmt.price(it.cost))；\n收入 = 产出单价 \(Fmt.price(it.output.price)) × \(it.output.count)。")
                         .font(Theme.font(.xs))
                         .monospacedDigit()
                         .foregroundStyle(Theme.faint)
@@ -151,11 +154,10 @@ struct CraftDetailView: View {
         .sensoryFeedback(.error, trigger: refreshErrTick)
     }
 
-    private var feeText: String {
-        guard let fee = resolved.fee else { return "—" }
-        var s = Fmt.price(fee)
-        if let rate = resolved.feeRate { s += "（\(Int((rate * 100).rounded()))%）" }
-        return s
+    /// 手续费格标签：费率以「手续费·13%」形式放进 micro 标签（值列只留金额；nil fee 由 Fmt.price 兜底「—」）
+    private var feeLabel: String {
+        guard let rate = resolved.feeRate else { return "手续费" }
+        return "手续费·\(Int((rate * 100).rounded()))%"
     }
     private var roiText: String {
         guard resolved.hasEstimate, let roi = resolved.roi else { return "—" }

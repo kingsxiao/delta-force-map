@@ -70,21 +70,26 @@ struct PlaybookView: View {
                     Text("倒卖 = 低价囤消耗品 + 高位分批抛售。信号解决「哪种弹、什么价」，下面是验证过的「什么时间、怎么操作」——按 时段 → 买 → 卖 → 窗口 串成一条完整动线。")
                         .font(Theme.font(.sm)).foregroundStyle(Theme.dim)
 
-                    // 自适应列：iPhone 2 列，iPad / 横屏按可用宽度自动多列
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 160), spacing: 10)], spacing: 10) {
-                        ForEach(windows) { w in
-                            VStack(alignment: .leading, spacing: Theme.Space.xs) {
-                                HStack {
-                                    // 纯 ASCII 时间窗（02:00–05:00）：mono sub 档
-                                    Mono(w.time, step: .sub)
-                                    Spacer()
-                                    // 时间窗标签换共享 StatusChip（§3 C2 复用点）：替代本页 h7/v1 + 胶囊描边的
-                                    // 第四种徽标配方（§1.4 四族合一），buy=ok / sell=danger 语义不变
-                                    StatusChip(text: w.tag, tint: w.buy ? Theme.ok : Theme.danger)
+                    // 共识时段眉题：与顶部 MarketClock 卡读出行的「实测」前缀构成口径对照
+                    // （本区是静态社区共识、上面是全市场曲线实测；样式对齐 MethodNote「口径」眉题心智）
+                    VStack(alignment: .leading, spacing: Theme.Space.xs) {
+                        Text("共识时段").font(Theme.font(.xs, weight: .bold)).foregroundStyle(Theme.accent)
+                        // 自适应列：iPhone 2 列，iPad / 横屏按可用宽度自动多列
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 160), spacing: 10)], spacing: 10) {
+                            ForEach(windows) { w in
+                                VStack(alignment: .leading, spacing: Theme.Space.xs) {
+                                    HStack {
+                                        // 纯 ASCII 时间窗（02:00–05:00）：mono sub 档
+                                        Mono(w.time, step: .sub)
+                                        Spacer()
+                                        // 时间窗标签换共享 StatusChip（§3 C2 复用点）：替代本页 h7/v1 + 胶囊描边的
+                                        // 第四种徽标配方（§1.4 四族合一），buy=ok / sell=danger 语义不变
+                                        StatusChip(text: w.tag, tint: w.buy ? Theme.ok : Theme.danger)
+                                    }
+                                    Text(w.note).font(Theme.font(.xs)).foregroundStyle(Theme.faint)
                                 }
-                                Text(w.note).font(Theme.font(.xs)).foregroundStyle(Theme.faint)
+                                .card()
                             }
-                            .card()
                         }
                     }
 
@@ -172,10 +177,12 @@ private struct MarketClockCard: View {
         return clock.levels.firstIndex(where: { $0 == s.low })
     }
 
-    /// 读数行文案（ViewBuilder 内不能写 `line +=` 这类 Void 语句，字符串拼接收拢到这里）
+    /// 读数行文案（ViewBuilder 内不能写 `line +=` 这类 Void 语句，字符串拼接收拢到这里）。
+    /// 「实测」前缀：与下方四时段卡的「共识时段」眉题构成口径对照——同屏两种时间表述
+    /// （实测峰值子窗口 vs 静态共识时段）若无标注，首读无法分辨哪个才准（终验 low 项）
     private var readout: String? {
         guard let peak = SellEtaEngine.fmtPeak(start: clock.peakStart, end: clock.peakEnd) else { return nil }
-        var line = "高位窗口 \(peak)"
+        var line = "实测高位窗口 \(peak)"
         if let lift = clock.liftPct { line += "（较最低小时 \(Fmt.pct(lift))）" }
         if let lh = lowHour { line += " · 最低小时 \(String(format: "%02d:00", lh)) 前后" }
         return line
@@ -256,12 +263,17 @@ private struct MarketClockBand: View {
             .frame(height: 44)
             .overlay(RoundedRectangle(cornerRadius: 1.5, style: .continuous)
                 .stroke(now ? Theme.accentDim : .clear, lineWidth: 1))
-            // 小时标注：只标 0/6/12/18（纯 ASCII 时码走 mono）
+            // 小时标注：只标 0/6/12/18（纯 ASCII 时码走 mono）。
+            // fixedSize 按理想尺寸绘制：24 格均分后单格仅 ~13pt，两位时码（~13.2pt）原先
+            // 被行内压缩成墨点/竖痕全部不可读（截图实证）；标注位左右相邻 5 格均为空，
+            // 按理想宽绘制微溢出无碍。槽位固定高度保证 24 根水位条顶部对齐不受影响
             Text(h % 6 == 0 ? String(format: "%02d", h) : "")
                 .font(Theme.monoFont(.micro))
                 .monospacedDigit()
                 .foregroundStyle(Theme.faint)
-                .frame(height: 11)
+                .fixedSize()
+                .frame(maxWidth: .infinity)
+                .frame(height: 14)
         }
     }
 

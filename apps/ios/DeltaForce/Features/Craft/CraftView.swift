@@ -32,6 +32,9 @@ struct CraftView: View {
     @State private var place: PlaceScope = .all
     @State private var sort: SortKey = .hourly
     @State private var priceScope: PriceScope = .all
+    // 显式导航栈：UI 巡检 -openCraftFirst 需要 programmatically push 详情
+    // （NavigationPath 装 CraftItem，与行内 NavigationLink 同轨）
+    @State private var path = NavigationPath()
 
     // 本页局部触觉 tick（刷新成败二分 / 筛选切换；对齐雷达页范式）
     @State private var refreshOkTick = 0
@@ -45,7 +48,7 @@ struct CraftView: View {
     private var feed: FeedModel<CraftSnapshot> { app.craft }
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             ScrollViewReader { proxy in
                 List {
                     Section {
@@ -131,7 +134,31 @@ struct CraftView: View {
                 .sensoryFeedback(.selection, trigger: toggleTick)
                 .onChange(of: place) { _, _ in scopeChanged(proxy) }
                 .onChange(of: priceScope) { _, _ in scopeChanged(proxy) }
+                // UI 巡检钩子（同 RootView -startTab 模式，生产无此参数）：-openCraftFirst
+                // 等首个快照落地后 push 首个配方详情、-wfScrollEnd 滚到列表末尾补拍折叠区
+                .task { await shotHook(proxy) }
             }
+        }
+    }
+
+    /// UI 巡检钩子：等首个快照落地（最多 10s，网络快照非即时）再执行；详情 push
+    /// 与行内 NavigationLink 同轨（显式 path.append）
+    @MainActor
+    private func shotHook(_ proxy: ScrollViewProxy) async {
+        let args = ProcessInfo.processInfo.arguments
+        guard args.contains("-openCraftFirst") || args.contains("-wfScrollEnd") else { return }
+        for _ in 0..<100 {
+            if feed.snapshot != nil { break }
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+        if args.contains("-openCraftFirst"), let first = rows.first {
+            path.append(first)
+        }
+        if args.contains("-wfScrollEnd") {
+            // List 懒加载行首次布局完成前 scrollTo 会落空，数据就绪后再等一拍才滚；
+            // 目标取最后一行自己的 id——滚 topAnchor 只能把首 Section 对进首屏，到不了列表末尾
+            try? await Task.sleep(for: .milliseconds(800))
+            if let last = rows.last { proxy.scrollTo(last.id, anchor: .bottom) }
         }
     }
 
@@ -163,6 +190,19 @@ struct CraftView: View {
                 HStack(spacing: 6) { ForEach(placeChips) { placeChip($0) } }
             }
             .padding(.vertical, 1)
+            // 右缘渐隐滚动提示（对齐 TTK 筛选 chips 行先例 TtkView.swift:163-179）：降级分支被
+            // ViewThatFits 选中即证明一行放不下，「制药台」在视口右缘被硬切而无任何可滑暗示。
+            // 尾端 16pt 白→透明 mask——mask 只取 alpha、与行底色解耦（按底色叠渐变会错色成带），
+            // 且不影响命中测试；本分支必然溢出故渐隐恒开，无需 TTK 那套内容宽/视口宽测量。
+            // 不走 listRowInsets trailing 归零出血：chips 与错误横幅/菜单同处一个 List row，
+            // 行内边距归零会波及整行（TTK 的 chips 是独立 row 才能这么做）
+            .mask(
+                HStack(spacing: 0) {
+                    Rectangle()
+                    LinearGradient(colors: [.white, .clear], startPoint: .leading, endPoint: .trailing)
+                        .frame(width: 16)
+                }
+            )
         }
     }
 

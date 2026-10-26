@@ -176,12 +176,27 @@ struct ItemDetailView: View {
     @ViewBuilder
     private func ageText(_ age: Double?, version: String?) -> some View {
         if let age {
-            // 含中文：默认 design + 等宽数字；>5 分钟转 warn 提示数据陈旧
-            Text("数据 \(MarketMeta.fmtAge(minutes: age))前 · 版本 \(MarketMeta.formatVersionLabel(version))")
+            // 含中文：默认 design + 等宽数字；>5 分钟转 warn 提示数据陈旧。
+            // 版本走视图层短版（shortVersion）：Core 全格式 16 字符在头部右列（现价 hero
+            // 决定的 ~133pt 列宽）必然截断成「版本 2026-08-2…」（截图实证），年份信息
+            // 在此价值最低；minScale 直接挂 Text（容器级不传播到子 Text）
+            Text("数据 \(MarketMeta.fmtAge(minutes: age))前 · \(shortVersion(version))")
+                .minimumScaleFactor(0.8)
                 .foregroundStyle(age > 5 ? Theme.warn : Theme.faint)
         } else {
             Text("数据可能过期").foregroundStyle(Theme.faint)
         }
+    }
+
+    /// 版本串（202608210500 型）→「08-21 05:00」月日时分短标签：头部角标专用。
+    /// formatVersionLabel（Core）的全格式「2026-08-21 05:00」由设置页等有整行空间的
+    /// 场景继续使用；此处不重复造轮子只裁剪同源数据，异常短串回退 Core 原格式兜底
+    private func shortVersion(_ v: String?) -> String {
+        guard let v, v.count >= 10 else { return MarketMeta.formatVersionLabel(v) }
+        let s = Array(v)
+        let md = "\(String(s[4..<6]))-\(String(s[6..<8]))"
+        let hm = s.count >= 12 ? "\(String(s[8..<10])):\(String(s[10..<12]))" : "\(String(s[8..<10])):00"
+        return "\(md) \(hm)"
     }
 
     // MARK: - 统计

@@ -144,6 +144,19 @@ struct RadarView: View {
                 .onChange(of: scope) { _, _ in
                     scopeChanged(proxy)
                 }
+                // UI 巡检钩子（同 RootView -startTab 模式，生产无此参数）：
+                // -wfScrollEnd 等首个快照落地后滚到列表末尾，补拍折叠区
+                .task {
+                    guard ProcessInfo.processInfo.arguments.contains("-wfScrollEnd") else { return }
+                    for _ in 0..<100 {
+                        if app.radar.snapshot != nil { break }
+                        try? await Task.sleep(for: .milliseconds(100))
+                    }
+                    // List 懒加载行首次布局完成前 scrollTo 会落空，数据就绪后再等一拍才滚；
+                    // 目标取最后一行自己的 id——滚 topAnchor 只能把首 Section 对进首屏，到不了列表末尾
+                    try? await Task.sleep(for: .milliseconds(800))
+                    if let last = rows.last { proxy.scrollTo(last.id, anchor: .bottom) }
+                }
             }
         }
     }
@@ -168,8 +181,9 @@ struct RadarView: View {
 
 struct RadarRow: View {
     let item: MarketItem
-    /// 榜名列对齐宽随字阶缩放（minWidth 而非固定宽）；名次已迁 sub 档（§4.3-3），锚跟随 subheadline
-    @ScaledMetric(relativeTo: .subheadline) private var rankMinWidth = 30
+    /// 榜名列对齐宽随字阶缩放（minWidth 而非固定宽）；名次已迁 sub 档（§4.3-3），锚跟随 subheadline。
+    /// 24（原 30）：两位零填充名次 sub 档实测 ~17pt，24 仍有余量——省下的 6pt 让给右列走势线档落位
+    @ScaledMetric(relativeTo: .subheadline) private var rankMinWidth = 24
 
     /// 名次语言（§4.3-3）：零填充 01、仅前三 accent 其余 faint——与 TTK 名次列同符号同字号（sub）同规则，
     /// accent 从「整列装饰」收回「前三指针」，不再稀释唯一强调色（§1.2）
@@ -185,7 +199,8 @@ struct RadarRow: View {
     }
 
     var body: some View {
-        HStack(spacing: 10) {
+        // spacing 8（原 10）：四条间隙共省 8pt——与名次列 30→24 一起，为右列「带走势线档」凑出落位余量
+        HStack(spacing: 8) {
             Mono(rankText, step: .sub, color: rankColor)
                 .frame(minWidth: rankMinWidth, alignment: .leading)
             ItemThumb(pic: item.pic, size: 36)
@@ -210,22 +225,17 @@ struct RadarRow: View {
                 }
             }
             Spacer(minLength: 4)
-            // 右列 + 走势线 ViewThatFits 三档：全量 56×26 → 窄版 40×20 → 完全退场（仅右列）。
-            // 窄版档（视觉复验修复）：402pt 标准宽下原二档方案直接跳到退场、7 行走势线整列消失——
-            // 加 40×20 中间档（同数据点距压缩）保住 iPhone 标准宽的形态可读；iPad / 横屏仍取全量档。
-            // 行宽吃紧先降走势线尺寸再省略（纯装饰、a11y 隐藏语义不变），保住名称列与价格数字单行完整
+            // 右列 + 走势线三档 ViewThatFits（本行视觉修复）：原方案把走势线整枚垫在右列右侧，
+            // 「带线档」理想宽 ≈ 右列(110pt+,宽头是分位/偏差行) + 间距 + 线宽 ≥ 160pt；而名称行
+            // layoutPriority 取足理想宽后，实测留给本组的宽度只有 ~110-125pt（402pt 标准宽像素
+            // 测量：01 行名称止于 212.7pt、右列起于 238.3pt）——中间档永远放不进，10 行走势线整体
+            // 退场、行尾留大段空白带。改为走势线并入右列首行（现价行 ~64pt，远窄于分位/偏差行）：
+            // 带线档理想宽只比纯右列宽 ~2pt，标准宽下真正落位；56×26 全量档（§4.3-4 / C9 决议，
+            // 与行情行统一规格）留给 iPad / 横屏。行宽吃紧先退线再缩列（纯装饰、a11y 隐藏语义不变）
             ViewThatFits(in: .horizontal) {
-                HStack(spacing: 10) {
-                    trailing
-                    sparkline
-                        .frame(width: 56, height: 26) // 统一规格 56×26（§4.3-4 / C9 决议，与行情行对齐）
-                }
-                HStack(spacing: 10) {
-                    trailing
-                    sparkline
-                        .frame(width: 40, height: 20) // 窄版档：点距压缩，不下场
-                }
-                trailing
+                trailing(spark: sparkline.frame(width: 56, height: 26))
+                trailing(spark: sparkline.frame(width: 40, height: 20))
+                trailing()
             }
         }
         .padding(.vertical, 2)
@@ -234,11 +244,19 @@ struct RadarRow: View {
         .accessibilityLabel(a11yLabel)
     }
 
+    /// 底档重载（走势线退场，仅右列）：裸调 trailing() 时泛型 Spark 无法从 nil 推断，收进无参重载
+    private func trailing() -> some View { trailing(spark: EmptyView?.none) }
+
     /// 右列（§4.3-4 主数字立权）：雷达行主数字=现价升 lead 档、分位 / 偏差迁 sub；
-    /// 单行 + 随宽缩一档兜底，不折行
-    private var trailing: some View {
+    /// 单行 + 随宽缩一档兜底，不折行。
+    /// `spark` 挂在现价行尾的迷你走势线：并入右列首行而非垫在整列右侧——现价行(~64pt)远窄于
+    /// 分位/偏差行(~110pt)，带线档的理想宽只比纯右列宽出「线宽+间距」的一小截，三档才真正分得开
+    private func trailing<Spark: View>(spark: Spark?) -> some View {
         VStack(alignment: .trailing, spacing: Theme.Space.xs) {
-            Mono(Fmt.price(item.current), step: .lead)
+            HStack(spacing: 8) {
+                Mono(Fmt.price(item.current), step: .lead)
+                if let spark { spark }
+            }
             HStack(alignment: .firstTextBaseline, spacing: Theme.Space.xs) {
                 // 微标签 fixedSize（同徽标单行纪律）：宽度压力下 2 字标签永不压成「分…」，
                 // 截断让位给右侧数值（尾端省略号仍可读出「分位 42…」）

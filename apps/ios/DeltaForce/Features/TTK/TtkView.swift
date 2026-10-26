@@ -13,6 +13,9 @@ struct TtkView: View {
     @State private var query = ""
     /// 本页局部触觉 tick：筛选 / 分段 / 菜单选择 / 开 sheet 后自增（规范要求绑局部状态，不绑共享 Store 派生值）
     @State private var hapticTick = 0
+    // 显式导航栈：UI 巡检 -openGunFirst 需要 programmatically push 枪械详情
+    // （NavigationPath 装 Gun，与行内 NavigationLink 同轨）
+    @State private var path = NavigationPath()
     /// 「复制错误信息」的可见回执（DESIGN §1.5 闭环反馈）：复制后按钮短暂转「已复制」+ 成功触感，
     /// 2s 后还原；纯视图局部状态
     @State private var errCopied = false
@@ -49,7 +52,7 @@ struct TtkView: View {
     }
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             Group {
                 if let data = app.ttk.data {
                     content(data)
@@ -117,7 +120,10 @@ struct TtkView: View {
                     // 筛选区收敛为一行横滚 chips（DESIGN §4.4-3）：部位 segmented 并入 FilterMenu，
                     // 四枚胶囊同族呈现（原生 Menu 浮层 + 偏离默认描边点亮 accent），榜单首行上移到折叠线内
                     ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: Theme.Space.sm) {
+                        // chips 间距收 xs（Space 阶梯行内最小档）：402pt 屏上四枚累计过宽，
+                        // 第 4 枚「弹药」的左缘原落在渐隐带里、caption 完全进不了首屏（视觉复验）。
+                        // 间距 8→4 把尾枚左缘前移 12pt，是唯一不动 FilterChipLabel 内边距（共享组件）的间距杠杆
+                        HStack(spacing: Theme.Space.xs) {
                             FilterMenu(
                                 caption: "兵种",
                                 options: data.classes.map { FilterOption(id: $0.id, label: $0.label) },
@@ -140,8 +146,14 @@ struct TtkView: View {
                             }
                         )
                     }
+                    // 横滚行的行内边距（对齐行情页信号卡横滚行先例，AmmoView.swift:110）：
+                    // leading 12（比常规行 16 轻 4pt 出血）+ trailing 0——默认 16/16 时本行视口止于
+                    // 行底右内缘，20pt 渐隐带恰好只罩住第 4 枚「弹药」的残影与空白行底（视觉复验：
+                    // caption「弹药」完全进不了首屏、无任何可横滚暗示）。trailing 归零把视口撑到
+                    // 卡片右缘，渐隐带随之压到真实 chip 内容上；负 padding 实测不扩 List 行视口，故走本 API
+                    .listRowInsets(EdgeInsets(top: 16, leading: 12, bottom: 16, trailing: 0))
                     .background(
-                        // 可视宽：ScrollView 边框即视口
+                        // 可视宽：ScrollView 边框即视口（含行内边距撑出的出血区域）
                         GeometryReader { geo in
                             Color.clear.preference(key: ChipsViewportWidthKey.self, value: geo.size.width)
                         }
@@ -149,9 +161,11 @@ struct TtkView: View {
                     .onPreferenceChange(ChipsContentWidthKey.self) { chipsContentWidth = $0 }
                     .onPreferenceChange(ChipsViewportWidthKey.self) { chipsViewportWidth = $0 }
                     // 右缘渐隐遮罩（视觉复验修复：第 4 枚 chip 首屏被裁切却无「可横滚」暗示）：
-                    // 尾端 20pt 白→透明 mask，内容淡出到所在行底（本行行底是 card，若按 bg 色做
+                    // 尾端 16pt 白→透明 mask，内容淡出到卡片右缘（本行行底是 card，若按 bg 色做
                     // 渐变叠加会与行底错色成色带；mask 只取 alpha、与底色解耦）。未溢出时渐变恒白
-                    // = 无观感变化；mask 不影响命中测试与 Menu 浮层
+                    // = 无观感变化；mask 不影响命中测试与 Menu 浮层。宽度 20→16：视口右缘已出血到
+                    // 卡片边上，渐隐带整体右移压住「弹药」chip 尾部内容，16pt 足够暗示横滚、
+                    // 又少吞一枚 caption 的可辨宽度（「弹」全程 alpha 1.0、「药」均值 ~0.7）
                     .mask(
                         HStack(spacing: 0) {
                             Rectangle()
@@ -160,7 +174,7 @@ struct TtkView: View {
                                 startPoint: .leading,
                                 endPoint: .trailing
                             )
-                            .frame(width: 20)
+                            .frame(width: 16)
                         }
                     )
                     .id(Self.topAnchor)
@@ -199,9 +213,39 @@ struct TtkView: View {
             .onChange(of: partId) { _, _ in filterChanged(proxy) }
             .onChange(of: armor) { _, _ in filterChanged(proxy) }
             .onChange(of: filterTag) { _, _ in filterChanged(proxy) }
+            // UI 巡检钩子（同 RootView -startTab 模式，生产无此参数）：-openGunFirst
+            // 进首行枪械详情、-wfScrollEnd 滚到列表末尾补拍折叠区
+            .task { await shotHook(proxy) }
             .navigationDestination(for: Gun.self) { gun in
                 GunDetailView(gun: gun, data: data, partId: partId, armor: armor)
             }
+        }
+    }
+
+    /// UI 巡检钩子：bundle 数据毫秒级就绪，仍统一等一拍再执行，避免深链落在加载态上
+    @MainActor
+    private func shotHook(_ proxy: ScrollViewProxy) async {
+        let args = ProcessInfo.processInfo.arguments
+        guard args.contains("-openGunFirst") || args.contains("-wfScrollEnd") else { return }
+        for _ in 0..<100 {
+            if app.ttk.data != nil { break }
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+        if args.contains("-openGunFirst"),
+           let data = app.ttk.data,
+           let first = TtkEngine
+               .ranking(data: data, classId: classId, partId: partId, armorLevel: armor, filter: filter)
+               .first(where: { query.isEmpty || $0.gun.zh.localizedCaseInsensitiveContains(query) })?.gun {
+            path.append(first)
+        }
+        if args.contains("-wfScrollEnd"), let data = app.ttk.data {
+            // List 懒加载行首次布局完成前 scrollTo 会落空，数据就绪后再等一拍才滚；
+            // 目标取最后一行自己的 id——滚 topAnchor 只能把首 Section 对进首屏，到不了列表末尾
+            try? await Task.sleep(for: .milliseconds(800))
+            let last = TtkEngine
+                .ranking(data: data, classId: classId, partId: partId, armorLevel: armor, filter: filter)
+                .last
+            if let last { proxy.scrollTo(last.id, anchor: .bottom) }
         }
     }
 
