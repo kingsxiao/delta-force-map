@@ -61,11 +61,13 @@ const rowClass = computed(() => ({
   open: props.open,
 }))
 
-/* ttk=0（头部×无甲 btk=1）的行本就是最快、条画满；best≤0 分支防 0/0，bestTtk 恒正后仅兜底（legacy L860 同守卫） */
-const barWidth = computed(() =>
+/* ttk=0（头部×无甲 btk=1）的行本就是最快、条画满；best≤0 分支防 0/0，bestTtk 恒正后仅兜底（legacy L860 同守卫）。
+   比例口径 Math.max(4, Math.min(100, best/ttk*100)) 不变，表达由「宽度百分比」改为「满宽 scaleX 系数」：
+   MOTION.md §6-3 禁过渡 width 只过渡 transform（渐变随缩放拉伸可接受，父级 .rk-bar 定宽裁剪不变） */
+const barScale = computed(() =>
   (props.best <= 0 || props.c.ttk <= 0)
-    ? '100%'
-    : Math.max(4, Math.min(100, props.best / props.c.ttk * 100)) + '%')
+    ? 1
+    : Math.max(4, Math.min(100, props.best / props.c.ttk * 100)) / 100)
 
 const detail = computed(() => {
   if (!props.open) return null
@@ -84,7 +86,7 @@ const detail = computed(() => {
   return {
     list: list.map((x) => ({
       x,
-      /* ttk=0 条画满，0 基准防 0/0=NaN——守卫与行级 barWidth 同款（基准恒正后仅兜底） */
+      /* ttk=0 条画满，0 基准防 0/0=NaN——守卫与行级 barScale 同款（基准恒正后仅兜底） */
       w: (base <= 0 || x.ttk <= 0)
         ? '100%'
         : Math.max(4, Math.min(100, base / x.ttk * 100)) + '%',
@@ -125,7 +127,7 @@ const detail = computed(() => {
       <span class="rk-cell num hide-m">{{ fmtDmg(c.flesh) }}</span>
       <span class="rk-cell num strong">{{ c.btk }} 发</span>
       <span class="rk-ta">
-        <span class="rk-bar"><i :style="{ width: barWidth }"></i></span>
+        <span class="rk-bar"><i :style="{ transform: 'scaleX(' + barScale + ')' }"></i></span>
         <span class="rk-ttv">{{ fmtMs(c.ttk + delay) }}</span>
       </span>
       <svg class="caret" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
@@ -393,11 +395,15 @@ const detail = computed(() => {
 }
 .rk-bar i {
   display: block;
+  width: 100%;
   height: 100%;
   border-radius: 3px;
   background: var(--accent);
   background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 55%, transparent), var(--accent));
-  transition: width var(--t-slow) var(--ease);
+  /* §6-3 收编：满宽 + scaleX(比例) 左起缩放代替 width 过渡，比例口径与守卫不变；
+     搜索收窄等场景 best 基准变化时条形平滑重缩放 */
+  transform-origin: left center;
+  transition: transform var(--t-slow) var(--ease);
 }
 .rk-row.slow .rk-bar i { background: var(--line-hover); }
 .rk-ttv {

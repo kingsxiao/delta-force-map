@@ -1,0 +1,189 @@
+/* ============================================================
+   motion.css — 动效工具层（MOTION.md §2.1）
+   只收两类东西：跨页复用的过渡类名（Vue <Transition> 直接引用）与骨架屏占位块。
+   红线（MOTION.md §6）：动效只动 opacity / transform（折叠高度走 grid-rows，
+   在各组件内）；禁止 transition: all；文件尾 RM 兜底统一关停。
+   类名全部为新增命名（.sk-* / .swap-* / .route-* / .flip-* / .mini-spin /
+   .press / .hover-lift），不与 server/smoke.mjs 依赖的既有选择器冲突。
+   ============================================================ */
+
+/* ---- 状态切换过渡（Vue <Transition name="swap">）：骨架→内容、空/错态、提示条进出。
+   进场淡入 + 6px 上移（4–8px 取中），离场只淡出不位移（防布局跳动） ---- */
+.swap-enter-active {
+  transition: opacity var(--t-panel) var(--ease), transform var(--t-panel) var(--ease);
+}
+.swap-leave-active { transition: opacity var(--t-panel) var(--ease); }
+.swap-enter-from { opacity: 0; transform: translateY(6px); }
+.swap-leave-to { opacity: 0; }
+
+/* ---- 路由进场过渡（App.vue <Transition name="route">）：只淡入。
+   刻意不写任何 .route-leave-* 与位移——离场无过渡类 = 瞬时卸载，新视图随即淡入；
+   位移与级联错峰全部交给页内 .reveal，杜绝「离场淡出 + 进场淡入 + 页内入场」
+   三层叠加（MOTION.md §3-A / 原则 3） ---- */
+.route-enter-active { transition: opacity var(--t-panel) var(--ease); }
+.route-enter-from { opacity: 0; }
+
+/* ---- 小列表增删重排（Vue <TransitionGroup name="flip">，囤货台账 ≤20 行）。
+   leave 态脱流（absolute）让补位动画成立，容器必须 position: relative 作定位锚点 ---- */
+.flip-move { transition: transform var(--t-slow) var(--ease); }
+.flip-enter-active,
+.flip-leave-active { transition: opacity var(--t-med); }
+.flip-enter-from,
+.flip-leave-to { opacity: 0; }
+.flip-leave-active { position: absolute; }
+
+/* ---- 表格展开行（Vue <Transition name="exp"> 包 tr.expander，MOTION.md §3-C〔改〕）----
+   开合双向都动画：tr 根淡入淡出，内容高度走 .exp-clip 的 grid-rows 0fr→1fr
+   （只动布局轨，不动画 height）。三层分工：.exp-inner 只做裁剪（overflow +
+   min-height:0，不带 padding——padding 与裁剪同层时 0fr 轨道会被 padding 撑住
+   压不到真 0 高），.exp-pad 承接原 td 的内边距与定位锚。
+   页级特例允许覆盖：radar 的 .exp-hold 是 sticky 视口容器（inner+pad 合体——
+   分层会把中间层变成 sticky 滚动箱、截断横滚贴边），ammo 顶部 44px 动作条带
+   预留由页内覆盖 .exp-pad 的 padding ---- */
+.exp-clip { display: grid; grid-template-rows: 1fr; }
+.exp-inner { overflow: hidden; min-height: 0; }
+.exp-pad { position: relative; padding: 9px 10px; }
+.exp-enter-active, .exp-leave-active { transition: opacity var(--t-panel) var(--ease); }
+.exp-enter-active .exp-clip, .exp-leave-active .exp-clip { transition: grid-template-rows var(--t-panel) var(--ease); }
+.exp-enter-from, .exp-leave-to { opacity: 0; }
+.exp-enter-from .exp-clip, .exp-leave-to .exp-clip { grid-template-rows: 0fr; }
+
+/* ---- 按压 / 悬停统一语汇（全站 :active scale(.98) / hover 上浮 2px 的状态类）。
+   只声明状态、刻意不声明 transition：scoped transition（类 + data-attr）特异性更高，
+   会整体覆盖本文件任何 transition 声明，出现「挂了类却瞬跳」——约定调用方自带
+   transition 且列表含 transform 项（无任何 transition 的元素为瞬时按压，与 RM 同口径） ---- */
+.press:active { transform: scale(.98); }
+.hover-lift:hover { transform: translateY(-2px); }
+
+/* ---- 骨架屏基块：低对比占位（底 --sk-base = --card2 面阶最浅档），无文字无描边语义；
+   ::after 单条扫光（周期 1.6s ≥1.2s、高光 --lift 白 6% = 幅度上限、只动 transform） ---- */
+.sk {
+  background: var(--sk-base);
+  border-radius: var(--radius-sm);
+  position: relative;
+  overflow: hidden;
+}
+.sk::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, var(--lift), transparent);
+  animation: sk-pass 1.6s linear infinite;
+}
+@keyframes sk-pass { to { transform: translateX(100%); } }
+
+/* ---- 骨架修饰类（全部由 .sk 派生：class="sk sk-line"；宽度用 --w 覆盖或由
+   组合件内联指定，如 style="--w:60%"） ---- */
+.sk-line  { width: var(--w, 60%); height: 12px; }             /* 文字条 */
+.sk-num   { width: var(--w, 56px); height: 12px; justify-self: end; } /* 右对齐数字条 */
+.sk-thumb { width: 28px; height: 18px; }                       /* 图标位（对齐 a-ic 26×18 语汇） */
+.sk-bar   { width: 110px; height: 7px; border-radius: 4px; }   /* 分位条位（对齐 .rank-bar） */
+.sk-chart { width: 130px; height: 30px; }                      /* 走势位（对齐 Sparkline 130×30） */
+.sk-badge { width: var(--w, 48px); height: 16px; border-radius: var(--radius-pill); } /* 胶囊徽标位 */
+
+/* ---- 骨架组合件：表格（表头条 + N 行）。行结构对齐真实行情表：图标位 + 名字条 +
+   5 数字条 + 走势位；行内边距/分隔线取 .tbl td 同款节奏，ready 切换时行位稳定 ---- */
+.sk-tbl {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--card);
+  overflow: hidden;
+}
+.sk-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-5);
+  padding: 10px;
+  background: var(--card2);       /* 对齐 .tbl th 的表头面 */
+  border-bottom: 1px solid var(--line);
+}
+/* 表头是 mono 小字，条比正文更矮；宽度按真实表头列宽给梯度（首列物品名最宽、
+   信号/分位列窄），预告列布局而不是一排等宽条 */
+.sk-head .sk-line { --w: 64px; height: 10px; flex: none; }
+.sk-head .sk-line:nth-child(1) { --w: 104px; }
+.sk-head .sk-line:nth-child(4) { --w: 44px; }
+.sk-head .sk-line:nth-child(6) { --w: 52px; }
+.sk-head .sk-line:nth-child(8) { --w: 88px; }
+.sk-row {
+  display: grid;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--line2);
+  grid-template-columns: 28px minmax(88px, 1.1fr) repeat(5, minmax(44px, 52px)) 130px;
+}
+.sk-row:last-child { border-bottom: 0; }
+/* 窄屏（--bp-mobile 680px）藏走势位：列 min 总宽 ≈520px 再挤会碎条；
+   真实表在窄屏走横向滚动，骨架是预告不是复刻，砍最右列即可成立 */
+@media (max-width: 680px) {
+  .sk-row { grid-template-columns: 28px minmax(72px, 1fr) repeat(4, minmax(36px, 44px)) 48px; }
+  .sk-row .sk-chart { display: none; }
+}
+
+/* ---- 骨架组合件：卡片网格（列宽对齐 .sig-grid），卡体不自带扫光（单条纪律），
+   只在内层 .sk 条上出光 ---- */
+.sk-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(330px, 1fr));
+  gap: var(--sp-4);
+}
+.sk-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  padding: var(--sp-4);
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--edge-light);
+}
+
+/* ---- 骨架容器高度兜底（三页统一口径，MOTION.md §4 验收②③）----
+   560px：10 行表 + 表头的自然高预留（ready 内容更长 → loading→ready 页高只增不减）；
+   60vh：验收②「骨架渲染高度 ≥60vh」首屏不空——视口高于 933px 时 60vh 反超 560px。
+   取二者较大值让两条验收同时成立；页面只挂类，不再各写一份（尺寸/外距等页级布局仍在页内） ---- */
+.sk-hold { min-height: max(560px, 60vh); }
+
+/* ---- 内联小环（进度语义）：嵌入刷新 chip 等按钮内；与 AccountView scoped .spinner
+   同形态（12px / 2px 边）。RM 下保留——「进行中」状态语义，MOTION.md 原则 5 例外 ---- */
+.mini-spin {
+  width: 12px;
+  height: 12px;
+  flex: none;
+  border: 2px solid var(--line);
+  border-top-color: var(--dim);
+  border-radius: 50%;
+  animation: spin .7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(1turn); } } /* AccountView 的同名 keyframes 为 scoped，不冲突 */
+
+/* ---- 远端图标加载占位（配 composables/imgReady.js 的 imgReady/hideImg，三页共享）----
+   容器 .a-icw 未加载时铺 --sk-base 低对比底（静态、不带骨架扫光——几十张小图
+   各自扫光 = 噪声，MOTION.md §6-9 单条纪律）；img load 后挂 .ld：底色让位、
+   图片 --t-med 淡入；加载失败（hideImg 隐藏 img）底色留作「无图」位。
+   .a-ic 的几何尺寸（26×18 等）由各页 scoped 提供，这里只管加载态 ---- */
+.a-icw:not(.ld) { background: var(--sk-base); border-radius: var(--radius-sm); }
+.a-ic { opacity: 0; transition: opacity var(--t-med) var(--ease); }
+.a-icw.ld .a-ic { opacity: .92; }
+
+/* ---- RM 统一兜底：扫光停帧为静态骨架块；过渡全关（瞬时切换）；进场位移取消（仅淡入）；
+   按压/悬停的位移与缩放全停；展开行瞬开瞬合。.mini-spin 刻意不在关闭之列（进度语义例外） ---- */
+@media (prefers-reduced-motion: reduce) {
+  .sk::after { animation: none; }
+  .a-ic { transition: none; } /* 图片淡入降级为瞬时显示（底色让位仍生效） */
+  .swap-enter-active,
+  .swap-leave-active,
+  .route-enter-active,
+  .flip-move,
+  .flip-enter-active,
+  .flip-leave-active,
+  .exp-enter-active,
+  .exp-leave-active,
+  .exp-enter-active .exp-clip,
+  .exp-leave-active .exp-clip { transition: none; }
+  .swap-enter-from { transform: none; }
+  .press:active,
+  .hover-lift:hover { transform: none; }
+}

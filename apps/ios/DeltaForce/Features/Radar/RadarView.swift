@@ -1,4 +1,6 @@
 // RadarView.swift — 全品类异动雷达：kkrb 涨幅榜 Top10 + 双源交叉验证
+// 动效对齐 MOTION.md §4.2：首载骨架（替代裸 ProgressView）/ 涨幅榜区四态互切 contentSwap /
+// 后台刷新失败横幅淡入淡出；筛选换榜与 60s 静默刷新刻意不加行级动画（原则 3——回顶 + 触感即反馈）
 import DeltaForceCore
 import SwiftUI
 
@@ -23,6 +25,23 @@ struct RadarView: View {
     /// 筛选变化后滚回榜首的锚点 id（§4.3-5，对齐 TTK TtkView 方案）
     private static let topAnchor = "radar-top"
 
+    /// 数据源错误横幅文案：有快照的后台刷新失败才在此提示，正常态 nil
+    /// （首拉失败由涨幅榜区 RetryErrorRow 承担，含重试出口，不同屏双份）
+    private var bannerMessage: String? {
+        app.radar.snapshot != nil ? app.radar.lastError : nil
+    }
+
+    /// 涨幅榜区四态：共享 FeedTableState 单一定义（Components.swift，MOTION.md §4.2——一致性评审
+    /// 收口：三页逐字重复的私有 TableState 收编，防判据漂移；判据口径注释见共享定义处）；
+    /// 也是 .contentSwap 的切换键
+    private var tableState: FeedTableState {
+        FeedTableState(
+            hasSnapshot: app.radar.snapshot != nil,
+            lastError: app.radar.lastError,
+            isEmpty: rows.isEmpty
+        )
+    }
+
     var body: some View {
         NavigationStack {
             ScrollViewReader { proxy in
@@ -30,8 +49,9 @@ struct RadarView: View {
                     Section {
                         VStack(alignment: .leading, spacing: Theme.Space.sm) {
                             // 数据源错误横幅：无快照的首拉失败由下方 RetryErrorRow 承担（含重试出口），
-                            // 有快照（后台刷新失败）仍由此处提示——此时列表有数据可看、无 RetryErrorRow
-                            FeedErrorBanner(message: app.radar.snapshot != nil ? app.radar.lastError : nil)
+                            // 有快照（后台刷新失败）仍由此处提示——此时列表有数据可看、无 RetryErrorRow；
+                            // 进出场淡入淡出由 List 层 .motion(animSwap, value: bannerMessage != nil) 驱动
+                            FeedErrorBanner(message: bannerMessage)
                             // 市场态势行（§4.3-1）：本页唯一全局口径以语义胶囊组呈现（C2 StatusChip）；
                             // 特大字号 / 窄屏折两行（AX 韧性 §7-6）
                             if let s = app.radar.snapshot?.stats {
@@ -72,9 +92,14 @@ struct RadarView: View {
                     }
                     .listRowBackground(Theme.card)
 
-                    Section("涨幅榜 · \(rows.count) 项") {
-                        if rows.isEmpty {
-                            if app.radar.snapshot == nil, let err = app.radar.lastError {
+                    // 骨架期间（无快照）Section 头隐藏计数（MOTION.md §4.2）：否则「涨幅榜 · 0 项」与 10 条假行同屏矛盾
+                    Section(app.radar.snapshot == nil ? "涨幅榜" : "涨幅榜 · \(rows.count) 项") {
+                        // 四态互切（MOTION.md §4.2）：Group 在 List 里是透明容器，各态子视图各自成行；
+                        // .contentSwap 挂一次到分支容器上——.transition 只在分支切换且事务带动画时生效，
+                        // 原先错误 / 空态 / 加载行三处 if-else 没有任何 .animation 驱动，一直是硬切
+                        Group {
+                            switch tableState {
+                            case .error(let err):
                                 // 首拉失败：换共享 RetryErrorRow（C10 安全序第 ② 步；busy 防空转——
                                 // isLoading 守卫在 State/FeedModel.swift:55，加载中禁用 + 内联进度）
                                 RetryErrorRow(
@@ -82,12 +107,14 @@ struct RadarView: View {
                                     retry: { Task { await app.radar.refresh() } },
                                     busy: app.radar.isLoading
                                 )
-                            } else if app.radar.snapshot == nil {
-                                HStack(spacing: 8) {
-                                    ProgressView().controlSize(.mini)
-                                    Text("正在拉取雷达数据…").font(Theme.font(.xs)).foregroundStyle(Theme.faint)
-                                }
-                            } else {
+                                .transition(.opacity) // 错误态淡入淡出（§3-H）
+                            case .skeleton:
+                                // 首载骨架（MOTION.md §4 P0）：10 条与雷达行同构的骨架行，替代原裸 ProgressView +
+                                // 「正在拉取雷达数据…」；无信号卡位（cards: false）、行数固定不随屏幕堆，
+                                // 扫光 / RM 静态由共享层内建
+                                SkeletonList(rows: 10, cards: false)
+                                    .transition(.opacity) // 骨架只淡出不位移（防布局跳动）
+                            case .empty:
                                 // 筛选空态：给一条出路
                                 ContentUnavailableView {
                                     Label("没有符合条件的条目", systemImage: "dot.radiowaves.left.and.right")
@@ -98,8 +125,12 @@ struct RadarView: View {
                                         Button("显示全部条目") { scope = .all }
                                     }
                                 }
+                                .swapTransition() // 空态进场淡入 + 6pt 轻上移、离场只淡出（§3-H 内容分支口径）
+                            case .rows:
+                                EmptyView()
                             }
                         }
+                        .contentSwap(tableState)
                         ForEach(rows) { item in
                             NavigationLink(value: item) { RadarRow(item: item) }
                                 .swipeActions(edge: .leading) {
@@ -129,6 +160,13 @@ struct RadarView: View {
                 }
                 .themedList()
                 .listStyle(.insetGrouped)
+                // 首载「骨架→内容」整页同步交叉淡化（MOTION.md §4.2）：态势胶囊组（首 Section）与骨架 / 涨幅榜行
+                // 分属不同 Section，只挂在数据分支上会出现「骨架淡出、胶囊硬切」的半截动画，故 List 层再挂一次
+                // 统一事务。键只认 snapshot == nil：有数据后的 60s 静默刷新与筛选换榜不触发（原则 3）
+                .contentSwap(app.radar.snapshot == nil)
+                // 后台刷新失败横幅进出场淡入淡出（§3-F 提示条口径的 iOS 对应物）：键只认有无横幅，文案变化不触发；
+                // 横幅在首 Section 行内，带动画时同行 chip 组随之平滑让位而非整列跳动
+                .motion(Theme.animSwap, value: bannerMessage != nil)
                 .navigationTitle("异动雷达")
                 .navigationDestination(for: MarketItem.self) { ItemDetailView(item: $0) }
                 .refreshable {
@@ -161,13 +199,15 @@ struct RadarView: View {
         }
     }
 
-    /// 筛选切换：轻触 + 滚回榜首（§4.3-5，与 TTK / 行情三页一致；Reduce Motion 无动画直达，§7-9）
+    /// 筛选切换：轻触 + 滚回榜首（§4.3-5，与 TTK / 行情三页一致）；滚动走 animMed 预设
+    /// （MOTION.md §3-B 筛选回顶档），Reduce Motion 无动画直达（§7-9，触感保留）。
+    /// 换榜本身刻意不加行级进出动画（§3-B 大表重排口径，双端同为瞬时）：回顶 + 触感即「换了榜单」的反馈
     private func scopeChanged(_ proxy: ScrollViewProxy) {
         toggleTick += 1
         if reduceMotion {
             proxy.scrollTo(Self.topAnchor, anchor: .top)
         } else {
-            withAnimation(.easeOut(duration: Theme.durMed)) {
+            withAnimation(Theme.animMed) {
                 proxy.scrollTo(Self.topAnchor, anchor: .top)
             }
         }

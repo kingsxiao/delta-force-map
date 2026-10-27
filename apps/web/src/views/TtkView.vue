@@ -10,7 +10,10 @@
    枪名搜索（zh/en 不区分大小写子串）只保留命中枪的行；六组筛选 + 搜索词序列化进
    hash query（?p&a&cls&pen&mode&sort&q，可分享链接），进入时还原（query 属路由状态，
    不属被禁的裸锚点 hash）。
-   入场统一走 useReveal；rank-list / champs 容器挂 reveal-group 行级级联（§7.3）。
+   入场统一走 useReveal；champs 容器挂 reveal-group 行级级联（§7.3，≤4 卡，
+   类别筛选改卡组构成时重进级联＝状态反馈）；rank-list 的级联只播一次——
+   容器 .in 后新插入子项会自动播放，首次筛选重建即撤下 reveal-group，
+   此后大表重建瞬时（红线：入场动画不得在每次筛选时整列重播，见 watch(state)）。
    ============================================================ */
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -153,9 +156,19 @@ const rankLimit = ref(RANK_PAGE)
    渲染上限一并重置——切筛选/排序后从首批行重新看起；query 随状态回写
    （router.replace 不留历史栈，打字/切筛选不产生可回退记录） */
 const openKeys = reactive(new Set())
+/* rank-list 级联只播一次：.reveal-group.in 会对重建插入的子项自动重播入场级联
+   （useReveal §7.3 机制），而搜索每键入一字、筛选每切一组都会重建整批排行行——
+   200 行整列重播即红线「入场动画不得在每次筛选时整列重播」。首次筛选重建时
+   撤下容器的 reveal-group：初始滚入级联保留，此后大表重建瞬时（原则 3） */
+const rankEl = ref(null)
+let rankCascadeUsed = false
 watch(state, () => {
   openKeys.clear()
   rankLimit.value = RANK_PAGE
+  if (!rankCascadeUsed && rankEl.value) {
+    rankCascadeUsed = true
+    rankEl.value.classList.remove('reveal-group')
+  }
   router.replace({ path: route.path, query: buildQuery(state) })
 })
 
@@ -274,7 +287,11 @@ function pickGun(name) {
   state.q = name
   requestAnimationFrame(() => {
     const el = document.getElementById('rank')
-    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    if (!el) return
+    // RM 让位：scrollIntoView 显式传 smooth 会越过 CSS scroll-behavior 的 RM 兜底
+    // （base.css reduce 下 scroll-behavior:auto 只约束未指定 behavior 的调用）
+    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    el.scrollIntoView({ behavior: reduced ? 'auto' : 'smooth', block: 'start' })
   })
 }
 
@@ -483,11 +500,21 @@ onBeforeUnmount(() => {
               <span class="ctrl-note">多选叠加 · 即时重算</span>
             </div>
           </div>
-          <p v-if="hintText" class="ctrl-hint">{{ hintText }}</p>
+          <!-- 提示条进出（MOTION §3-F）：外壳 grid-rows 0fr→1fr 承接吸顶面板高度变化
+               （红线允许的折叠技法，同 CollapseCol）；内文走全局 swap 淡入淡出 -->
+          <div class="ctrl-hint-slot" :class="{ on: !!hintText }">
+            <div class="ctrl-hint-clip">
+              <Transition name="swap">
+                <p v-if="hintText" class="ctrl-hint">{{ hintText }}</p>
+              </Transition>
+            </div>
+          </div>
         </div>
 
         <!-- reveal-group：行级级联（§7.3）；并挂 reveal 适配 useReveal 现行选择器
-             （其扩入 .reveal-group 后容器上的 reveal 可去；两容器同此口径） -->
+             （其扩入 .reveal-group 后容器上的 reveal 可去；两容器同此口径）。
+             本容器另受 watch(state) 管控：首次筛选重建即撤下 reveal-group，
+             防止 200 行排行在每次筛选/搜索键入时整列重播入场级联（红线） -->
         <ChampCards class="reveal reveal-group" :picks="champPicks" :delay="state.delay" />
 
         <TierBoard class="reveal" :tiers="tiers" @pick="pickGun" />
@@ -496,7 +523,7 @@ onBeforeUnmount(() => {
           <span class="rank-count">{{ rankCountText }}</span>
         </div>
 
-        <div id="rank" class="rank-list reveal reveal-group">
+        <div id="rank" ref="rankEl" class="rank-list reveal reveal-group">
           <div class="rk-head">
             <span>#</span>
             <!-- span2：跨「缩略图 + 枪名」两轨。行内 8 轨（含缩略图列），表头若不跨列，
@@ -533,10 +560,14 @@ onBeforeUnmount(() => {
               显示更多 · 还剩 {{ rankRows.length - shownRows.length }} 行
             </button>
           </template>
-          <div v-else class="rk-empty">
-            <template v-if="filteredGuns.length">当前筛选下没有可用枪弹：该类别没有所选穿透等级（{{ state.pens.length ? state.pens.join('/') : '0-7' }}）的弹药，换一个等级或类别再试。</template>
-            <template v-else>没有匹配「{{ state.q.trim() }}」的枪械：搜索按中文名 / 英文名不区分大小写匹配（如 腾龙 / m4 / m7），清空搜索框恢复全表。</template>
-          </div>
+          <!-- 空态淡入淡出（MOTION §3-H）：Transition 常驻挂载、内层 v-if 切换，
+               enter/leave 都能播放；与行区互斥（rankRows.length），两分支各自独立渲染 -->
+          <Transition name="swap">
+            <div v-if="!rankRows.length" class="rk-empty">
+              <template v-if="filteredGuns.length">当前筛选下没有可用枪弹：该类别没有所选穿透等级（{{ state.pens.length ? state.pens.join('/') : '0-7' }}）的弹药，换一个等级或类别再试。</template>
+              <template v-else>没有匹配「{{ state.q.trim() }}」的枪械：搜索按中文名 / 英文名不区分大小写匹配（如 腾龙 / m4 / m7），清空搜索框恢复全表。</template>
+            </div>
+          </Transition>
         </div>
         <p class="rank-footnote">点击任意一行，展开该枪全部弹药的逐发对比（受当前穿透筛选限定）。TTK 为首发命中后击倒所需的纯射击时间，不含首发出膛、腰射散布、换弹与网速，是站位对枪的理论上限；实战受距离衰减、命中率与压枪影响，通常显著更慢。</p>
       </section>
@@ -754,6 +785,16 @@ onBeforeUnmount(() => {
   color: var(--faint);
   line-height: 1.6;
 }
+/* 提示条槽（MOTION §3-F）：外壳 grid-rows 0fr→1fr 承接高度——吸顶面板高随提示
+   出现/收起平滑变化、下方内容不跳；clip 是折叠裁剪层（同 CollapseCol .col-inner 口径，
+   .ctrl-hint 的 margin-top 落在 clip 内随 0fr 一并裁掉） */
+.ctrl-hint-slot {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows var(--t-panel) var(--ease);
+}
+.ctrl-hint-slot.on { grid-template-rows: 1fr; }
+.ctrl-hint-clip { overflow: hidden; min-height: 0; }
 
 /* ---------- 枪械搜索框（规格同 AmmoMarket / MarketRadar 的 .search：胶囊输入、只改边框） ---------- */
 .search {
@@ -848,6 +889,11 @@ onBeforeUnmount(() => {
   color: var(--faint);
   line-height: 1.7;
 }
+/* 空态离场瞬时（复核修正）：swap 的 leave 淡出会让「没有匹配」提示与瞬时渲染的
+   行区在表格底部同屏 250ms（Transition 只包空态分支、行区在其外，无 mode 互斥），
+   出现「有结果却显示无结果」的矛盾画面——进场保留 swap 淡入，离场即时消失；
+   本条 scoped（0,2,0）压过全局 .swap-leave-active（0,1,0） */
+.rk-empty.swap-leave-active { transition: none; }
 /* 「显示更多」（文本链按钮规格同 .ammo-toggle，§5.3：无底无边框）；列表内整行居中收尾 */
 .rk-more {
   display: block;
@@ -983,5 +1029,12 @@ onBeforeUnmount(() => {
   /* ≤680 行改两行式卡片（RankRow），列头与任何一轨都不再对应（先例：详情 .drow.capt 同断点隐藏）；
      数字自带单位（发 / ms），表头退场比错位列头更诚实 */
   .rk-head { display: none; }
+}
+
+/* RM 统一兜底（本页 scoped 部分）：全局 .swap/.sk 的关停在 motion.css 文件尾；
+   这里只补页面自有过渡——搜索框边框提亮、提示条槽高度动画 */
+@media (prefers-reduced-motion: reduce) {
+  .search { transition: none; }
+  .ctrl-hint-slot { transition: none; }
 }
 </style>

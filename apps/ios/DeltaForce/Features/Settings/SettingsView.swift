@@ -52,6 +52,8 @@ struct SettingsView: View {
                         } label: {
                             rowTitle("收到推送")
                         }
+                        // 行首次出现淡入（§3-H 状态进场）；计数 +1 本身保持瞬时（原则 3，静默数字不加动画）
+                        .transition(.opacity)
                     }
                     Button {
                         guard !refreshing else { return }
@@ -71,15 +73,17 @@ struct SettingsView: View {
                             }
                         }
                     } label: {
-                        HStack(spacing: Theme.Space.sm) {
-                            // 进行中文案与账号页主按钮（「登录中…」）同范式：动作状态文字可见，不只靠 spinner
-                            Label(refreshing ? "刷新中…" : "立即刷新全部快照", systemImage: "arrow.clockwise")
-                                .font(Theme.font(.md, weight: .semibold))
-                                // §5 刷新中图标微动效：DESIGN 标注的 .rotate 实为 iOS 18 API（RotateSymbolEffect），
-                                // iOS 17 目标下以 .repeating .pulse 等价表达「进行中」；Reduce Motion 跳过
-                                .symbolEffect(.pulse, options: .repeating, isActive: refreshing && !reduceMotion)
-                            if refreshing { ProgressView().controlSize(.small) } // 进行中内联进度（保持）
-                        }
+                        // 进行中双通道（图标 pulse + 状态文案），不再叠第三个 spinner 环——
+                        // 一个按钮里「脉冲图标 + 转圈 + 文案」三信号同屏是重复表达（MOTION.md 原则 3）；
+                        // 文案范式与账号页主按钮（「登录中…」）一致：动作状态文字可见
+                        Label(refreshing ? "刷新中…" : "立即刷新全部快照", systemImage: "arrow.clockwise")
+                            .font(Theme.font(.md, weight: .semibold))
+                            // §5 刷新中图标微动效：DESIGN 标注的 .rotate 实为 iOS 18 API（RotateSymbolEffect），
+                            // iOS 17 目标下以 .repeating .pulse 等价表达「进行中」；Reduce Motion 跳过
+                            .symbolEffect(.pulse, options: .repeating, isActive: refreshing && !reduceMotion)
+                            // 状态文案交叉淡入（contentTransition 需 animation 驱动，RM 下 motion 置 nil 即瞬时）
+                            .contentTransition(.opacity)
+                            .motion(Theme.animFast, value: refreshing)
                     }
                     .disabled(refreshing)
                 } header: {
@@ -113,6 +117,8 @@ struct SettingsView: View {
                         } label: {
                             rowTitle("上次通知")
                         }
+                        // 行首次出现淡入（§3-H）；时间文字后续刷新保持瞬时（原则 3）
+                        .transition(.opacity)
                     }
                 } header: {
                     sectionHeader("通知")
@@ -154,6 +160,10 @@ struct SettingsView: View {
                 .listRowBackground(Theme.card)
             }
             .themedList()
+            // 条件信息行（收到推送 / 上次通知）进出统一淡入淡出驱动（§3-H 状态进场 animSwap 档）：
+            // transition 挂在行上、animation 挂在包含 if 的 Form 层（TtkView 错误行同构写法）
+            .motion(Theme.animSwap, value: app.channel.eventCount > 0)
+            .motion(Theme.animSwap, value: app.notifications.lastDelivered != nil)
             // iPad/横屏 regular：表单列上限 600 居中（与详情 640 同一可读列节奏，§4.5-6 保持不动）；
             // 外层再满宽铺 Theme.bg，600pt 之外不露 NavigationStack 系统底色（与详情/手册同一写法）
             .frame(maxWidth: 600)

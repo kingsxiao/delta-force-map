@@ -39,6 +39,8 @@ import PriceChart from './ammo/PriceChart.vue'
 import Playbook from './ammo/Playbook.vue'
 import MarketClock from './ammo/MarketClock.vue'
 import PenBadge from './ttk/PenBadge.vue'
+import SkeletonView from '../components/SkeletonView.vue'
+import { imgReady, hideImg } from '../composables/imgReady'
 import { CAL } from '../data/ttk/calibers.js'
 import { marketNamePen } from '../data/ttk/ammo-market-alias.js'
 import {
@@ -139,6 +141,17 @@ function mountCtlRO() {
     })
   }
   ctlRO.observe(ctlRef.value)
+}
+
+/* 四态互切走 <Transition mode="out-in">（MOTION.md §4.1）：ready 根节点在旧态
+   离场结束后才插入 DOM，load() 成功路径里 nextTick 批次的 observeRoot/syncTblFade/
+   mountCtlRO 那一刻还找不到真实节点（该批次只覆盖 silent 刷新这类不换根的路径）——
+   在进场合子里补跑一次；三件事均幂等，与 load() 内批次重复执行无害 */
+function onStateRootEnter() {
+  if (loadState.value !== 'ready') return
+  observeRoot(pageRef.value)
+  syncTblFade()
+  mountCtlRO()
 }
 
 /* 横滑渐隐提示：仅容器真溢出（can-scroll）且未滑到底（!at-end）时显示 */
@@ -314,8 +327,8 @@ const SIGNAL_META = {
 const SIG_COLOR = { BUY: 'var(--ok)', SELL: 'var(--danger)', WATCH: 'var(--info)', WAIT: 'var(--faint)' }
 const gradeVar = (g) => (g >= 2 && g <= 6 ? `var(--lv${g})` : 'var(--faint)')
 const reduceMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches
-// 表内行图标加载失败（CDN 抖动等）就地隐藏，不占位不报错
-const hideImg = (e) => { e.target.style.display = 'none' }
+// 表内行图标加载失败（CDN 抖动等）就地隐藏，不占位不报错——事件处理三页共享
+//（composables/imgReady.js；占位底与淡入样式见 motion.css「图片占位」段）
 
 /* ---------- TTK 联动：弹名 → 穿透等级（PenBadge 徽标，等级语义 0-7） ----------
    映射与「宁缺勿错」口径见 src/data/ttk/ammo-market-alias.js：一对多歧义
@@ -526,10 +539,15 @@ const toggle = (name) => {
 }
 const scrollToExpander = (block) => {
   nextTick(() => {
-    document.querySelector('tr.expander')?.scrollIntoView({
+    /* 展开面板以 grid-rows 0fr→1fr 铺开（--t-panel .25s，见 .exp-clip）：t=0 时
+       高度近似 0，scrollIntoView 按半高判「已可见」会漏滚——等铺开再定位
+       （RM 下无动画直滚）；260ms ≈ --t-panel 收尾 */
+    const go = () => document.querySelector('tr.expander')?.scrollIntoView({
       block,
       behavior: reduceMotion() ? 'auto' : 'smooth',
     })
+    if (reduceMotion()) { go(); return }
+    setTimeout(go, 260)
   })
 }
 /* 键盘开关行：事件源不是 tr 本身（如行内星标按钮）时不拦截，星标仍可键盘触发 */
@@ -664,355 +682,392 @@ onUnmounted(() => {
       ><i class="nt-dot" aria-hidden="true"></i>信号通知{{ notifyOn ? ' · 开' : '' }}</button>
     </header>
     <p v-if="!NOTIFY_SUPPORTED" class="notify-hint">浏览器通知需 HTTPS 部署后可用</p>
-    <p v-if="notifyTip" class="notify-hint" role="status">{{ notifyTip }}</p>
+    <!-- 开关反馈提示：淡入淡出（MOTION.md §3-F，.swap 进场带 6px 上移） -->
+    <Transition name="swap">
+      <p v-if="notifyTip" class="notify-hint" role="status">{{ notifyTip }}</p>
+    </Transition>
 
     <!-- 数据过期提醒（moligod 30min / kkrb 6h，文案如实注明静态快照边界）。
-         「刷新数据」按钮在全表控制条（首屏外），提示最刺眼时就地给出口 -->
-    <p v-if="ageMin !== null && ageMin > thresholds.staleTipMin" class="state-tip stale-tip" role="status">
-      {{ staleTipMsg }}
-      <button class="retry" :disabled="refreshing" @click="load({ silent: true })">{{ refreshing ? '刷新中…' : '立即刷新' }}</button>
-    </p>
-
-    <!-- 加载 / 空态 -->
-    <p v-if="loadState === 'loading'" class="state-tip">正在加载行情…</p>
-    <div v-else-if="loadState === 'empty'" class="state-card">
-      <p>还没有行情数据。</p>
-      <p class="dim">行情快照正在准备中，稍后再来看看。</p>
-    </div>
-    <div v-else-if="loadState === 'error'" class="state-card">
-      <p>行情加载失败：{{ loadError }}</p>
-      <button class="retry" @click="load()">重试</button>
-    </div>
-
-    <template v-if="loadState === 'ready'">
-      <!-- 行情脉搏：全市场信号分布一览 -->
-      <section class="pulse reveal" aria-label="行情总览">
-        <div class="stat">
-          <span class="st-k"><i class="st-dot ok"></i>买入信号</span>
-          <span class="st-v ok">{{ stats.BUY }}</span>
-          <span class="st-s">贴近 7 天低位 · 税后利润达标</span>
-        </div>
-        <div class="stat">
-          <span class="st-k"><i class="st-dot danger"></i>卖出信号</span>
-          <span class="st-v danger">{{ stats.SELL }}</span>
-          <span class="st-s">贴近 7 天高位 · 建议出货</span>
-        </div>
-        <div class="stat">
-          <span class="st-k"><i class="st-dot info"></i>低位关注</span>
-          <span class="st-v info">{{ stats.WATCH }}</span>
-          <span class="st-s">处低位但利润未达线</span>
-        </div>
-        <div class="stat">
-          <span class="st-k"><i class="st-dot mute"></i>覆盖弹种</span>
-          <span class="st-v">{{ items.length }}</span>
-          <span class="st-s">交易行全部子弹 · 7 天曲线</span>
-        </div>
-      </section>
-
-      <!-- 我的囤货台账：纯本地 localStorage（不上传不同步），有持仓才显示。
-           浮盈按「挂目标价税后到手」口径；现价已达挂卖价的行高亮可出 -->
-      <section v-if="positions.length" ref="posSecRef" class="block reveal pos-block" aria-label="我的囤货台账">
-        <div class="block-h">
-          <span class="bht">MY POSITIONS</span><span class="bhline"></span>
-          <span class="bhc">{{ positions.length }} 条 · 本机记录{{ accountUser ? ' · 已随账号云同步' : '' }}</span>
-        </div>
-        <div class="pos-sum">
-          <span class="ps-item">总投入 <b>{{ fmt(posTotals.invest) }}</b></span>
-          <span class="ps-item">到价浮盈（挂目标价）<b :class="posTotals.gainNet >= 0 ? 'pos-pos' : 'pos-neg'">{{ fmtSigned(posTotals.gainNet) }}</b><template v-if="posTotals.pct != null">（{{ pct(posTotals.pct) }}）</template></span>
-          <span class="ps-item">现价直出浮盈 <b :class="posTotals.gainNow >= 0 ? 'pos-pos' : 'pos-neg'">{{ fmtSigned(posTotals.gainNow) }}</b></span>
-        </div>
-        <ul class="pos-list">
-          <li v-for="r in positionRows" :key="r.name" :class="{ hit: r.atTarget }">
-            <span class="pos-name">
-              <span class="a-icw" aria-hidden="true">
-                <img
-                  v-if="r.item?.pic" class="a-ic"
-                  :src="picThumb(r.item.pic, 96)" alt=""
-                  width="26" height="18" loading="lazy" decoding="async"
-                  @error="hideImg"
-                >
-              </span>
-              <span class="pos-title">{{ r.name }}</span>
-              <span v-if="r.atTarget" class="pos-badge">已到挂卖价</span>
-              <span v-else-if="!r.item" class="pos-badge gone">不在当前行情</span>
-            </span>
-            <label class="pos-field" :title="`数量（${r.qty} 发）`">
-              <span class="pos-k">数量</span>
-              <input class="pos-in" type="number" min="1" :value="r.qty" aria-label="数量" @change="setPosQty(r, $event)">
-            </label>
-            <label class="pos-field" :title="`成本 / 发（${fmt(r.cost)}）`">
-              <span class="pos-k">成本/发</span>
-              <input class="pos-in" type="number" min="1" step="any" :value="r.cost" aria-label="成本单价" @change="setPosCost(r, $event)">
-            </label>
-            <span class="pos-cell">
-              <span class="pos-k">现价</span>
-              <span class="mono pos-v">{{ r.item ? fmt(r.item.current) : '—' }}</span>
-            </span>
-            <span class="pos-cell">
-              <span class="pos-k">到价浮盈</span>
-              <span class="mono pos-v" :class="r.gainNet == null ? '' : r.gainNet >= 0 ? 'pos-pos' : 'pos-neg'">{{ r.gainNet == null ? '—' : fmtSigned(r.gainNet) }}</span>
-            </span>
-            <span class="pos-cell">
-              <span class="pos-k">现价浮盈</span>
-              <span class="mono pos-v" :class="r.gainNow == null ? '' : r.gainNow >= 0 ? 'pos-pos' : 'pos-neg'">{{ r.gainNow == null ? '—' : fmtSigned(r.gainNow) }}</span>
-            </span>
-            <button
-              class="pos-del" :class="{ arm: posDelArm === r.name }"
-              :aria-label="posDelArm === r.name ? `再点一次，确认删除 ${r.name} 的囤货记录` : `删除 ${r.name} 的囤货记录`"
-              :title="posDelArm === r.name ? '再点一次确认删除（3 秒后自动取消）' : '删除这条囤货'"
-              @click="onPosDel(r.name)"
-            >{{ posDelArm === r.name ? '确认' : '✕' }}</button>
-          </li>
-        </ul>
-        <form class="pos-add" @submit.prevent="addPosition">
-          <input
-            v-model.trim="posForm.name" class="pos-in pos-add-name" list="pos-name-list"
-            type="text" placeholder="弹名（可联想，如 M855A1）" aria-label="弹名"
-          >
-          <datalist id="pos-name-list">
-            <option v-for="i in items" :key="i.name" :value="i.name" />
-          </datalist>
-          <input v-model.number="posForm.qty" class="pos-in" type="number" min="1" placeholder="数量" aria-label="数量" required>
-          <input v-model.number="posForm.cost" class="pos-in pos-add-cost" type="number" min="1" step="any" placeholder="成本/发（空=现价）" aria-label="成本单价，留空按现价记入">
-          <button class="pos-add-btn" type="submit">{{ positions.some((p) => p.name === posForm.name) ? '更新' : '记入囤货' }}</button>
-          <p v-if="posFormErr" class="pos-err" role="alert">{{ posFormErr }}</p>
-        </form>
-      </section>
-
-      <!-- 买入信号 -->
-      <section v-if="buyList.length" class="block reveal">
-        <div class="block-h">
-          <span class="bht">BUY SIGNALS</span><span class="bhline"></span>
-          <span class="bhc">{{ buyList.length }} 种 · 按预期收益率排序</span>
-        </div>
-        <div class="sig-grid">
-          <SignalCard v-for="i in buyList.slice(0, 6)" :key="i.name" :item="i" />
-        </div>
-        <p v-if="buyList.length > 6" class="more-tip">其余 {{ buyList.length - 6 }} 种买入信号见下方全表（筛选「买入」）。</p>
-      </section>
-      <p v-else class="no-buy-tip">
-        当前没有触发买入条件的弹种（7 天低位 + 税后利润 ≥ 8%）。低位「关注」中的弹种见全表。
+         「刷新数据」按钮在全表控制条（首屏外），提示最刺眼时就地给出口；
+         进出场淡入淡出（MOTION.md §3-F） -->
+    <Transition name="swap">
+      <p v-if="ageMin !== null && ageMin > thresholds.staleTipMin" class="state-tip stale-tip" role="status">
+        {{ staleTipMsg }}
+        <button class="retry" :disabled="refreshing" @click="load({ silent: true })">{{ refreshing ? '刷新中…' : '立即刷新' }}</button>
       </p>
+    </Transition>
 
-      <!-- 卖出信号（迷你卡，点击直达全表走势） -->
-      <section v-if="sellList.length" class="block reveal">
-        <div class="block-h">
-          <span class="bht">SELL SIGNALS</span><span class="bhline"></span>
-          <span class="bhc">{{ sellList.length }} 种贴近 7 天高位 · 点击查看走势</span>
+    <!-- 加载 / 空 / 错 / 就绪四态互切（MOTION.md §4.1，P0）：首载骨架屏 → 内容
+         .swap 淡切（离场只淡出、进场带 6px 上移），四态各包单根 div 以 loadState
+         为 key；.state-card 类名保留在空/错态内部（smoke.mjs 依赖） -->
+    <Transition name="swap" mode="out-in" @enter="onStateRootEnter">
+      <div v-if="loadState === 'loading'" key="loading" class="state-root sk-hold">
+        <!-- 骨架预告真实首屏布局：行情脉搏四格 + 全量表 8 行（占位结构见
+             SkeletonView / motion.css，全局 .sk-hold 的 max(560px, 60vh) 兜底首屏不空） -->
+        <SkeletonView variant="stats" />
+        <SkeletonView variant="table" :rows="8" />
+      </div>
+      <div v-else-if="loadState === 'empty'" key="empty" class="state-root">
+        <div class="state-card">
+          <p>还没有行情数据。</p>
+          <p class="dim">行情快照正在准备中，稍后再来看看。</p>
         </div>
-        <div class="sell-grid">
-          <SellCard
-            v-for="i in sellList.slice(0, 12)" :key="i.name"
-            :item="i" @open="openFromSell(i)"
-          />
-          <button
-            v-if="sellList.length > 12" class="sell-more"
-            aria-label="筛选全部卖出信号" @click="showAllSell"
-          >+{{ sellList.length - 12 }} 种</button>
+      </div>
+      <div v-else-if="loadState === 'error'" key="error" class="state-root">
+        <div class="state-card">
+          <p>行情加载失败：{{ loadError }}</p>
+          <button class="retry" @click="load()">重试</button>
         </div>
-      </section>
-
-      <!-- 全量表（控制条吸顶，表容器内滚 + 表头 sticky） -->
-      <section ref="allSecRef" class="block reveal">
-        <div class="block-h">
-          <span class="bht">ALL AMMO</span><span class="bhline"></span>
-          <span class="bhc">{{ filtered.length }} / {{ items.length }} 种</span>
-        </div>
-
-        <!-- .tbl-zone：只包控制条 + 表容器（控制条吸顶的包含块）。
-             曾把 METHOD 区留在里面给表容器 sticky 当「滑动余量」——页滚时后续
-             内容会从吸顶表格背后穿过（行底半透明，文字叠印），已废弃该结构 -->
-        <div class="tbl-zone">
-          <div ref="ctlRef" class="sticky-bar ctl-sticky">
-            <div class="ctl-bar">
-              <div class="chips" role="group" aria-label="信号筛选">
-                <button
-                  v-for="s in SIGNALS" :key="s.v"
-                  class="chip" :class="{ on: state.signal === s.v }"
-                  :aria-pressed="state.signal === s.v"
-                  @click="state.signal = s.v"
-                >
-                  <i v-if="s.dot" class="chip-dot" :style="{ background: s.dot }"></i><svg v-if="s.star" class="chip-star" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.6 9.59 6.02 14.28 6.16 10.57 9.03 11.88 13.54 8 10.9 4.12 13.54 5.43 9.03 1.72 6.16 6.41 6.02Z"/></svg>{{ s.label }}
-                </button>
-              </div>
-              <div class="chips" role="group" aria-label="品级筛选">
-                <button
-                  v-for="g in gradeOptions" :key="g.v"
-                  class="chip" :class="{ on: state.grade === g.v }"
-                  :aria-pressed="state.grade === g.v"
-                  @click="state.grade = g.v"
-                >
-                  <i v-if="g.dot" class="chip-dot" :style="{ background: g.dot }"></i>{{ g.label }}
-                </button>
-              </div>
-              <span class="search-wrap">
-                <input
-                  ref="searchRef" v-model.trim="state.q" class="search"
-                  :class="{ armed: searchArmed, hasq: state.q }"
-                  type="search" placeholder="搜索弹种，如 5.56 / M995" aria-label="搜索弹种"
-                  @input="searchArmed = false"
-                >
-                <button v-if="state.q" class="search-clear" aria-label="清除搜索" title="清除搜索" @click="clearSearch">✕</button>
-              </span>
-              <div class="chips" role="group" aria-label="排序">
-                <button
-                  v-for="s in SORTS" :key="s.v"
-                  class="chip" :class="{ on: state.sort === s.v }"
-                  :aria-pressed="state.sort === s.v"
-                  :title="state.sort === s.v && state.dir
-                    ? `当前${state.dir === 'desc' ? '降序' : '升序'}，再点切换方向`
-                    : null"
-                  @click="onSort(s.v)"
-                >{{ s.label }}<svg v-if="state.sort === s.v && state.dir" class="dir" viewBox="0 0 16 16" aria-hidden="true"><path v-if="state.dir === 'desc'" d="M8 3.5v9M4.5 9 8 12.5 11.5 9" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path v-else d="M8 12.5v-9M4.5 7 8 3.5 11.5 7" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
-              </div>
-              <button
-                class="chip refresh" title="重新拉取最新快照"
-                :disabled="refreshing" @click="load({ silent: true })"
-              >{{ refreshing ? '刷新中…' : '刷新数据' }}</button>
-            </div>
-            <p v-if="refreshTip" class="refresh-tip" :class="refreshTipKind" role="status">{{ refreshTip }}</p>
+      </div>
+      <div v-else key="ready" class="state-root">
+        <!-- 行情脉搏：全市场信号分布一览 -->
+        <section class="pulse reveal" aria-label="行情总览">
+          <div class="stat">
+            <span class="st-k"><i class="st-dot ok"></i>买入信号</span>
+            <span class="st-v ok">{{ stats.BUY }}</span>
+            <span class="st-s">贴近 7 天低位 · 税后利润达标</span>
           </div>
-
-          <div
-            ref="tblRef" class="tbl-scroll"
-            :class="{ 'can-scroll': tblCanScroll, 'at-end': tblAtEnd }"
-            @scroll="syncTblFade"
-          >
-            <table class="tbl">
-              <thead>
-                <tr>
-                  <th>弹种</th>
-                  <th class="c-pen">穿透</th>
-                  <th class="num">当前价</th>
-                  <th>信号</th>
-                  <th class="num">税后预赚·发</th>
-                  <th class="num">7天分位</th>
-                  <th class="num c-range">7天区间</th>
-                  <th>走势（7天）</th>
-                </tr>
-              </thead>
-              <tbody>
-                <template v-for="i in filtered" :key="i.name">
-                  <tr
-                    class="row data-row" :class="{ open: expanded === i.name }"
-                    tabindex="0"
-                    :aria-expanded="expanded === i.name"
-                    :aria-label="`${i.name}，展开 7 天价格大图`"
-                    @click="toggle(i.name)"
-                    @keydown.enter="onRowKeydown($event, i.name)"
-                    @keydown.space="onRowKeydown($event, i.name)"
-                  >
-                    <td>
-                      <button
-                        class="star" :class="{ on: stars.has(i.name) }"
-                        :aria-pressed="stars.has(i.name)"
-                        :title="stars.has(i.name) ? '取消自选' : '加入自选'"
-                        @click.stop="toggleStar(i.name)"
-                      ><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.6 9.59 6.02 14.28 6.16 10.57 9.03 11.88 13.54 8 10.9 4.12 13.54 5.43 9.03 1.72 6.16 6.41 6.02Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></button>
-                      <span class="a-icw" aria-hidden="true">
-                        <img
-                          v-if="i.pic" class="a-ic"
-                          :src="picThumb(i.pic, 96)" alt=""
-                          width="26" height="18" loading="lazy" decoding="async"
-                          @error="hideImg"
-                        >
-                        <i class="a-gd" :style="{ background: gradeVar(i.grade) }" :title="`品级 ${i.grade}`"></i>
-                      </span>
-                      <span class="a-name">{{ i.name }}</span>
-                      <i class="row-chev" aria-hidden="true"><svg viewBox="0 0 16 16"><path d="M4 6.2 8 10.2 12 6.2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></i>
-                    </td>
-                    <!-- 穿透（TTK 联动）：无映射显「—」，等级语义与判定矩阵见 TTK 页 -->
-                    <td class="c-pen">
-                      <PenBadge v-if="penOf(i.name) != null" :p="penOf(i.name)" />
-                      <template v-else>—</template>
-                    </td>
-                    <td class="mono strong num price-cell">{{ fmt(i.current) }}</td>
-                    <td>
-                      <span v-if="i.rank == null" class="sig wait">数据不足</span>
-                      <span v-else class="sig" :class="SIGNAL_META[i.signal].cls">{{ SIGNAL_META[i.signal].label }}</span>
-                    </td>
-                    <td class="mono num" :class="{ profit: i.profitPerRound > 0 }">
-                      {{ i.profitPerRound > 0 ? `+${fmt(i.profitPerRound)}（${pct(i.profitPct)}）` : '—' }}
-                    </td>
-                    <td class="num">
-                      <div class="rank-cell">
-                        <span
-                          class="rb-num"
-                          :class="{ low: i.rank != null && i.rank <= 0.35, high: i.rank != null && i.rank >= 0.8 }"
-                        >{{ i.rank == null ? '—' : `${Math.round(i.rank * 100)}%` }}</span>
-                        <div v-if="i.rank != null" class="rank-bar">
-                          <i class="rb-tick" style="left: 25%"></i>
-                          <i class="rb-tick" style="left: 80%"></i>
-                          <i
-                            class="rb-fill"
-                            :style="{ width: `${Math.round(i.rank * 100)}%` }"
-                            :class="{ low: i.rank <= 0.35, high: i.rank >= 0.8 }"
-                          ></i>
-                        </div>
-                      </div>
-                    </td>
-                    <td class="mono dimtx num c-range">{{ fmt(i.weekLow) }} ~ {{ fmt(i.weekHigh) }}</td>
-                    <td><Sparkline :curve="i.curve" :width="130" :height="30" :end-color="SIG_COLOR[i.signal] || 'var(--faint)'" /></td>
-                  </tr>
-                  <tr v-if="expanded === i.name" class="expander">
-                    <td colspan="8">
-                      <div class="exp-actions">
-                        <!-- 记入囤货（零持仓时的录入通道）：预填现价 × 100 发，数量成本再到台账行内改 -->
-                        <button
-                          class="exp-close exp-pos"
-                          :class="{ on: positions.some((p) => p.name === i.name) }"
-                          :disabled="positions.some((p) => p.name === i.name)"
-                          :title="positions.some((p) => p.name === i.name)
-                            ? '已在囤货台账：数量与成本到页面顶部台账行内修改'
-                            : `按现价 ${fmt(i.current)} × 100 发记入囤货台账，数量与成本可再修改`"
-                          @click="quickAddPosition(i)"
-                        >{{ positions.some((p) => p.name === i.name) ? '已记入囤货 ✓' : '记入囤货' }}</button>
-                        <button class="exp-close" @click="expanded = null">收起</button>
-                      </div>
-                      <PriceChart :curve="i.curve" :p25="i.p25" :p75="i.p75" :current="i.current" />
-                      <p class="exp-note">
-                        口径：买入参考 {{ fmt(i.p25) }}（7 天 P25）/ 目标挂卖 {{ fmt(i.targetSell) }}（近 3 天 75 分位，税后到手 {{ fmt(i.netSell) }}）/
-                        税率 {{ (i.taxRate * 100).toFixed(0) }}%。价格回到目标价即可挂卖<template v-if="i.stopLoss">，破 {{ fmt(i.stopLoss) }} 止损离场</template>；急用钱可按现价直接出。
-                      </p>
-                      <p v-if="etaLine(i)" class="exp-note eta-note">
-                        <b>预计卖出</b>：{{ etaLine(i) }}（历史统计，不代表未来）。
-                      </p>
-                    </td>
-                  </tr>
-                </template>
-                <tr v-if="!filtered.length">
-                  <td colspan="8" class="empty-cell">
-                    没有符合当前筛选的弹种　<button class="empty-clear" @click="clearFilters">清除全部筛选</button>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
+          <div class="stat">
+            <span class="st-k"><i class="st-dot danger"></i>卖出信号</span>
+            <span class="st-v danger">{{ stats.SELL }}</span>
+            <span class="st-s">贴近 7 天高位 · 建议出货</span>
           </div>
-        </div>
-
-        <!-- 方法与免责（.tbl-zone 之外：常规文档流，不会再钻进吸顶表格背后） -->
-        <section class="block reveal">
-          <div class="block-h"><span class="bht">METHOD</span><span class="bhline"></span></div>
-          <ul class="method">
-            <li><b>买入条件</b>（五重门槛，缺一不报）：现价处近 7 天曲线下 1/5 分位；已止跌企稳（高于 7 天低点 ≥3%、近 12 小时无新低、近 48 小时趋势斜率 ≥ 0）；按近 3 天 75 分位挂卖、扣除交易税后收益率 ≥ 10%；曲线 ≥ 2 天。随信号给止损位（破 7 天低点 3% 或单笔 −5% 风险上限）。</li>
-            <li><b>卖出条件</b>：现价处 ≥ 80% 分位且动能转弱（48 小时斜率不陡增）；强势上冲不催卖。</li>
-            <li><b>预计卖出</b>：统计近 7 天小时曲线——「从当前价位档涨到目标挂卖价」的完整上涨段给出中位/最快历时；同小时均价聚合给出日内高位时段。历史统计不代表未来。</li>
-            <li><b>能赚多少</b>：每发利润 = 目标挂卖价 × (1−税率) − 当前买入价；税率按税后价实测反推（约 15%，逐弹计算）。</li>
-            <li><b>穿透</b>：来自 TTK 弹药数据（穿透等级决定对各级护甲的伤害通过率，判定矩阵见 TTK 页）。「—」= 无穿透数据（弓弩用弹 / 国服与通用命名差异 / 一名多弹无法确定对应），宁缺勿错。</li>
-            <li><b>数据</b>：{{ dataLine }}</li>
-            <li><b>提醒</b>：交易行价格受版本、活动与大盘供需影响，历史分位不代表未来走势；利润测算未计挂单时间成本。</li>
-          </ul>
+          <div class="stat">
+            <span class="st-k"><i class="st-dot info"></i>低位关注</span>
+            <span class="st-v info">{{ stats.WATCH }}</span>
+            <span class="st-s">处低位但利润未达线</span>
+          </div>
+          <div class="stat">
+            <span class="st-k"><i class="st-dot mute"></i>覆盖弹种</span>
+            <span class="st-v">{{ items.length }}</span>
+            <span class="st-s">交易行全部子弹 · 7 天曲线</span>
+          </div>
         </section>
-      </section>
 
-      <!-- 全市场日内节律（数据驱动的「现在几点该买该卖」，插在倒卖手册之上：
-           静态 WINDOWS 给共识时段，这里给当前快照的实时水位判读，两者互补） -->
-      <MarketClock :items="items" />
+        <!-- 我的囤货台账：纯本地 localStorage（不上传不同步），有持仓才显示。
+             浮盈按「挂目标价税后到手」口径；现价已达挂卖价的行高亮可出 -->
+        <section v-if="positions.length" ref="posSecRef" class="block reveal pos-block" aria-label="我的囤货台账">
+          <div class="block-h">
+            <span class="bht">MY POSITIONS</span><span class="bhline"></span>
+            <span class="bhc">{{ positions.length }} 条 · 本机记录{{ accountUser ? ' · 已随账号云同步' : '' }}</span>
+          </div>
+          <div class="pos-sum">
+            <span class="ps-item">总投入 <b>{{ fmt(posTotals.invest) }}</b></span>
+            <span class="ps-item">到价浮盈（挂目标价）<b :class="posTotals.gainNet >= 0 ? 'pos-pos' : 'pos-neg'">{{ fmtSigned(posTotals.gainNet) }}</b><template v-if="posTotals.pct != null">（{{ pct(posTotals.pct) }}）</template></span>
+            <span class="ps-item">现价直出浮盈 <b :class="posTotals.gainNow >= 0 ? 'pos-pos' : 'pos-neg'">{{ fmtSigned(posTotals.gainNow) }}</b></span>
+          </div>
+          <!-- 台账行增删补位重排（MOTION.md §3-B 小列表 ≤20 行〔补〕）：flip move
+               补位 + 淡入淡出；.pos-list 的 position: relative 作离场行脱流的锚点 -->
+          <TransitionGroup name="flip" tag="ul" class="pos-list">
+            <li v-for="r in positionRows" :key="r.name" :class="{ hit: r.atTarget }">
+              <span class="pos-name">
+                <span class="a-icw" aria-hidden="true">
+                  <img
+                    v-if="r.item?.pic" class="a-ic"
+                    :src="picThumb(r.item.pic, 96)" alt=""
+                    width="26" height="18" loading="lazy" decoding="async"
+                    @load="imgReady" @error="hideImg"
+                  >
+                </span>
+                <span class="pos-title">{{ r.name }}</span>
+                <span v-if="r.atTarget" class="pos-badge">已到挂卖价</span>
+                <span v-else-if="!r.item" class="pos-badge gone">不在当前行情</span>
+              </span>
+              <label class="pos-field" :title="`数量（${r.qty} 发）`">
+                <span class="pos-k">数量</span>
+                <input class="pos-in" type="number" min="1" :value="r.qty" aria-label="数量" @change="setPosQty(r, $event)">
+              </label>
+              <label class="pos-field" :title="`成本 / 发（${fmt(r.cost)}）`">
+                <span class="pos-k">成本/发</span>
+                <input class="pos-in" type="number" min="1" step="any" :value="r.cost" aria-label="成本单价" @change="setPosCost(r, $event)">
+              </label>
+              <span class="pos-cell">
+                <span class="pos-k">现价</span>
+                <span class="mono pos-v">{{ r.item ? fmt(r.item.current) : '—' }}</span>
+              </span>
+              <span class="pos-cell">
+                <span class="pos-k">到价浮盈</span>
+                <span class="mono pos-v" :class="r.gainNet == null ? '' : r.gainNet >= 0 ? 'pos-pos' : 'pos-neg'">{{ r.gainNet == null ? '—' : fmtSigned(r.gainNet) }}</span>
+              </span>
+              <span class="pos-cell">
+                <span class="pos-k">现价浮盈</span>
+                <span class="mono pos-v" :class="r.gainNow == null ? '' : r.gainNow >= 0 ? 'pos-pos' : 'pos-neg'">{{ r.gainNow == null ? '—' : fmtSigned(r.gainNow) }}</span>
+              </span>
+              <button
+                class="pos-del" :class="{ arm: posDelArm === r.name }"
+                :aria-label="posDelArm === r.name ? `再点一次，确认删除 ${r.name} 的囤货记录` : `删除 ${r.name} 的囤货记录`"
+                :title="posDelArm === r.name ? '再点一次确认删除（3 秒后自动取消）' : '删除这条囤货'"
+                @click="onPosDel(r.name)"
+              >{{ posDelArm === r.name ? '确认' : '✕' }}</button>
+            </li>
+          </TransitionGroup>
+          <form class="pos-add" @submit.prevent="addPosition">
+            <input
+              v-model.trim="posForm.name" class="pos-in pos-add-name" list="pos-name-list"
+              type="text" placeholder="弹名（可联想，如 M855A1）" aria-label="弹名"
+            >
+            <datalist id="pos-name-list">
+              <option v-for="i in items" :key="i.name" :value="i.name" />
+            </datalist>
+            <input v-model.number="posForm.qty" class="pos-in" type="number" min="1" placeholder="数量" aria-label="数量" required>
+            <input v-model.number="posForm.cost" class="pos-in pos-add-cost" type="number" min="1" step="any" placeholder="成本/发（空=现价）" aria-label="成本单价，留空按现价记入">
+            <button class="pos-add-btn" type="submit">{{ positions.some((p) => p.name === posForm.name) ? '更新' : '记入囤货' }}</button>
+            <p v-if="posFormErr" class="pos-err" role="alert">{{ posFormErr }}</p>
+          </form>
+        </section>
 
-      <!-- 倒卖手册：社区攻略整理的实操动线（买/卖/版本窗口/卡邮件 + 风险红线）。
-           放在 .tbl-zone 之外：不影响表容器 sticky 的包含块余量 -->
-      <Playbook />
-    </template>
+        <!-- 买入信号 -->
+        <section v-if="buyList.length" class="block reveal">
+          <div class="block-h">
+            <span class="bht">BUY SIGNALS</span><span class="bhline"></span>
+            <span class="bhc">{{ buyList.length }} 种 · 按预期收益率排序</span>
+          </div>
+          <div class="sig-grid">
+            <SignalCard v-for="i in buyList.slice(0, 6)" :key="i.name" :item="i" />
+          </div>
+          <p v-if="buyList.length > 6" class="more-tip">其余 {{ buyList.length - 6 }} 种买入信号见下方全表（筛选「买入」）。</p>
+        </section>
+        <p v-else class="no-buy-tip">
+          当前没有触发买入条件的弹种（7 天低位 + 税后利润 ≥ 8%）。低位「关注」中的弹种见全表。
+        </p>
+
+        <!-- 卖出信号（迷你卡，点击直达全表走势） -->
+        <section v-if="sellList.length" class="block reveal">
+          <div class="block-h">
+            <span class="bht">SELL SIGNALS</span><span class="bhline"></span>
+            <span class="bhc">{{ sellList.length }} 种贴近 7 天高位 · 点击查看走势</span>
+          </div>
+          <div class="sell-grid">
+            <SellCard
+              v-for="i in sellList.slice(0, 12)" :key="i.name"
+              :item="i" @open="openFromSell(i)"
+            />
+            <button
+              v-if="sellList.length > 12" class="sell-more press"
+              aria-label="筛选全部卖出信号" @click="showAllSell"
+            >+{{ sellList.length - 12 }} 种</button>
+          </div>
+        </section>
+
+        <!-- 全量表（控制条吸顶，表容器内滚 + 表头 sticky） -->
+        <section ref="allSecRef" class="block reveal">
+          <div class="block-h">
+            <span class="bht">ALL AMMO</span><span class="bhline"></span>
+            <span class="bhc">{{ filtered.length }} / {{ items.length }} 种</span>
+          </div>
+
+          <!-- .tbl-zone：只包控制条 + 表容器（控制条吸顶的包含块）。
+               曾把 METHOD 区留在里面给表容器 sticky 当「滑动余量」——页滚时后续
+               内容会从吸顶表格背后穿过（行底半透明，文字叠印），已废弃该结构 -->
+          <div class="tbl-zone">
+            <div ref="ctlRef" class="sticky-bar ctl-sticky">
+              <div class="ctl-bar">
+                <div class="chips" role="group" aria-label="信号筛选">
+                  <button
+                    v-for="s in SIGNALS" :key="s.v"
+                    class="chip" :class="{ on: state.signal === s.v }"
+                    :aria-pressed="state.signal === s.v"
+                    @click="state.signal = s.v"
+                  >
+                    <i v-if="s.dot" class="chip-dot" :style="{ background: s.dot }"></i><svg v-if="s.star" class="chip-star" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.6 9.59 6.02 14.28 6.16 10.57 9.03 11.88 13.54 8 10.9 4.12 13.54 5.43 9.03 1.72 6.16 6.41 6.02Z"/></svg>{{ s.label }}
+                  </button>
+                </div>
+                <div class="chips" role="group" aria-label="品级筛选">
+                  <button
+                    v-for="g in gradeOptions" :key="g.v"
+                    class="chip" :class="{ on: state.grade === g.v }"
+                    :aria-pressed="state.grade === g.v"
+                    @click="state.grade = g.v"
+                  >
+                    <i v-if="g.dot" class="chip-dot" :style="{ background: g.dot }"></i>{{ g.label }}
+                  </button>
+                </div>
+                <span class="search-wrap">
+                  <input
+                    ref="searchRef" v-model.trim="state.q" class="search"
+                    :class="{ armed: searchArmed, hasq: state.q }"
+                    type="search" placeholder="搜索弹种，如 5.56 / M995" aria-label="搜索弹种"
+                    @input="searchArmed = false"
+                  >
+                  <button v-if="state.q" class="search-clear" aria-label="清除搜索" title="清除搜索" @click="clearSearch">✕</button>
+                </span>
+                <div class="chips" role="group" aria-label="排序">
+                  <button
+                    v-for="s in SORTS" :key="s.v"
+                    class="chip" :class="{ on: state.sort === s.v }"
+                    :aria-pressed="state.sort === s.v"
+                    :title="state.sort === s.v && state.dir
+                      ? `当前${state.dir === 'desc' ? '降序' : '升序'}，再点切换方向`
+                      : null"
+                    @click="onSort(s.v)"
+                  >{{ s.label }}<svg v-if="state.sort === s.v && state.dir" class="dir" viewBox="0 0 16 16" aria-hidden="true"><path v-if="state.dir === 'desc'" d="M8 3.5v9M4.5 9 8 12.5 11.5 9" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path v-else d="M8 12.5v-9M4.5 7 8 3.5 11.5 7" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+                </div>
+                <button
+                  class="chip refresh" title="重新拉取最新快照"
+                  :disabled="refreshing" @click="load({ silent: true })"
+                >{{ refreshing ? '刷新中…' : '刷新数据' }}<!-- 内联小环 = 「进行中」进度语义
+                     （MOTION.md §3-F / 原则 5：RM 下唯一保留的循环动画） --><i v-if="refreshing" class="mini-spin" aria-hidden="true"></i></button>
+              </div>
+              <!-- 刷新结果提示：淡入淡出（MOTION.md §3-F） -->
+              <Transition name="swap">
+                <p v-if="refreshTip" class="refresh-tip" :class="refreshTipKind" role="status">{{ refreshTip }}</p>
+              </Transition>
+            </div>
+
+            <div
+              ref="tblRef" class="tbl-scroll"
+              :class="{ 'can-scroll': tblCanScroll, 'at-end': tblAtEnd }"
+              @scroll="syncTblFade"
+            >
+              <table class="tbl">
+                <thead>
+                  <tr>
+                    <th>弹种</th>
+                    <th class="c-pen">穿透</th>
+                    <th class="num">当前价</th>
+                    <th>信号</th>
+                    <th class="num">税后预赚·发</th>
+                    <th class="num">7天分位</th>
+                    <th class="num c-range">7天区间</th>
+                    <th>走势（7天）</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <template v-for="i in filtered" :key="i.name">
+                    <tr
+                      class="row data-row" :class="{ open: expanded === i.name }"
+                      tabindex="0"
+                      :aria-expanded="expanded === i.name"
+                      :aria-label="`${i.name}，展开 7 天价格大图`"
+                      @click="toggle(i.name)"
+                      @keydown.enter="onRowKeydown($event, i.name)"
+                      @keydown.space="onRowKeydown($event, i.name)"
+                    >
+                      <td>
+                        <button
+                          class="star" :class="{ on: stars.has(i.name) }"
+                          :aria-pressed="stars.has(i.name)"
+                          :title="stars.has(i.name) ? '取消自选' : '加入自选'"
+                          @click.stop="toggleStar(i.name)"
+                        ><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.6 9.59 6.02 14.28 6.16 10.57 9.03 11.88 13.54 8 10.9 4.12 13.54 5.43 9.03 1.72 6.16 6.41 6.02Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></button>
+                        <span class="a-icw" aria-hidden="true">
+                          <img
+                            v-if="i.pic" class="a-ic"
+                            :src="picThumb(i.pic, 96)" alt=""
+                            width="26" height="18" loading="lazy" decoding="async"
+                            @load="imgReady" @error="hideImg"
+                          >
+                          <i class="a-gd" :style="{ background: gradeVar(i.grade) }" :title="`品级 ${i.grade}`"></i>
+                        </span>
+                        <span class="a-name">{{ i.name }}</span>
+                        <i class="row-chev" aria-hidden="true"><svg viewBox="0 0 16 16"><path d="M4 6.2 8 10.2 12 6.2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></i>
+                      </td>
+                      <!-- 穿透（TTK 联动）：无映射显「—」，等级语义与判定矩阵见 TTK 页 -->
+                      <td class="c-pen">
+                        <PenBadge v-if="penOf(i.name) != null" :p="penOf(i.name)" />
+                        <template v-else>—</template>
+                      </td>
+                      <td class="mono strong num price-cell">{{ fmt(i.current) }}</td>
+                      <td>
+                        <span v-if="i.rank == null" class="sig wait">数据不足</span>
+                        <span v-else class="sig" :class="SIGNAL_META[i.signal].cls">{{ SIGNAL_META[i.signal].label }}</span>
+                      </td>
+                      <td class="mono num" :class="{ profit: i.profitPerRound > 0 }">
+                        {{ i.profitPerRound > 0 ? `+${fmt(i.profitPerRound)}（${pct(i.profitPct)}）` : '—' }}
+                      </td>
+                      <td class="num">
+                        <div class="rank-cell">
+                          <span
+                            class="rb-num"
+                            :class="{ low: i.rank != null && i.rank <= 0.35, high: i.rank != null && i.rank >= 0.8 }"
+                          >{{ i.rank == null ? '—' : `${Math.round(i.rank * 100)}%` }}</span>
+                          <div v-if="i.rank != null" class="rank-bar">
+                            <i class="rb-tick" style="left: 25%"></i>
+                            <i class="rb-tick" style="left: 80%"></i>
+                            <i
+                              class="rb-fill"
+                              :style="{ width: `${Math.round(i.rank * 100)}%` }"
+                              :class="{ low: i.rank <= 0.35, high: i.rank >= 0.8 }"
+                            ></i>
+                          </div>
+                        </div>
+                      </td>
+                      <td class="mono dimtx num c-range">{{ fmt(i.weekLow) }} ~ {{ fmt(i.weekHigh) }}</td>
+                      <td><Sparkline :curve="i.curve" :width="130" :height="30" :end-color="SIG_COLOR[i.signal] || 'var(--faint)'" /></td>
+                    </tr>
+                    <!-- 展开面板开合双向动画（MOTION.md §3-C〔改〕）：<Transition name="exp">
+                         提供进场铺开 + 收起铺收，过渡类与三层结构见 motion.css；v-if 保留，
+                         行本身瞬时插入/移除，动的是内容高度——.exp-clip grid-rows 0fr→1fr；
+                         原 td 的 padding 与 .exp-actions 的定位锚一并移入 .exp-pad，
+                         随 0fr 裁剪同步铺开 -->
+                    <Transition name="exp">
+                      <tr v-if="expanded === i.name" class="expander">
+                        <td colspan="8">
+                          <div class="exp-clip">
+                            <div class="exp-inner">
+                              <div class="exp-pad">
+                                <div class="exp-actions">
+                                  <!-- 记入囤货（零持仓时的录入通道）：预填现价 × 100 发，数量成本再到台账行内改 -->
+                                  <button
+                                    class="exp-close exp-pos"
+                                    :class="{ on: positions.some((p) => p.name === i.name) }"
+                                    :disabled="positions.some((p) => p.name === i.name)"
+                                    :title="positions.some((p) => p.name === i.name)
+                                      ? '已在囤货台账：数量与成本到页面顶部台账行内修改'
+                                      : `按现价 ${fmt(i.current)} × 100 发记入囤货台账，数量与成本可再修改`"
+                                    @click="quickAddPosition(i)"
+                                  >{{ positions.some((p) => p.name === i.name) ? '已记入囤货 ✓' : '记入囤货' }}</button>
+                                  <button class="exp-close" @click="expanded = null">收起</button>
+                                </div>
+                                <PriceChart :curve="i.curve" :p25="i.p25" :p75="i.p75" :current="i.current" />
+                                <p class="exp-note">
+                                  口径：买入参考 {{ fmt(i.p25) }}（7 天 P25）/ 目标挂卖 {{ fmt(i.targetSell) }}（近 3 天 75 分位，税后到手 {{ fmt(i.netSell) }}）/
+                                  税率 {{ (i.taxRate * 100).toFixed(0) }}%。价格回到目标价即可挂卖<template v-if="i.stopLoss">，破 {{ fmt(i.stopLoss) }} 止损离场</template>；急用钱可按现价直接出。
+                                </p>
+                                <p v-if="etaLine(i)" class="exp-note eta-note">
+                                  <b>预计卖出</b>：{{ etaLine(i) }}（历史统计，不代表未来）。
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
+                    </Transition>
+                  </template>
+                  <tr v-if="!filtered.length">
+                    <td colspan="8" class="empty-cell">
+                      没有符合当前筛选的弹种　<button class="empty-clear" @click="clearFilters">清除全部筛选</button>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- 方法与免责（.tbl-zone 之外：常规文档流，不会再钻进吸顶表格背后） -->
+          <section class="block reveal">
+            <div class="block-h"><span class="bht">METHOD</span><span class="bhline"></span></div>
+            <ul class="method">
+              <li><b>买入条件</b>（五重门槛，缺一不报）：现价处近 7 天曲线下 1/5 分位；已止跌企稳（高于 7 天低点 ≥3%、近 12 小时无新低、近 48 小时趋势斜率 ≥ 0）；按近 3 天 75 分位挂卖、扣除交易税后收益率 ≥ 10%；曲线 ≥ 2 天。随信号给止损位（破 7 天低点 3% 或单笔 −5% 风险上限）。</li>
+              <li><b>卖出条件</b>：现价处 ≥ 80% 分位且动能转弱（48 小时斜率不陡增）；强势上冲不催卖。</li>
+              <li><b>预计卖出</b>：统计近 7 天小时曲线——「从当前价位档涨到目标挂卖价」的完整上涨段给出中位/最快历时；同小时均价聚合给出日内高位时段。历史统计不代表未来。</li>
+              <li><b>能赚多少</b>：每发利润 = 目标挂卖价 × (1−税率) − 当前买入价；税率按税后价实测反推（约 15%，逐弹计算）。</li>
+              <li><b>穿透</b>：来自 TTK 弹药数据（穿透等级决定对各级护甲的伤害通过率，判定矩阵见 TTK 页）。「—」= 无穿透数据（弓弩用弹 / 国服与通用命名差异 / 一名多弹无法确定对应），宁缺勿错。</li>
+              <li><b>数据</b>：{{ dataLine }}</li>
+              <li><b>提醒</b>：交易行价格受版本、活动与大盘供需影响，历史分位不代表未来走势；利润测算未计挂单时间成本。</li>
+            </ul>
+          </section>
+        </section>
+
+        <!-- 全市场日内节律（数据驱动的「现在几点该买该卖」，插在倒卖手册之上：
+             静态 WINDOWS 给共识时段，这里给当前快照的实时水位判读，两者互补） -->
+        <MarketClock :items="items" />
+
+        <!-- 倒卖手册：社区攻略整理的实操动线（买/卖/版本窗口/卡邮件 + 风险红线）。
+             放在 .tbl-zone 之外：不影响表容器 sticky 的包含块余量 -->
+        <Playbook />
+      </div>
+    </Transition>
   </div>
 </template>
 
@@ -1057,6 +1112,12 @@ onUnmounted(() => {
   padding: var(--sp-6); color: var(--tx); margin: var(--sp-4) 0;
 }
 .state-card .dim { color: var(--faint); font-size: var(--fs-sm); }
+/* loading 态骨架根：脉搏四格 + 全表两段竖排（对齐 ready 首屏节奏）；高度兜底
+   走全局 .sk-hold 的 max(560px, 60vh)（motion.css，三页统一，MOTION.md §4 验收②③） */
+.sk-hold {
+  display: flex; flex-direction: column; gap: var(--sp-5);
+  padding-top: var(--sp-6); /* 对齐 ready 首屏 .pulse 的 margin-top 节奏 */
+}
 /* 主要按钮（重试/清筛选）：--accent-bg 底 + --accent-dim 边，hover 提底 --accent-soft，
    按下 scale(.98)，禁用降透明；键盘走全局 :focus-visible 外框 */
 .retry,
@@ -1135,7 +1196,11 @@ onUnmounted(() => {
 .pos-pos { color: var(--ok); }
 .pos-neg { color: var(--danger); }
 
-.pos-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+/* position: relative：flip 离场行脱流（.flip-leave-active 的 absolute）的定位锚点 */
+.pos-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; position: relative; }
+/* 脱流后 flex 项宽度塌成 shrink-to-fit：补满宽让淡出行与原位重合，
+   补位动画读作「这行消失、其余上移」而非「缩一下再消失」 */
+.pos-list .flip-leave-active { width: 100%; }
 .pos-list li {
   display: flex; align-items: center; flex-wrap: wrap; gap: 6px 16px;
   background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
@@ -1182,7 +1247,8 @@ onUnmounted(() => {
   flex: none; margin-left: auto;
   background: none; border: 1px solid transparent; border-radius: var(--radius-sm);
   color: var(--faint); font-size: var(--fs-2xs); padding: 3px 8px; cursor: pointer;
-  transition: color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
+  /* background-color 也入过渡：二次确认待定态（.arm）的 danger 微底渐入而非硬切 */
+  transition: color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease), background-color var(--t-fast) var(--ease);
 }
 .pos-del:hover, .pos-del:active { color: var(--danger); border-color: var(--line-hover); }
 /* 二次确认待定态：danger 实感（真值 rgba 兜底，写法同 pos-badge） */
@@ -1229,7 +1295,8 @@ onUnmounted(() => {
   background: none; color: var(--dim);
   font-family: var(--mono); font-size: var(--fs-xs);
   cursor: pointer;
-  transition: color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
+  transition: color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease),
+    transform var(--t-fast) var(--ease); /* transform 项服务 .press 按压（motion.css 约定：调用方列表须含 transform） */
 }
 .sell-more:hover,
 .sell-more:active { color: var(--tx); border-color: var(--line-hover); }
@@ -1352,7 +1419,7 @@ onUnmounted(() => {
   display: inline-flex; align-items: center; justify-content: center;
   width: 28px; height: 18px; margin-right: 8px; vertical-align: middle;
 }
-.a-ic { width: 26px; height: 18px; object-fit: contain; opacity: .92; }
+.a-ic { width: 26px; height: 18px; object-fit: contain; } /* 加载淡入与占位底见 motion.css（imgReady） */
 .a-gd {
   position: absolute; left: -4px; bottom: -3px;
   width: 6px; height: 6px; transform: rotate(45deg);
@@ -1362,7 +1429,9 @@ onUnmounted(() => {
 .row-chev {
   display: inline-flex; align-items: center; vertical-align: middle;
   color: var(--faint); margin-left: 6px;
-  transition: transform var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
+  /* 箭头统一 --t-slow .22s（MOTION.md §3-C 收编）：先转后合，与下方 .exp-clip
+     的 .25s 铺开协调成同一动作（原 --t-fast 快一档显割裂） */
+  transition: transform var(--t-slow) var(--ease), color var(--t-fast) var(--ease);
 }
 .row-chev svg { width: 12px; height: 12px; display: block; }
 .row.open .row-chev { transform: rotate(180deg); color: var(--accent); }
@@ -1429,13 +1498,16 @@ td.profit { color: var(--ok); font-weight: 600; }
 /* 当前价是表格主列：字号升一档并加粗（压过 .mono 的 fs-xs） */
 .tbl td.price-cell { font-size: var(--fs-md); color: var(--tx-strong); font-weight: 700; }
 
-/* 顶部预留动作条带（按钮带约占 td 顶 10~37px）：图表「现在」标注挂在曲线右端，
-   现价贴近 7 天高点时会落到同一右上角，不预留就被不透明按钮盖住 */
+/* 展开面板（MOTION.md §3-C〔改〕，G3）：三层结构（.exp-clip/.exp-inner/.exp-pad）与
+   .exp-* 过渡类已提升 motion.css（三页开合双向对齐，含 RM 兜底）。本页只留页级取值：
+   .exp-pad 顶部 44px 预留动作条带（按钮带约占顶部 10~37px）——图表「现在」标注挂在
+   曲线右端，现价贴近 7 天高点时会落到同一右上角，不预留就被不透明按钮盖住 */
+.exp-pad { padding: 44px 10px 9px; }
 .expander td {
   position: relative; background: var(--card2); border-top: 1px solid var(--accent-dim);
-  padding-top: 44px;
+  padding: 0; /* padding 已移入 .exp-pad（随 0fr 铺开裁剪），td 本体归零 */
 }
-/* 右上动作组（收起 / 记入囤货）：定位由容器承担，按钮本体静态排列 */
+/* 右上动作组（收起 / 记入囤货）：锚在 .exp-pad，0fr 时随裁剪不可见；按钮本体静态排列 */
 .exp-actions { position: absolute; top: 10px; right: 10px; display: flex; gap: 8px; }
 .exp-close {
   font-family: var(--mono); font-size: var(--fs-xs); color: var(--dim);
@@ -1469,7 +1541,7 @@ td.profit { color: var(--ok); font-weight: 600; }
    随之收窄 viewBox 基准），按钮带改流式置顶、不再钉死在 td 右上角。
    本块须置于 .expander td / .exp-actions 基础规则之后——同特异性靠源序覆盖 */
 @media (max-width: 680px) {
-  .expander td { padding-top: 12px; }
+  .exp-pad { padding-top: 12px; }
   .exp-actions { position: static; margin: 0 0 10px; max-width: calc(100vw - 56px); }
   .expander .pchart, .expander .exp-note { max-width: calc(100vw - 56px); }
 }
@@ -1483,7 +1555,8 @@ td.profit { color: var(--ok); font-weight: 600; }
 .method li::before { content: "◆"; position: absolute; left: 0; color: var(--accent-dim); font-size: 8px; top: 7px; }
 .method b { color: var(--tx); }
 
-/* 本页全部微交互过渡的 reduced-motion 关闭（live-dot 脉冲另有独立规则） */
+/* 本页全部微交互过渡的 reduced-motion 关闭（live-dot 脉冲另有独立规则；
+   .swap .flip .exp 与 .a-ic 淡入、.mini-spin 等全局类由 motion.css 文件尾统一兜底） */
 @media (prefers-reduced-motion: reduce) {
   .chip, .search, .search-clear, .sell-more, .exp-close, .star, .row-chev,
   .retry, .empty-clear, .pos-add-btn, .pos-in, .pos-del { transition: none; }

@@ -30,27 +30,41 @@ onMounted(async () => {
 <template>
   <div class="balog">
     <CollapseCol :open="open" label="烽火地带更新记录" :note="note" @toggle="open = !open">
-      <p v-if="failed" class="bal-empty">
-        本地快照缺失：在仓库根目录运行 <code>npm run dfttk:snapshot</code> 生成
-        <code>apps/web/public/data/balance-updates.json</code>（一次性抓取后自托管，前端不再请求外部站点）。
-      </p>
-      <!-- 加载中与空快照分开：fetch 未返回前若落在「快照为空 · 稍后重跑」上，会误导用户去重跑脚本 -->
-      <p v-else-if="!entries" class="bal-empty">快照加载中……</p>
-      <ol v-else-if="entries.length" class="bal-list">
-        <li v-for="e in entries" :key="e.id" class="bal-item">
-          <span class="bal-date">{{ e.date }}</span>
-          <div class="bal-body">
-            <h4 class="bal-title">{{ e.title }}</h4>
-            <p v-if="e.summary" class="bal-sum">{{ e.summary }}</p>
-            <ul class="bal-points">
-              <li v-for="(it, i) in e.items" :key="i">
-                <strong v-if="it.title">{{ it.title }}</strong><span v-if="it.text">{{ it.title ? ' — ' : '' }}{{ it.text }}</span>
-              </li>
-            </ul>
+      <!-- 四态互切（MOTION §4 / §3-H）：mode out-in 先收旧态再进新态，全部走全局 swap 淡入淡出。
+           loading 骨架贴近期刊真实布局：行壳直接复用 .bal-list/.bal-item 栅格（日期列同宽对位），
+           右列 标题条 + 两行摘要条；failed/empty 保留原 .bal-empty 文案（口径说明不动） -->
+      <Transition name="swap" mode="out-in">
+        <p v-if="failed" key="failed" class="bal-empty">
+          本地快照缺失：在仓库根目录运行 <code>npm run dfttk:snapshot</code> 生成
+          <code>apps/web/public/data/balance-updates.json</code>（一次性抓取后自托管，前端不再请求外部站点）。
+        </p>
+        <div v-else-if="!entries" key="loading" class="bal-list" role="status" aria-label="正在加载">
+          <div v-for="n in 3" :key="n" class="bal-item" aria-hidden="true">
+            <i class="sk sk-line" style="--w: 66px"></i>
+            <div class="bal-sk-body">
+              <i class="sk sk-line" style="--w: 44%"></i>
+              <i class="sk sk-line" style="--w: 78%"></i>
+              <i class="sk sk-line" style="--w: 60%"></i>
+            </div>
           </div>
-        </li>
-      </ol>
-      <p v-else class="bal-empty">快照为空：暂无带明细的公告条目，稍后重跑 <code>npm run dfttk:snapshot</code>。</p>
+        </div>
+        <!-- 加载中与空快照分开（原口径保留）：fetch 未返回前若落在「快照为空 · 稍后重跑」上，会误导用户去重跑脚本 -->
+        <ol v-else-if="entries.length" key="list" class="bal-list">
+          <li v-for="e in entries" :key="e.id" class="bal-item">
+            <span class="bal-date">{{ e.date }}</span>
+            <div class="bal-body">
+              <h4 class="bal-title">{{ e.title }}</h4>
+              <p v-if="e.summary" class="bal-sum">{{ e.summary }}</p>
+              <ul class="bal-points">
+                <li v-for="(it, i) in e.items" :key="i">
+                  <strong v-if="it.title">{{ it.title }}</strong><span v-if="it.text">{{ it.title ? ' — ' : '' }}{{ it.text }}</span>
+                </li>
+              </ul>
+            </div>
+          </li>
+        </ol>
+        <p v-else key="empty" class="bal-empty">快照为空：暂无带明细的公告条目，稍后重跑 <code>npm run dfttk:snapshot</code>。</p>
+      </Transition>
     </CollapseCol>
   </div>
 </template>
@@ -70,6 +84,14 @@ onMounted(async () => {
   border-bottom: 1px solid var(--line2);
 }
 .bal-item:last-child { border-bottom: 0; }
+/* 骨架行右列：标题条 + 两行摘要条的纵向排布（行壳复用 .bal-item 栅格，见模板注释）；
+   条块底色与扫光全在全局 .sk 基块上，这里只管几何 */
+.bal-sk-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
 .bal-date {
   font-family: var(--mono);
   font-size: var(--fs-xs);

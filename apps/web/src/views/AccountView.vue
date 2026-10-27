@@ -224,10 +224,16 @@ const lastSyncText = computed(() => {
 
       <!-- 右：表单卡（单一主操作；登录 / 注册由底部文字链切换） -->
       <div class="auth-card" style="--ri: 1">
-        <h3 class="ac-title">{{ mode === 'login' ? '欢迎回来' : '创建账号' }}</h3>
-        <p class="ac-sub">
-          {{ mode === 'login' ? '登录后开启自选星标云端同步' : '注册即自动登录，本机数据与云端合并' }}
-        </p>
+        <!-- 登录/注册切换只换卡头（标题 + 副题）：.25s out-in 上移淡切；字段与已输入
+             内容不动——整卡换 key 会重建输入框丢焦点，得不偿失 -->
+        <Transition name="swap" mode="out-in">
+          <div :key="mode" class="ac-head">
+            <h3 class="ac-title">{{ mode === 'login' ? '欢迎回来' : '创建账号' }}</h3>
+            <p class="ac-sub">
+              {{ mode === 'login' ? '登录后开启自选星标云端同步' : '注册即自动登录，本机数据与云端合并' }}
+            </p>
+          </div>
+        </Transition>
 
         <form novalidate @submit.prevent="submit()">
           <div class="f-group">
@@ -277,22 +283,26 @@ const lastSyncText = computed(() => {
                 <svg v-else viewBox="0 0 20 20" aria-hidden="true"><path d="M2.7 2.7a.9.9 0 0 0 0 1.3l1.9 1.9C2.8 7.3 1.5 9 1 10c1.4 3.3 4.4 5.5 8 5.5 1.5 0 2.9-.4 4.2-1.1l2.5 2.6a.9.9 0 0 0 1.3-1.3L4 2.7a.9.9 0 0 0-1.3 0Zm5.5 2.8 4.9 4.9a3.7 3.7 0 0 1-4.9-4.9ZM10 4.5c-.6 0-1.2.1-1.8.2l1.5 1.5a2.1 2.1 0 0 1 2.5 2.5l3.5 3.5c1-.9 1.8-2 2.3-3.2-1.4-3.3-4.4-5.5-8-5.5Z" fill="currentColor"/></svg>
               </button>
             </div>
-            <p v-if="capsOn" id="caps-warn" class="caps-warn" aria-live="polite">
-              <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.8 14.4 12H1.6L8 1.8Zm-.9 4v3.4h1.8V5.8H7.1Zm0 4.4v1.7h1.8v-1.7H7.1Z" fill="currentColor"/></svg>
-              已开启大写锁定
-            </p>
+            <Transition name="swap">
+              <p v-if="capsOn" id="caps-warn" class="caps-warn" aria-live="polite">
+                <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.8 14.4 12H1.6L8 1.8Zm-.9 4v3.4h1.8V5.8H7.1Zm0 4.4v1.7h1.8v-1.7H7.1Z" fill="currentColor"/></svg>
+                已开启大写锁定
+              </p>
+            </Transition>
           </div>
 
-          <button class="submit" type="submit" :disabled="!canSubmit">
+          <button class="submit" type="submit" :class="{ busy: submitting }" :disabled="!canSubmit">
             <span v-if="submitting" class="spinner" aria-hidden="true"></span>
             {{ submitting ? (mode === 'login' ? '登录中…' : '注册中…') : mode === 'login' ? '登录' : '注册并登录' }}
           </button>
         </form>
 
-        <p v-if="formError" class="form-err" role="alert" :title="formErrorTip || undefined">
-          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.5A6.5 6.5 0 1 0 8 14.5 6.5 6.5 0 0 0 8 1.5ZM7.3 4.5h1.4v5H7.3v-5Zm0 5.9h1.4v1.4H7.3v-1.4Z" fill="currentColor"/></svg>
-          {{ formError }}
-        </p>
+        <Transition name="swap">
+          <p v-if="formError" class="form-err" role="alert" :title="formErrorTip || undefined">
+            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.5A6.5 6.5 0 1 0 8 14.5 6.5 6.5 0 0 0 8 1.5ZM7.3 4.5h1.4v5H7.3v-5Zm0 5.9h1.4v1.4H7.3v-1.4Z" fill="currentColor"/></svg>
+            {{ formError }}
+          </p>
+        </Transition>
 
         <div class="ac-switch">
           <span>{{ mode === 'login' ? '还没有账号？' : '已有账号？' }}</span>
@@ -329,6 +339,9 @@ const lastSyncText = computed(() => {
           <span class="sync-v">{{ syncStateText }}</span>
           <button class="sync-btn" :disabled="syncing" @click="onSyncNow">
             <svg v-if="!syncing" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.5a5.5 5.5 0 1 0 5.3 7h-1.6A4 4 0 1 1 8 4v2l3-2.5L8 1v1.5Z" fill="currentColor"/></svg>
+            <!-- 同步中换共享层 12px 进度环（.mini-spin，进度语义 RM 下保留）：
+                 按钮禁用 + 文案 + 内联环三件套构成完整进度反馈 -->
+            <i v-else class="mini-spin" aria-hidden="true"></i>
             {{ syncing ? '同步中…' : '立即同步' }}
           </button>
         </div>
@@ -459,6 +472,7 @@ form { margin-top: var(--sp-5); display: flex; flex-direction: column; }
   font-size: var(--fs-2xs);
   color: var(--faint);
   display: inline-flex; align-items: center; gap: 4px;
+  transition: color var(--t-fast) var(--ease); /* 中性→红→绿随校验结果平滑换色（状态过渡，无布局成本） */
 }
 .f-st.bad { color: var(--danger); }
 .f-st.ok { color: var(--accent); }
@@ -522,6 +536,8 @@ form { margin-top: var(--sp-5); display: flex; flex-direction: column; }
 .submit:hover:not(:disabled) { background: var(--accent-soft); }
 .submit:active:not(:disabled) { transform: translateY(1px); }
 .submit:disabled { opacity: .45; cursor: not-allowed; }
+/* 提交中不随 disabled 压暗：spinner 本身就是「进行中」反馈，半透明会削弱它（busy 保持全不透明） */
+.submit:disabled.busy { opacity: 1; cursor: default; }
 .spinner {
   width: 14px; height: 14px; flex: none;
   border-radius: 50%;
@@ -531,7 +547,8 @@ form { margin-top: var(--sp-5); display: flex; flex-direction: column; }
 }
 @keyframes spin { to { transform: rotate(1turn); } }
 
-/* 错误条：警示图标 + 抖动入场；每次出现（v-if 重挂）重新播放 */
+/* 错误条：警示图标 + 外层 <Transition name="swap"> 淡入淡出 + 抖动一次（每次 v-if
+   重挂重新播放）；抖动时长收编 --t-panel .25s（MOTION.md §5 表单错误行的档位登记） */
 .form-err {
   display: flex; align-items: flex-start; gap: var(--sp-2);
   margin-top: var(--sp-4);
@@ -540,7 +557,7 @@ form { margin-top: var(--sp-5); display: flex; flex-direction: column; }
   border-radius: var(--radius);
   background: rgba(217, 106, 89, .08);
   color: var(--danger); font-size: var(--fs-sm); line-height: 1.6;
-  animation: shake .32s var(--ease);
+  animation: shake var(--t-panel) var(--ease);
 }
 .form-err svg { width: 14px; height: 14px; flex: none; margin-top: 3px; }
 @keyframes shake {
@@ -609,7 +626,7 @@ form { margin-top: var(--sp-5); display: flex; flex-direction: column; }
   margin-left: auto;
   background: none; border: 1px solid var(--line); border-radius: var(--radius-pill);
   color: var(--dim); font-size: var(--fs-sm); padding: 6px 18px; cursor: pointer;
-  transition: color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
+  transition: color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease), background var(--t-fast) var(--ease); /* arming 的微警示底也走过渡 */
 }
 .logout:hover { color: var(--danger); border-color: var(--danger); }
 /* 两步确认的第一步：常驻危险色 + 微警示底，与 hover 态区分开（hover 是瞬态提示，arming 是持续状态） */
@@ -623,12 +640,14 @@ form { margin-top: var(--sp-5); display: flex; flex-direction: column; }
   border: 1px solid var(--line2); border-radius: var(--radius);
   background: var(--bg2);
   padding: var(--sp-4);
+  transition: border-color var(--t-fast) var(--ease); /* idle→error 描边换色 */
 }
 .sync-box.error { border-color: var(--danger); }
 .sync-line { display: flex; align-items: center; gap: var(--sp-3); }
 .sync-dot {
   width: 8px; height: 8px; flex: none; border-radius: 50%;
   background: var(--faint);
+  transition: background var(--t-fast) var(--ease); /* idle/ok/error 换色平滑 */
 }
 .sync-box.ok .sync-dot { background: var(--ok); }
 .sync-box.error .sync-dot { background: var(--danger); }
@@ -639,7 +658,7 @@ form { margin-top: var(--sp-5); display: flex; flex-direction: column; }
   100% { box-shadow: 0 0 0 0 rgba(45, 212, 191, 0); }
 }
 .sync-k { color: var(--dim); font-size: var(--fs-sm); }
-.sync-v { color: var(--tx); font-size: var(--fs-sm); font-weight: 600; margin-right: auto; }
+.sync-v { color: var(--tx); font-size: var(--fs-sm); font-weight: 600; margin-right: auto; transition: color var(--t-fast) var(--ease); }
 .sync-box.ok .sync-v { color: var(--ok); }
 .sync-box.error .sync-v { color: var(--danger); }
 .sync-btn {
@@ -690,9 +709,10 @@ form { margin-top: var(--sp-5); display: flex; flex-direction: column; }
 }
 
 @media (prefers-reduced-motion: reduce) {
+  /* shake 停；外层 swap 淡入淡出由 motion.css 文件尾 RM 兜底统一关停为瞬时 */
   .form-err { animation: none; }
-  .spinner { animation-duration: 1.4s; }
-  .pend-spin { animation-duration: 1.4s; }
+  /* spinner / pend-spin / mini-spin 是进度语义循环（MOTION.md 原则 5 例外），RM 下按原速 .7s
+     保留——不再降速 1.4s：与本页共用的 .mini-spin 同速，且「降级禁留更慢版本」（§6-5） */
   .sync-box.syncing .sync-dot { animation: none; }
 }
 </style>

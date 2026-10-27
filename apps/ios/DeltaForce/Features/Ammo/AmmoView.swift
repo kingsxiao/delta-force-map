@@ -1,6 +1,8 @@
 // AmmoView.swift — 子弹行情：买入 / 卖出信号卡 + 全表（筛选 / 排序 / 搜索 / 自选置顶）
 // 精修对齐 DESIGN.md §4.1：列表行权重反转 / 信号卡主数字立权 / 刷新二分触感 /
 // 筛选排序回顶 / RetryErrorRow 防空转 / 可点卡片按压态
+// 动效对齐 MOTION.md §4.2：首载骨架（替代裸 ProgressView）/ 全表区四态互切 contentSwap /
+// 横幅与星标进出场；60s 静默刷新与筛选重排刻意不加动画（原则 3）
 import DeltaForceCore
 import SwiftUI
 
@@ -52,6 +54,17 @@ struct AmmoView: View {
         app.market.snapshot != nil ? app.market.lastError : nil
     }
 
+    /// 全表区四态：共享 FeedTableState 单一定义（Components.swift，MOTION.md §4.2——一致性评审
+    /// 收口：三页逐字重复的私有 TableState 收编，防判据漂移；判据口径注释见共享定义处）；
+    /// 也是 .contentSwap 的切换键
+    private var tableState: FeedTableState {
+        FeedTableState(
+            hasSnapshot: app.market.snapshot != nil,
+            lastError: app.market.lastError,
+            isEmpty: rows.isEmpty
+        )
+    }
+
     /// 回顶锚点宿主：锚点行必须常驻且永远在列表最顶部（§4.1-4 scrollTo 落点 = 真顶）。
     /// banner 态随 banner Section；正常态随「首个真实渲染的 Section」首行
     /// （囤货 > 买入信号 > 卖出信号 > 全表）——省去原先独占一节的空 banner 行
@@ -79,13 +92,14 @@ struct AmmoView: View {
             .id(Self.topAnchor)
     }
 
-    /// 信号卡入口（§4.1-7）：可点卡片按压态——lift 按压面由本样式承担、lineHover 描边由
-    /// SignalCard 的 card(hoverable:) 常驻给出；拆独立函数避免链式修饰符撑爆 ForEach 闭包的 type-checker
+    /// 信号卡入口（§4.1-7）：可点卡片按压态——lift 按压面由共享 PressableButtonStyle 承担
+    /// （MOTION.md §3-D，animFast 档、RM 置 nil 但色面态仍生效）、lineHover 描边由 SignalCard 的
+    /// card(hoverable:) 常驻给出；拆独立函数避免链式修饰符撑爆 ForEach 闭包的 type-checker
     private func signalCardLink(_ item: MarketItem) -> some View {
         NavigationLink(value: item) {
             SignalCard(item: item)
         }
-        .buttonStyle(SignalCardPressStyle())
+        .buttonStyle(PressableButtonStyle())
     }
 
     /// 卖出信号卡同款入口（拆独立函数同 signalCardLink：避免链式修饰符撑爆 type-checker）
@@ -93,7 +107,7 @@ struct AmmoView: View {
         NavigationLink(value: item) {
             SellSignalCard(item: item)
         }
-        .buttonStyle(SignalCardPressStyle())
+        .buttonStyle(PressableButtonStyle())
     }
 
     var body: some View {
@@ -175,23 +189,28 @@ struct AmmoView: View {
                         }
                     }
 
-                    Section("\(filter.rawValue) · \(rows.count) 种") {
+                    // 骨架期间（无快照）Section 头隐藏计数（MOTION.md §4.2）：否则「全部 · 0 种」与 8 条假行同屏矛盾
+                    Section(app.market.snapshot == nil ? "行情" : "\(filter.rawValue) · \(rows.count) 种") {
                         if anchorHost == .table { topAnchorRow }
-                        if rows.isEmpty {
-                            if app.market.snapshot == nil, let err = app.market.lastError {
+                        // 四态互切（MOTION.md §4.2）：Group 在 List 里是透明容器，各态子视图各自成行；
+                        // .contentSwap 挂一次到分支容器上——.transition 只在分支切换且事务带动画时生效，
+                        // 原先错误 / 空态两处 .transition 没有任何 .animation 驱动，从未真正淡入
+                        Group {
+                            switch tableState {
+                            case .error(let err):
                                 // 首拉失败：换共享 RetryErrorRow（§4.1-6 / C10）——busy 时禁用重试 + 内联进度，消除空转
                                 RetryErrorRow(
                                     message: err,
                                     retry: { Task { await app.market.refresh() } },
                                     busy: app.market.isLoading
                                 )
-                                .transition(.opacity) // 错误行出现淡入（§5）
-                            } else if app.market.snapshot == nil {
-                                HStack(spacing: Theme.Space.sm) {
-                                    ProgressView().controlSize(.mini)
-                                    Text("正在拉取行情…").font(Theme.font(.xs)).foregroundStyle(Theme.faint)
-                                }
-                            } else {
+                                .transition(.opacity) // 错误态淡入淡出（§3-H）
+                            case .skeleton:
+                                // 首载骨架（MOTION.md §4 P0）：信号卡位一行 + 8 条 AmmoRow 同构行，替代原裸
+                                // ProgressView + 「正在拉取行情…」；行数固定不随屏幕堆，扫光 / RM 静态由共享层内建
+                                SkeletonList(rows: 8, cards: true)
+                                    .transition(.opacity) // 骨架只淡出不位移（防布局跳动）
+                            case .empty:
                                 // 筛选 / 搜索空态：给一条出路
                                 ContentUnavailableView {
                                     Label("没有符合条件的弹药", systemImage: "line.3.horizontal.decrease.circle")
@@ -203,9 +222,12 @@ struct AmmoView: View {
                                         query = ""
                                     }
                                 }
-                                .transition(.opacity) // 空态出现淡入（§5）
+                                .swapTransition() // 空态进场淡入 + 6pt 轻上移、离场只淡出（§3-H 内容分支口径）
+                            case .rows:
+                                EmptyView()
                             }
                         }
+                        .contentSwap(tableState)
                         ForEach(rows) { item in
                             NavigationLink(value: item) {
                                 AmmoRow(item: item, pen: pen(of: item), starred: app.favorites.contains(item.name))
@@ -232,6 +254,13 @@ struct AmmoView: View {
                 }
                 .themedList()
                 .listStyle(.insetGrouped)
+                // 首载「骨架→内容」整页同步交叉淡化（MOTION.md §4.2）：信号卡区 / 全表行 / 口径页脚与骨架
+                // 分属不同 Section，只挂在全表分支上会出现「骨架淡出、卡片硬切」的半截动画，故 List 层再挂一次
+                // 统一事务。键只认 snapshot == nil：有数据后的 60s 静默刷新与筛选重排不触发（原则 3）
+                .contentSwap(app.market.snapshot == nil)
+                // 后台刷新失败横幅进出场淡入淡出（§3-F 提示条口径的 iOS 对应物）：键只认有无横幅，文案变化不触发；
+                // 横幅 Section 在列表顶部，带动画时下方内容随之平滑让位而非整列跳动
+                .motion(Theme.animSwap, value: bannerMessage != nil)
                 // TTK 联动：穿透徽章的数据源是 bundle 内 ttk.json（加载一次，毫秒级）；
                 // 行情是首 Tab，用户可能从未进过 TTK 页，这里兜底触发首次加载
                 .onAppear {
@@ -333,13 +362,13 @@ struct AmmoView: View {
     }
 
     /// 筛选/排序切换（§4.1-4）：轻触反馈 + 回顶（换筛选=换榜单，不停在长列表深处）；
-    /// Reduce Motion 下改无动画直达（§7-9，触感保留）
+    /// 滚动走 animMed 预设（MOTION.md §3-B 筛选回顶档），Reduce Motion 下改无动画直达（§7-9，触感保留）
     private func filterChanged(_ proxy: ScrollViewProxy) {
         menuTick += 1
         if reduceMotion {
             proxy.scrollTo(Self.topAnchor, anchor: .top)
         } else {
-            withAnimation(.easeOut(duration: Theme.durMed)) {
+            withAnimation(Theme.animMed) {
                 proxy.scrollTo(Self.topAnchor, anchor: .top)
             }
         }
@@ -438,10 +467,18 @@ struct AmmoRow: View {
             ItemThumb(pic: item.pic, size: 40)
             VStack(alignment: .leading, spacing: Theme.Space.xs) {
                 HStack(spacing: Theme.Space.xs) {
-                    if starred { Image(systemName: "star.fill").font(Theme.font(.micro)).foregroundStyle(Theme.warn) }
+                    if starred {
+                        Image(systemName: "star.fill").font(Theme.font(.micro)).foregroundStyle(Theme.warn)
+                            // 自选星标进出（MOTION.md §3-D 星标切换的行内对应物）：缩放 + 淡入 = 因果反馈。
+                            // 详情页用 symbolEffect(.bounce)，但那是常驻图标；行内星标是条件插入视图，
+                            // bounce 在插入帧不触发，改用 transition（只动 opacity / transform，§6-1）
+                            .transition(.scale.combined(with: .opacity))
+                    }
                     Text(item.name).font(Theme.font(.md, weight: .semibold)).foregroundStyle(Theme.txStrong).lineLimit(1)
                 }
                 .layoutPriority(1) // 名称行优先保住单行高度，宽度不足时由本行截断承担
+                // animFast 档只作用于本名称行子树：ForEach 行序变化（自选置顶）在其外，仍瞬时重排（原则 3）；RM 置 nil
+                .motion(Theme.animFast, value: starred)
                 // 徽章行：三枚 fixedSize 徽章恒保理想宽（§7-3），第 4 元素（分位 / 原因）
                 // 放不下时整体省略而非压成墨团——原实现它是行内唯一可压缩元素，实测被挤成
                 // 「分位」墨团 + 数字竖痕（全部行不可读）。候选内的文本也 fixedSize：
@@ -547,7 +584,7 @@ struct SignalCard: View {
             }
         }
         .frame(width: cardWidth, alignment: .leading)
-        // 可点卡片（§4.1-7）：描边换 lineHover 暗示入口；按压 lift 面见 SignalCardPressStyle
+        // 可点卡片（§4.1-7）：描边换 lineHover 暗示入口；按压 lift 面见共享 PressableButtonStyle（入口处挂载）
         .card(hoverable: true)
         // 合并朗读（§7-1）：与 SellSignalCard / AmmoRow 同款成句转述，替代逐控件拼读
         .accessibilityElement(children: .combine)
@@ -699,20 +736,8 @@ struct PositionRow: View {
     }
 }
 
-/// 信号卡按压态（§4.1-7）：按压叠 lift 面（白 6%）、durFast 淡出；Reduce Motion 直接切换（§7-9）
-private struct SignalCardPressStyle: ButtonStyle {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .overlay(
-                RoundedRectangle(cornerRadius: Theme.radiusCard, style: .continuous)
-                    .fill(Theme.lift)
-                    .opacity(configuration.isPressed ? 1 : 0)
-            )
-            .animation(reduceMotion ? nil : .easeOut(duration: Theme.durFast), value: configuration.isPressed)
-    }
-}
+// 信号卡按压态已收编为共享 PressableButtonStyle（Components.swift，MOTION.md §3-D）：
+// 行为逐项等价（lift 面 + animFast 档 + RM 置 nil 但色面态仍生效），本页不再保留私有副本
 
 struct MethodNote: View {
     let source: String?

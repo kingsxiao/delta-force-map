@@ -114,12 +114,17 @@
   --shadow-md: 0 8px 30px rgba(0, 0, 0, .35);
   --shadow-lg: 0 14px 44px rgba(0, 0, 0, .55);
 
-  /* ---- 动效（微交互 ≤ 220ms；大面板展开/入场属页面级动画，另行取值） ---- */
+  /* ---- 动效（微交互 ≤ 220ms；面板/状态切换 250ms；页面级入场 420ms；档位封闭见 MOTION.md §5） ---- */
   --t-fast: .15s;
   --t-med: .18s;
   --t-slow: .22s;
   --ease: cubic-bezier(.22, .61, .36, 1);
   --t-collapse: .25s; /* 折叠/展开 grid-rows 0fr→1fr 动画（CollapseCol/SpawnCard/InfoCard/RankRow 统一取值） */
+  --t-panel: .25s;    /* 面板/状态切换档（骨架→内容、空错态、提示条进出、路由淡入；MOTION.md §2.1）。
+                         与 --t-collapse 同值：后者是折叠场景历史别名（引用多、不改名），新代码一律写本名 */
+  --t-page: .42s;     /* 页面级入场（.reveal / .reveal-group 引用；收编原字面值 .42s，不改行为） */
+  --sk-base: var(--card2); /* 骨架底色：面阶里最浅的一档（vs card 1.10:1），低对比占位（MOTION.md §4）；
+                              扫光高光不新增令牌，直接用 --lift（白 6%） */
 
   /* ---- 布局 / 层级 ---- */
   --wrap: 1240px;         /* .wrap 内容最大宽 */
@@ -214,7 +219,7 @@ input { font-family: inherit; } /* 表单控件默认不吃 body 字阶，兜底
 .reveal {
   opacity: 0;
   transform: translateY(12px);
-  transition: opacity .42s var(--ease), transform .42s var(--ease);
+  transition: opacity var(--t-page) var(--ease), transform var(--t-page) var(--ease);
 }
 .reveal.in { opacity: 1; transform: none; }
 
@@ -227,7 +232,7 @@ input { font-family: inherit; } /* 表单控件默认不吃 body 字阶，兜底
   to   { opacity: 1; transform: none; }
 }
 .reveal-group > * {
-  animation: reveal-row .42s var(--ease) both;
+  animation: reveal-row var(--t-page) var(--ease) both;
   animation-play-state: paused;
   animation-delay: calc(min(var(--ri, 0), 5) * 60ms);
 }

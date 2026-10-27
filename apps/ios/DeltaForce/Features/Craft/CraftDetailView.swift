@@ -55,23 +55,28 @@ struct CraftDetailView: View {
                 // 缺价配方的服务端字段是 0 而非 null（契约 §1.3 降级展示）：
                 // 时利 hero 以 hasEstimate 为门槛，否则走缺价警示而非「+0」绿色
                 if it.hasEstimate, let p = it.profitPerHour {
-                    // 主角数字（§1.1）：详情页唯一 hero
+                    // 主角数字（§1.1）：详情页唯一 hero；数字滚动（§3-E 单点关键数字）——
+                    // SSE craft 事件替换快照后 resolved 自动跟随，RM 下 .identity 直跳
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
                         Mono(p >= 0 ? "+\(Fmt.price(p))" : Fmt.price(p), step: .hero, color: profitColor)
+                            .numericChange(value: p)
                         Text("每小时 · \(it.periodLabel ?? "—")")
                             .font(Theme.font(.xs))
                             .foregroundStyle(Theme.faint)
                     }
                     .accessibilityElement(children: .combine)
                     .accessibilityLabel("每小时利润 \(Fmt.price(p))，制造耗时 \(it.periodLabel ?? "未知")")
+                    .transition(.opacity) // 与缺价警示互切淡入淡出（§3-H，事务由 List 层 .motion 驱动）
                 } else if !it.isComplete {
                     Label("材料或产出缺价（\(it.missingPriceCount) 项），利润无法估算", systemImage: "exclamationmark.triangle")
                         .font(Theme.font(.xs))
                         .foregroundStyle(Theme.warn)
+                        .transition(.opacity) // 同上：分支互切淡入淡出
                 } else {
                     Label("制造耗时数据缺失，时利无法估算", systemImage: "exclamationmark.triangle")
                         .font(Theme.font(.xs))
                         .foregroundStyle(Theme.warn)
+                        .transition(.opacity)
                 }
             }
             .listRowBackground(Theme.card)
@@ -142,6 +147,12 @@ struct CraftDetailView: View {
         }
         .themedList()
         .listStyle(.insetGrouped)
+        // 状态进场（MOTION.md §3-H / 原则 1「表达状态变化」）：SSE 刷新补齐 / 失去价格时
+        // hasEstimate 翻转——hero↔缺价警示互换、「利润拆解」整节进出、材料行单价行增减，挂
+        // animSwap 事务后不再瞬现瞬隐、下方内容平滑让位（拆解节 ≈150pt 高，硬切会整页跳动）。
+        // 键只认 hasEstimate：价格数值本身的变化不触发——hero 数字另有 .numericChange 专管，
+        // 材料行 / 拆解四格 / 参照区的多行数字维持瞬时更新（§3-E / 原则 3）
+        .motion(Theme.animSwap, value: it.hasEstimate)
         // 导航标题用产物名（对齐 ItemDetailView）：长列表滚到中段时导航栏仍指示当前配方
         .navigationTitle(it.output.name)
         .navigationBarTitleDisplayMode(.inline)

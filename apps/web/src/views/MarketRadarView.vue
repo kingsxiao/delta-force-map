@@ -9,6 +9,8 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import Sparkline from './ammo/Sparkline.vue'
 import PriceChart from './ammo/PriceChart.vue'
+import SkeletonView from '../components/SkeletonView.vue'
+import { imgReady, hideImg } from '../composables/imgReady'
 import { formatVersionLabel, picThumb } from '@shared/js/marketMeta.js'
 import { liveChannelUrl, isLocalHttpHost, createLiveChannel } from '@shared/js/liveChannel.js'
 
@@ -95,7 +97,7 @@ const SIGNAL_META = {
 const CATEGORY_LABEL = { props: '物资', protect: '护甲', gun: '枪械', acc: '配件', ammo: '子弹' }
 const categoryLabel = (c) => CATEGORY_LABEL[c] || c || '—'
 const gradeVar = (g) => (g >= 2 && g <= 6 ? `var(--lv${g})` : 'var(--faint)')
-const hideImg = (e) => { e.target.style.display = 'none' }
+/* 图标到位/失败的事件处理三页共享（composables/imgReady.js）；占位底与淡入样式见 motion.css */
 /* 双源列两种取值混排：有偏差 → 中位偏差百分比；重叠不足（<24h）无偏差 → 重叠
    小时数。原先无数据行显示「样本 0」无单位不自明，且解释只在 hover title 里
    （触屏够不着）——带 h 单位自明，口径另在列头 title 与页脚 src-note 常驻说明 */
@@ -238,171 +240,196 @@ onBeforeUnmount(() => {
       </p>
     </header>
 
-    <p v-if="ageMin !== null && ageMin > STALE_TIP_MIN" class="state-tip stale-tip" role="status">
-      数据已 {{ ageLabel }} 未更新（榜单约每小时滚动），可稍后回来查看。
-    </p>
-    <div v-if="loadState === 'loading'" class="load-hold" role="status">正在加载雷达数据…</div>
-    <div v-else-if="loadState === 'empty'" class="state-card">
-      <p>还没有雷达数据。</p>
-      <p class="dim">雷达快照正在准备中，稍后再来看看。</p>
-      <button class="retry" @click="load()">重试</button>
-    </div>
-    <div v-else-if="loadState === 'error'" class="state-card">
-      <p>雷达数据加载失败：{{ loadError }}</p>
-      <button class="retry" @click="load()">重试</button>
-    </div>
-
-    <template v-if="loadState === 'ready'">
-      <!-- 控制条 -->
-      <div class="ctl-bar">
-        <div class="chips" role="group" aria-label="信号筛选">
-          <button
-            v-for="s in SIGNALS" :key="s.v"
-            class="chip" :class="{ on: state.signal === s.v }"
-            :aria-pressed="state.signal === s.v"
-            @click="state.signal = s.v"
-          >
-            <i v-if="s.dot" class="chip-dot" :style="{ background: s.dot }"></i>{{ s.label }}
-            <span class="chip-n">{{
-              s.v === 'all' ? items.length : s.v === 'anomaly' ? stats.anomaly : stats[s.v]
-            }}</span>
-          </button>
-        </div>
-        <span class="search-wrap">
-          <input
-            ref="searchRef" v-model.trim="state.q" class="search" :class="{ hasq: state.q }"
-            type="search" placeholder="搜索物品" aria-label="搜索物品"
-          >
-          <button v-if="state.q" class="search-clear" aria-label="清除搜索" title="清除搜索" @click="clearSearch">✕</button>
-        </span>
-        <div class="chips" role="group" aria-label="排序">
-          <button
-            v-for="s in SORTS" :key="s.v"
-            class="chip" :class="{ on: state.sort === s.v }"
-            :aria-pressed="state.sort === s.v"
-            @click="onSort(s.v)"
-            >{{ s.label }}<svg v-if="state.sort === s.v" class="dir" viewBox="0 0 16 16" aria-hidden="true"><path v-if="state.dir === 'desc'" d="M8 3.5v9M4.5 9 8 12.5 11.5 9" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path v-else d="M8 12.5v-9M4.5 7 8 3.5 11.5 7" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
-        </div>
-        <button class="chip refresh" :disabled="refreshing" title="重新拉取最新快照" @click="load({ silent: true })">{{ refreshing ? '刷新中…' : '刷新' }}</button>
-      </div>
-      <p v-if="refreshTip" class="refresh-tip warn" role="status">{{ refreshTip }}</p>
-
-      <!-- 榜单表 -->
-      <div class="tbl-scroll">
-        <table class="tbl">
-          <thead>
-            <tr>
-              <th class="num" title="kkrb 涨幅榜名次">#</th>
-              <th>物品</th>
-              <th class="num">现价</th>
-              <th>信号</th>
-              <th class="num">预赚 / 件</th>
-              <th class="num">7天分位</th>
-              <th class="num c-range">周区间</th>
-              <th>走势</th>
-              <!-- 双源列头带 title：列内「百分比 / 重叠 Nh」两种取值的含义，桌面 hover 可查 -->
-              <th class="num" title="两路独立曲线的中位偏差，越低越一致；无偏差数据时显示两路重叠小时数（不足 24h 不下双源结论）">双源</th>
-            </tr>
-          </thead>
-          <tbody>
-            <template v-for="i in filtered" :key="i.name">
-              <tr
-                class="row data-row" :class="{ open: expanded === i.name }"
-                tabindex="0"
-                :aria-expanded="expanded === i.name"
-                @click="expanded = expanded === i.name ? null : i.name"
-                @keydown.enter="onRowKeydown($event, i.name)"
-                @keydown.space="onRowKeydown($event, i.name)"
-              >
-                <td class="mono dimtx num">{{ i.hiRank ?? '—' }}</td>
-                <td>
-                  <span class="a-icw" aria-hidden="true">
-                    <img
-                      v-if="i.pic" class="a-ic"
-                      :src="picThumb(i.pic, 96)" alt=""
-                      width="26" height="18" loading="lazy" decoding="async"
-                      @error="hideImg"
-                    >
-                    <i class="a-gd" :style="{ background: gradeVar(i.grade) }" :title="`品级 ${i.grade}`"></i>
-                  </span>
-                  <span class="a-name">{{ i.name }}</span>
-                  <span class="cat-tag">{{ categoryLabel(i.category) }}</span>
-                  <i class="row-chev" aria-hidden="true"><svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 6 L8 10.5 L12.5 6"/></svg></i>
-                </td>
-                <td class="mono strong num price-cell">{{ fmt(i.current) }}</td>
-                <td>
-                  <span v-if="i.rank == null" class="sig wait">数据不足</span>
-                  <span v-else class="sig" :class="SIGNAL_META[i.signal].cls">{{ SIGNAL_META[i.signal].label }}</span>
-                </td>
-                <td class="mono num" :class="{ profit: i.profitPerRound > 0 }">
-                  {{ i.profitPerRound > 0 ? `+${fmt(i.profitPerRound)}（${pct(i.profitPct)}）` : '—' }}
-                </td>
-                <td class="num">
-                  <div class="rank-cell">
-                    <span
-                      class="rb-num"
-                      :class="{ low: i.rank != null && i.rank <= 0.35, high: i.rank != null && i.rank >= 0.8 }"
-                    >{{ i.rank == null ? '—' : `${Math.round(i.rank * 100)}%` }}</span>
-                    <div v-if="i.rank != null" class="rank-bar">
-                      <i class="rb-tick" style="left: 25%"></i>
-                      <i class="rb-tick" style="left: 80%"></i>
-                      <i
-                        class="rb-fill"
-                        :style="{ width: `${Math.round(i.rank * 100)}%` }"
-                        :class="{ low: i.rank <= 0.35, high: i.rank >= 0.8 }"
-                      ></i>
-                    </div>
-                  </div>
-                </td>
-                <td class="mono dimtx num c-range">{{ fmt(i.weekLow) }} ~ {{ fmt(i.weekHigh) }}</td>
-                <td><Sparkline :curve="i.curve" :width="130" :height="30" /></td>
-                <td class="num">
-                  <span
-                    class="cross" :class="{ anomaly: i.anomaly }"
-                    :title="i.anomaly
-                      ? `两路独立曲线在重叠 ${i.crossOverlap} 小时的中位偏差 ${crossLabel(i)}——口径分歧，信号已压制为观望`
-                      : i.crossDev == null
-                        ? `双路曲线重叠仅 ${i.crossOverlap ?? 0} 小时，不足 24 小时未做双源结论`
-                        : `两路独立曲线的中位偏差（越低越一致）`"
-                    ><!-- 双源异常标记（inline SVG）：警示三角 + 叹号，随 .cross.anomaly 染 --warn -->
-                    <svg v-if="i.anomaly" class="warn-ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.4 14.4 13.6H1.6Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M8 6.2v3.2M8 11.7v.1" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>{{ crossLabel(i) }}</span>
-                </td>
-              </tr>
-              <tr v-if="expanded === i.name" class="expander">
-                <td colspan="9">
-                  <!-- 展开内容装进 sticky 视口容器：这个 td 跟随 .tbl 的 min-width:980，
-                       移动端 900px 图表、「收起」按钮、口径说明都会被排到横滚深处首屏
-                       不可见；.exp-hold 按滚动视口宽（100cqw）渲染并左贴滚动视口，
-                       三者恒在可视区（数据行仍可再点收起，属兜底而非正道） -->
-                  <div class="exp-hold">
-                    <button class="exp-close" @click="expanded = null">收起</button>
-                    <PriceChart :curve="i.curve" :p25="i.p25" :p75="i.p75" :current="i.current" />
-                    <p class="exp-note">
-                      口径：买入参考 {{ fmt(i.p25) }}（7 天 P25）/ 目标挂卖 {{ fmt(i.targetSell) }}（近 3 天 75 分位，税后到手 {{ fmt(i.netSell) }}）/
-                      税率 {{ (i.taxRate * 100).toFixed(0) }}%（非子弹无税后字段，按兜底税率）。
-                      <template v-if="i.anomaly">双源中位偏差 {{ crossLabel(i) }}，原始信号 {{ SIGNAL_META[i.rawSignal]?.label || i.rawSignal }} 已压制为观望。</template>
-                    </p>
-                  </div>
-                </td>
-              </tr>
-            </template>
-          </tbody>
-        </table>
-        <!-- 空态提示放表外：表内 td 跟随 .tbl 的 min-width:980，文案会居中在横滚表格
-             中央，移动端首屏只剩表头、按钮也点不到；改为表格兄弟 div，块级宽度取
-             滚动容器内容宽，天然锚在可视区内（表头保留，宽屏观感与原行式空态一致） -->
-        <div v-if="!filtered.length" class="empty-cell">
-          没有符合当前筛选的物品　<button class="retry" @click="clearFilters">清除全部筛选</button>
-        </div>
-      </div>
-
-      <p class="src-note">
-        榜单为全品类涨幅榜 Top10（钥匙/护甲/配件/物资等，子弹走
-        <router-link to="/ammo">子弹行情</router-link>页）；信号口径与子弹页一致：P25 买入 / P80 卖出 / 税后 ≥8% 才报买入。
-        「双源」列为两路独立曲线的中位偏差（越低越一致）；显示「重叠 Nh」表示两路重叠不足 24 小时、未做双源结论。
-        非子弹单笔金额大、流动性差，挂单深度游戏内自查。
+    <!-- 过期提示条：淡入淡出（MOTION.md §3-F 提示行统一口径，条件消除时同样淡出） -->
+    <Transition name="swap">
+      <p v-if="ageMin !== null && ageMin > STALE_TIP_MIN" class="state-tip stale-tip" role="status">
+        数据已 {{ ageLabel }} 未更新（榜单约每小时滚动），可稍后回来查看。
       </p>
-    </template>
+    </Transition>
+    <!-- 四态互切（loading/empty/error/ready，MOTION.md §4）：首载骨架→内容、空/错态
+         进场统一 swap 淡入淡出（进场带 6px 上移、离场只淡出）；ready 是多兄弟节点，
+         须各包单根 div 才能进 <Transition>；.state-card 类名留在内部（smoke.mjs 依赖） -->
+    <Transition name="swap" mode="out-in">
+      <div v-if="loadState === 'loading'" key="loading" class="sk-hold">
+        <SkeletonView variant="table" :rows="10" />
+      </div>
+      <div v-else-if="loadState === 'empty'" key="empty" class="state-root">
+        <div class="state-card">
+          <p>还没有雷达数据。</p>
+          <p class="dim">雷达快照正在准备中，稍后再来看看。</p>
+          <button class="retry" @click="load()">重试</button>
+        </div>
+      </div>
+      <div v-else-if="loadState === 'error'" key="error" class="state-root">
+        <div class="state-card">
+          <p>雷达数据加载失败：{{ loadError }}</p>
+          <button class="retry" @click="load()">重试</button>
+        </div>
+      </div>
+      <div v-else key="ready" class="state-root">
+        <!-- 控制条 -->
+        <div class="ctl-bar">
+          <div class="chips" role="group" aria-label="信号筛选">
+            <button
+              v-for="s in SIGNALS" :key="s.v"
+              class="chip" :class="{ on: state.signal === s.v }"
+              :aria-pressed="state.signal === s.v"
+              @click="state.signal = s.v"
+            >
+              <i v-if="s.dot" class="chip-dot" :style="{ background: s.dot }"></i>{{ s.label }}
+              <span class="chip-n">{{
+                s.v === 'all' ? items.length : s.v === 'anomaly' ? stats.anomaly : stats[s.v]
+              }}</span>
+            </button>
+          </div>
+          <span class="search-wrap">
+            <input
+              ref="searchRef" v-model.trim="state.q" class="search" :class="{ hasq: state.q }"
+              type="search" placeholder="搜索物品" aria-label="搜索物品"
+            >
+            <button v-if="state.q" class="search-clear" aria-label="清除搜索" title="清除搜索" @click="clearSearch">✕</button>
+          </span>
+          <div class="chips" role="group" aria-label="排序">
+            <button
+              v-for="s in SORTS" :key="s.v"
+              class="chip" :class="{ on: state.sort === s.v }"
+              :aria-pressed="state.sort === s.v"
+              @click="onSort(s.v)"
+              >{{ s.label }}<svg v-if="state.sort === s.v" class="dir" viewBox="0 0 16 16" aria-hidden="true"><path v-if="state.dir === 'desc'" d="M8 3.5v9M4.5 9 8 12.5 11.5 9" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path v-else d="M8 12.5v-9M4.5 7 8 3.5 11.5 7" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+          </div>
+          <!-- 刷新中：绝不回骨架/遮罩（MOTION.md §3-F），chip 禁用 + 文案切换 + 内联小环；
+               小环是「进行中」进度语义，RM 下按例外保留 -->
+          <button class="chip refresh" :disabled="refreshing" title="重新拉取最新快照" @click="load({ silent: true })">{{ refreshing ? '刷新中' : '刷新' }}<i v-if="refreshing" class="mini-spin" aria-hidden="true"></i></button>
+        </div>
+        <!-- 刷新失败提示条：淡入淡出（MOTION.md §3-F），成功拉取后条件消除同样淡出 -->
+        <Transition name="swap">
+          <p v-if="refreshTip" class="refresh-tip warn" role="status">{{ refreshTip }}</p>
+        </Transition>
+
+        <!-- 榜单表 -->
+        <div class="tbl-scroll">
+          <table class="tbl">
+            <thead>
+              <tr>
+                <th class="num" title="kkrb 涨幅榜名次">#</th>
+                <th>物品</th>
+                <th class="num">现价</th>
+                <th>信号</th>
+                <th class="num">预赚 / 件</th>
+                <th class="num">7天分位</th>
+                <th class="num c-range">周区间</th>
+                <th>走势</th>
+                <!-- 双源列头带 title：列内「百分比 / 重叠 Nh」两种取值的含义，桌面 hover 可查 -->
+                <th class="num" title="两路独立曲线的中位偏差，越低越一致；无偏差数据时显示两路重叠小时数（不足 24h 不下双源结论）">双源</th>
+              </tr>
+            </thead>
+            <tbody>
+              <template v-for="i in filtered" :key="i.name">
+                <tr
+                  class="row data-row" :class="{ open: expanded === i.name }"
+                  tabindex="0"
+                  :aria-expanded="expanded === i.name"
+                  @click="expanded = expanded === i.name ? null : i.name"
+                  @keydown.enter="onRowKeydown($event, i.name)"
+                  @keydown.space="onRowKeydown($event, i.name)"
+                >
+                  <td class="mono dimtx num">{{ i.hiRank ?? '—' }}</td>
+                  <td>
+                    <span class="a-icw" aria-hidden="true">
+                      <img
+                        v-if="i.pic" class="a-ic"
+                        :src="picThumb(i.pic, 96)" alt=""
+                        width="26" height="18" loading="lazy" decoding="async"
+                        @load="imgReady" @error="hideImg"
+                      >
+                      <i class="a-gd" :style="{ background: gradeVar(i.grade) }" :title="`品级 ${i.grade}`"></i>
+                    </span>
+                    <span class="a-name">{{ i.name }}</span>
+                    <span class="cat-tag">{{ categoryLabel(i.category) }}</span>
+                    <i class="row-chev" aria-hidden="true"><svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 6 L8 10.5 L12.5 6"/></svg></i>
+                  </td>
+                  <td class="mono strong num price-cell">{{ fmt(i.current) }}</td>
+                  <td>
+                    <span v-if="i.rank == null" class="sig wait">数据不足</span>
+                    <span v-else class="sig" :class="SIGNAL_META[i.signal].cls">{{ SIGNAL_META[i.signal].label }}</span>
+                  </td>
+                  <td class="mono num" :class="{ profit: i.profitPerRound > 0 }">
+                    {{ i.profitPerRound > 0 ? `+${fmt(i.profitPerRound)}（${pct(i.profitPct)}）` : '—' }}
+                  </td>
+                  <td class="num">
+                    <div class="rank-cell">
+                      <span
+                        class="rb-num"
+                        :class="{ low: i.rank != null && i.rank <= 0.35, high: i.rank != null && i.rank >= 0.8 }"
+                      >{{ i.rank == null ? '—' : `${Math.round(i.rank * 100)}%` }}</span>
+                      <div v-if="i.rank != null" class="rank-bar">
+                        <i class="rb-tick" style="left: 25%"></i>
+                        <i class="rb-tick" style="left: 80%"></i>
+                        <i
+                          class="rb-fill"
+                          :style="{ width: `${Math.round(i.rank * 100)}%` }"
+                          :class="{ low: i.rank <= 0.35, high: i.rank >= 0.8 }"
+                        ></i>
+                      </div>
+                    </div>
+                  </td>
+                  <td class="mono dimtx num c-range">{{ fmt(i.weekLow) }} ~ {{ fmt(i.weekHigh) }}</td>
+                  <td><Sparkline :curve="i.curve" :width="130" :height="30" /></td>
+                  <td class="num">
+                    <span
+                      class="cross" :class="{ anomaly: i.anomaly }"
+                      :title="i.anomaly
+                        ? `两路独立曲线在重叠 ${i.crossOverlap} 小时的中位偏差 ${crossLabel(i)}——口径分歧，信号已压制为观望`
+                        : i.crossDev == null
+                          ? `双路曲线重叠仅 ${i.crossOverlap ?? 0} 小时，不足 24 小时未做双源结论`
+                          : `两路独立曲线的中位偏差（越低越一致）`"
+                      ><!-- 双源异常标记（inline SVG）：警示三角 + 叹号，随 .cross.anomaly 染 --warn -->
+                      <svg v-if="i.anomaly" class="warn-ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.4 14.4 13.6H1.6Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M8 6.2v3.2M8 11.7v.1" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>{{ crossLabel(i) }}</span>
+                  </td>
+                </tr>
+                <!-- 展开内容从 0 高度铺开（MOTION.md §3-C 表格展开行）：<Transition name="exp">
+                     开合双向都动画（过渡类与 .exp-clip 三层结构见 motion.css）。本页特例：
+                     展开内容装进 sticky 视口容器 .exp-hold（inner+pad 合体，不分层——分层会把
+                     中间层变成 sticky 的滚动箱、截断横滚贴边）：这个 td 跟随 .tbl 的 min-width:980，
+                     移动端 900px 图表、「收起」按钮、口径说明都会被排到横滚深处首屏
+                     不可见；.exp-hold 按滚动视口宽（100cqw）渲染并左贴滚动视口，
+                     三者恒在可视区（数据行仍可再点收起，属兜底而非正道） -->
+                <Transition name="exp">
+                  <tr v-if="expanded === i.name" class="expander">
+                    <td colspan="9">
+                      <div class="exp-clip">
+                        <div class="exp-hold">
+                          <button class="exp-close" @click="expanded = null">收起</button>
+                          <PriceChart :curve="i.curve" :p25="i.p25" :p75="i.p75" :current="i.current" />
+                          <p class="exp-note">
+                            口径：买入参考 {{ fmt(i.p25) }}（7 天 P25）/ 目标挂卖 {{ fmt(i.targetSell) }}（近 3 天 75 分位，税后到手 {{ fmt(i.netSell) }}）/
+                            税率 {{ (i.taxRate * 100).toFixed(0) }}%（非子弹无税后字段，按兜底税率）。
+                            <template v-if="i.anomaly">双源中位偏差 {{ crossLabel(i) }}，原始信号 {{ SIGNAL_META[i.rawSignal]?.label || i.rawSignal }} 已压制为观望。</template>
+                          </p>
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+                </Transition>
+              </template>
+            </tbody>
+          </table>
+          <!-- 空态提示放表外：表内 td 跟随 .tbl 的 min-width:980，文案会居中在横滚表格
+               中央，移动端首屏只剩表头、按钮也点不到；改为表格兄弟 div，块级宽度取
+               滚动容器内容宽，天然锚在可视区内（表头保留，宽屏观感与原行式空态一致） -->
+          <div v-if="!filtered.length" class="empty-cell">
+            没有符合当前筛选的物品　<button class="retry" @click="clearFilters">清除全部筛选</button>
+          </div>
+        </div>
+
+        <p class="src-note">
+          榜单为全品类涨幅榜 Top10（钥匙/护甲/配件/物资等，子弹走
+          <router-link to="/ammo">子弹行情</router-link>页）；信号口径与子弹页一致：P25 买入 / P80 卖出 / 税后 ≥8% 才报买入。
+          「双源」列为两路独立曲线的中位偏差（越低越一致）；显示「重叠 Nh」表示两路重叠不足 24 小时、未做双源结论。
+          非子弹单笔金额大、流动性差，挂单深度游戏内自查。
+        </p>
+      </div>
+    </Transition>
   </div>
 </template>
 
@@ -424,17 +451,11 @@ onBeforeUnmount(() => {
 .state-tip { color: var(--dim); font-size: var(--fs-md); padding: var(--sp-6) 0; }
 .state-tip code { font-family: var(--mono); color: var(--accent); }
 .stale-tip { color: var(--warn); }
-/* 首载高度预留：ready 态是「控制条 + 表头 + 10 行」（约 590px），加载态原先
-   只有一行文字，ready 时页高跳一屏；按表格容器同款描边预留最小高度并居中
-   提示（粗估即可，不做假行骨架） */
-.load-hold {
-  min-height: 560px;
-  display: flex; align-items: center; justify-content: center;
-  margin: var(--sp-5) 0 var(--sp-4); /* 与 .ctl-bar 外距同节奏，ready 切换时垂直位置稳定 */
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  color: var(--dim); font-size: var(--fs-md);
-}
+/* 首载骨架容器（SkeletonView table 变体，MOTION.md §4）：高度兜底走全局 .sk-hold 的
+   max(560px, 60vh)（motion.css，三页统一——560px 对齐 ready「控制条 + 表头 + 10 行」
+   ≈590px，loading→ready 页高只增不减（验收③）；60vh 落实验收②「骨架渲染高度 ≥60vh」）。
+   外距与 .ctl-bar 同节奏，ready 切换时垂直位置稳定；描边/表头/行占位由 .sk-tbl 自带 */
+.sk-hold { margin: var(--sp-5) 0 var(--sp-4); }
 .state-card {
   background: var(--card); border: 1px dashed var(--line2); border-radius: var(--radius);
   padding: var(--sp-6); color: var(--tx); margin: var(--sp-4) 0;
@@ -545,7 +566,7 @@ onBeforeUnmount(() => {
   display: inline-flex; align-items: center; justify-content: center;
   width: 28px; height: 18px; margin-right: 8px; vertical-align: middle;
 }
-.a-ic { width: 26px; height: 18px; object-fit: contain; opacity: .92; }
+.a-ic { width: 26px; height: 18px; object-fit: contain; } /* 加载淡入与占位底见 motion.css（imgReady） */
 .a-gd {
   position: absolute; left: -4px; bottom: -3px;
   width: 6px; height: 6px; transform: rotate(45deg);
@@ -555,7 +576,9 @@ onBeforeUnmount(() => {
 .row-chev {
   display: inline-flex; align-items: center; color: var(--faint);
   margin-left: 6px;
-  transition: transform var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
+  /* 箭头统一 --t-slow .22s（MOTION.md §3-C 收编三档并存，同 CollapseCol .chev）：
+     略快于展开体 .25s，先转后铺，读作同一动作的前导；色照旧 --t-fast */
+  transition: transform var(--t-slow) var(--ease), color var(--t-fast) var(--ease);
 }
 .row-chev svg { display: block; }
 .row.open .row-chev { transform: rotate(180deg); color: var(--accent); }
@@ -609,13 +632,23 @@ td.profit { color: var(--ok); font-weight: 600; }
 .cross { font-family: var(--mono); font-size: var(--fs-xs); color: var(--dim); cursor: help; }
 .cross.anomaly { color: var(--warn); font-weight: 600; }
 
-.expander td { position: relative; background: var(--card2); border-top: 1px solid var(--accent-dim); }
-/* 展开行视口容器：sticky 左贴滚动视口 + 宽取 100cqw（= .tbl-scroll 内容宽）再让出
-   td 左右 padding（base.css .tbl td 各 10px）——不减会把表撑出容器、宽屏展开时
-   平白多出横向滚动；图表/收起/说明不随 980px 表格横滚跑出首屏。sticky 自身是
-   定位元素，绝对定位的 .exp-close 直接锚它右缘。不支持 cqw 的引擎整条声明被
-   丢弃，退回旧的整格宽渲染，不比现状差 */
-.exp-hold { position: sticky; left: 0; width: calc(100cqw - 20px); }
+.expander td {
+  position: relative; background: var(--card2); border-top: 1px solid var(--accent-dim);
+  padding: 0; /* padding 移入 .exp-hold：随 0fr→1fr 铺开动画一并裁剪，起点是真 0 高度 */
+}
+/* 展开内容铺开（MOTION.md §3-C）：.exp-clip 与 .exp-* 过渡类已提升 motion.css（三页
+   开合双向对齐，含 RM 兜底）；本页 .exp-hold 是 sticky 视口容器特例（inner+pad 合体，
+   见模板注释），自身带 overflow:hidden + min-height:0 让 0fr 轨能压到真 0 高 */
+/* 展开行视口容器：sticky 左贴滚动视口 + 宽取 100cqw（= .tbl-scroll 内容宽，border-box
+   已含自身 padding）——超出会把表撑出容器、宽屏展开时平白多出横向滚动；图表/收起/
+   说明不随 980px 表格横滚跑出首屏。sticky 自身是定位元素，绝对定位的 .exp-close
+   直接锚它右缘。min-height:0 + overflow:hidden 让轨道能压到 0（overflow 只挂在
+   sticky 元素自身：若挂在中间包裹层会把它变成 sticky 的滚动箱、截断横滚贴边）；
+   不支持 cqw 的引擎整条声明被丢弃，退回旧的整格宽渲染，不比现状差 */
+.exp-hold {
+  position: sticky; left: 0; width: 100cqw;
+  padding: 9px 10px; min-height: 0; overflow: hidden;
+}
 .exp-close {
   position: absolute; top: 10px; right: 10px;
   font-family: var(--mono); font-size: var(--fs-xs); color: var(--dim);
@@ -637,7 +670,9 @@ td.profit { color: var(--ok); font-weight: 600; }
   .chip-n { display: none; }
 }
 
-/* 本页新增/收紧的微交互过渡统一在 reduce 下关闭（live-dot 的在上面自带） */
+/* 本页新增/收紧的微交互过渡统一在 reduce 下关闭（live-dot 的在上面自带）；
+   swap/sk/exp/mini-spin/.a-ic 淡入等全局类由 motion.css 文件尾统一兜底，
+   此处只管本页 scoped 项 */
 @media (prefers-reduced-motion: reduce) {
   .chip, .search, .search-clear, .retry, .exp-close, .row-chev { transition: none; }
   .retry:active { transform: none; }

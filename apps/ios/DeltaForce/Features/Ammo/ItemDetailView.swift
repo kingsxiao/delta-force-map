@@ -145,10 +145,10 @@ struct ItemDetailView: View {
             Spacer()
             VStack(alignment: .trailing, spacing: Theme.Space.xs) {
                 Text("现价").font(Theme.font(.micro)).foregroundStyle(Theme.faint)
-                // 现价数字滚动（§4.2-6）：数值变化 contentTransition + durMed；Reduce Motion 跳过（§7-9）
+                // 现价数字滚动（§4.2-6 / MOTION.md §3-E 单点关键数字）：收编到共享 .numericChange
+                // （= contentTransition(.numericText()) + animMed，RM 门内建 .identity + 无动画，行为不变）
                 Mono(Fmt.price(it.current), step: .hero, minScale: 0.75)
-                    .contentTransition(reduceMotion ? .identity : .numericText())
-                    .animation(reduceMotion ? nil : .easeOut(duration: Theme.durMed), value: it.current)
+                    .numericChange(value: it.current)
                 ageBadge
             }
         }
@@ -328,9 +328,14 @@ struct ItemDetailView: View {
                             .font(Theme.font(.xs, weight: .semibold))
                     }
                     .buttonStyle(.bordered)
+                    // 记入后「移出」淡入 / 移出后淡出（MOTION.md §3-B 增删进出档）：只 opacity 不位移，
+                    // 原先瞬现瞬隐；由下方按 inBook 挂的动画驱动（.transition 须由 if 切换触发才生效）
+                    .transition(.opacity)
                 }
                 Spacer(minLength: 0)
             }
+            // 在册态切换挂一次 animMed（§5 元素进出 220ms 档）；RM 门内建于 .motion（置 nil 即瞬时）
+            .motion(Theme.animMed, value: inBook)
             Text("台账（数量 × 成本）登录后随账号云同步（按弹名合并，本机优先）；未登录仅存本机。浮盈随行情快照实时计算。")
                 .font(Theme.font(.xs)).foregroundStyle(Theme.faint)
         }
@@ -426,7 +431,22 @@ private struct CalcChip: View {
                 .padding(.horizontal, 11).padding(.vertical, 5)
                 .background(Capsule().fill(on ? Theme.accent.opacity(0.12) : Theme.card2))
                 .overlay(Capsule().strokeBorder(on ? Theme.accent.opacity(0.45) : Theme.line, lineWidth: 1))
+                // 选中三态（文字 / 底 / 描边）animFast 渐变、无位移（MOTION.md §3-B chip 选中档）：
+                // 换档时旧 chip 褪色、新 chip 点亮同步交叉，原先硬切；RM 门内建于 .motion
+                .motion(Theme.animFast, value: on)
         }
-        .buttonStyle(.plain)
+        // 按压态由系统 .plain 整体变暗换为全站统一 lift 面（MOTION.md §3-D）；chip 是胶囊，
+        // 共享 PressableButtonStyle 只收 RoundedRectangle 圆角值贴不上轮廓，形状本地实现见下
+        .buttonStyle(CapsulePressStyle())
+    }
+}
+
+/// 胶囊按压面：与共享 PressableButtonStyle 同配方（按压叠 Theme.lift 白 6%、animFast 档、
+/// RM 下动画置 nil 但色面态仍生效），仅把按压面形状换成 Capsule——待共享层开放形状参数后收编
+private struct CapsulePressStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .overlay(Capsule().fill(Theme.lift).opacity(configuration.isPressed ? 1 : 0))
+            .motion(Theme.animFast, value: configuration.isPressed)
     }
 }

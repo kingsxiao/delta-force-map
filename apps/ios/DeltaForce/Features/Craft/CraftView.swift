@@ -1,6 +1,8 @@
 // CraftView.swift — 特勤处制造利润：工作台 / 防具台 / 技术中心 / 制药台
 // 数据：/craft/craft.json（契约 §1.3）；最佳口径 = 价格完整配方中「每小时利润」
 // 最大（制造台同一时间只能跑一条，时利才是真实约束）。SSE craft 事件驱动重拉。
+// 动效对齐 MOTION.md §4.2：首载骨架（主卡位 + 8 条配方行，替代裸 ProgressView）/
+// 配方区四态互切 contentSwap / 行级数字维持瞬时更新（§3-E，原则 3 不做整表滚动）
 import DeltaForceCore
 import SwiftUI
 
@@ -47,6 +49,23 @@ struct CraftView: View {
 
     private var feed: FeedModel<CraftSnapshot> { app.craft }
 
+    /// 数据源错误横幅文案：有快照的后台刷新失败才在此提示，正常态 nil
+    /// （首拉失败由配方区 RetryErrorRow 承担，不同屏双份；对齐 AmmoView.bannerMessage）
+    private var bannerMessage: String? {
+        feed.snapshot != nil ? feed.lastError : nil
+    }
+
+    /// 配方区四态：共享 FeedTableState 单一定义（Components.swift，MOTION.md §4.2——一致性评审
+    /// 收口：三页逐字重复的私有 TableState 收编，防判据漂移；判据口径注释见共享定义处）；
+    /// 也是 .contentSwap 的切换键
+    private var tableState: FeedTableState {
+        FeedTableState(
+            hasSnapshot: feed.snapshot != nil,
+            lastError: feed.lastError,
+            isEmpty: rows.isEmpty
+        )
+    }
+
     var body: some View {
         NavigationStack(path: $path) {
             ScrollViewReader { proxy in
@@ -55,7 +74,7 @@ struct CraftView: View {
                         // 顶部只要筛选：制造台单选 chips 直选（不用下拉）+ 价格 / 排序两个次级菜单。
                         // 错误横幅同行情 / 雷达口径：有快照的后台刷新失败才在此提示，首拉失败走列表区 RetryErrorRow
                         VStack(alignment: .leading, spacing: Theme.Space.sm) {
-                            FeedErrorBanner(message: feed.snapshot != nil ? feed.lastError : nil)
+                            FeedErrorBanner(message: bannerMessage)
                             placeChipsRow
                             HStack(spacing: Theme.Space.sm) {
                                 priceMenu
@@ -70,25 +89,45 @@ struct CraftView: View {
                     if let best {
                         Section {
                             CraftBestCard(item: best, placeLabel: placeLabel(of: best.place))
+                                // 换制造台 = 换主角配方：整卡换身份，挡掉 hero 数字跨配方滚动——
+                                // 数字滚动（.numericChange）只留给同一配方刷新时的数值变化（§3-E）
+                                .id(best.id)
+                                .swapTransition() // 首载骨架→内容：淡入 + 6pt 轻上移（§3-H）
+                        }
+                        .listRowBackground(Theme.card)
+                    } else if feed.snapshot == nil {
+                        // 首载骨架的主卡位（web /craft 首载 variant="hero" 的 iOS 对应，MOTION.md
+                        // §4.1 / 原则 4 双端同语义）：结构对齐 CraftBestCard，快照落地随整页事务退场
+                        Section {
+                            CraftBestSkeleton()
+                                .transition(.opacity) // 骨架只淡出不位移（§4.2，防布局跳动）
                         }
                         .listRowBackground(Theme.card)
                     }
 
-                    Section("配方 · \(rows.count) 项") {
-                        if rows.isEmpty {
-                            if feed.snapshot == nil, let err = feed.lastError {
+                    // 骨架期间（无快照）Section 头隐藏计数（MOTION.md §4.2）：否则「配方 · 0 项」与 8 条假行同屏矛盾
+                    Section(feed.snapshot == nil ? "配方" : "配方 · \(rows.count) 项") {
+                        // 四态互切（MOTION.md §4.2，对齐 AmmoView.tableState）：Group 在 List 里是透明
+                        // 容器，各态子视图各自成行；.contentSwap 挂一次到分支容器上——.transition 只在
+                        // 分支切换且事务带动画时生效，原先错误 / 空态两处 .transition 没有动画驱动，从未真正淡入
+                        Group {
+                            switch tableState {
+                            case .error(let err):
+                                // 首拉失败（§4.1-6 / C10）：busy 时禁用重试 + 内联进度，消除空转
                                 RetryErrorRow(
                                     message: err,
                                     retry: { Task { await feed.refresh() } },
                                     busy: feed.isLoading
                                 )
-                                .transition(.opacity) // 错误行出现淡入（§5，对齐 AmmoView/RadarView）
-                            } else if feed.snapshot == nil {
-                                HStack(spacing: 8) {
-                                    ProgressView().controlSize(.mini)
-                                    Text("正在拉取特勤处数据…").font(Theme.font(.xs)).foregroundStyle(Theme.faint)
-                                }
-                            } else {
+                                .transition(.opacity) // 错误态淡入淡出（§3-H）
+                            case .skeleton:
+                                // 首载骨架（MOTION.md §4 P0）：8 条 CraftRow 同构行替代原裸
+                                // ProgressView + 文案行；行数固定不随屏幕堆、刷新绝不回骨架、
+                                // 扫光 / RM 静态由共享基块内建。不直接用共享 SkeletonList：那是
+                                // AmmoRow 同构（无名次槽 / 多 56pt 尾槽），落位跳动违背 §4「结构贴近真实布局」
+                                CraftSkeletonRows(rows: 8)
+                                    .transition(.opacity) // 骨架只淡出不位移（防布局跳动）
+                            case .empty:
                                 ContentUnavailableView {
                                     Label("没有符合条件的配方", systemImage: "wrench.and.screwdriver")
                                 } description: {
@@ -99,9 +138,12 @@ struct CraftView: View {
                                         priceScope = .all
                                     }
                                 }
-                                .transition(.opacity) // 空态出现淡入（§5，对齐 AmmoView）
+                                .swapTransition() // 空态进场淡入 + 6pt 轻上移（§3-H 内容分支口径）
+                            case .rows:
+                                EmptyView()
                             }
                         }
+                        .contentSwap(tableState)
                         ForEach(Array(rows.enumerated()), id: \.element.id) { idx, item in
                             NavigationLink(value: item) {
                                 CraftRow(rank: idx + 1, item: item, placeLabel: placeLabel(of: item.place))
@@ -121,6 +163,14 @@ struct CraftView: View {
                 }
                 .themedList()
                 .listStyle(.insetGrouped)
+                // 首载「骨架→内容」整页同步交叉淡化（MOTION.md §4.2，对齐 AmmoView）：主卡骨架 /
+                // 配方骨架与真实内容分属不同 Section，只挂配方分支会出现「骨架淡出、主卡硬切」的
+                // 半截动画，故 List 层挂统一事务。键只认 snapshot == nil：60s 静默刷新与筛选 /
+                // 排序重排不触发（原则 3——行级数字瞬时更新，不整表滚动）
+                .contentSwap(feed.snapshot == nil)
+                // 后台刷新失败横幅进出场淡入淡出（§3-F 提示条口径）：键只认有无横幅，文案变化
+                // 不触发；横幅在首行 VStack 内，带事务后 chips / 菜单随布局平滑让位而非整列跳动
+                .motion(Theme.animSwap, value: bannerMessage != nil)
                 .navigationTitle("特勤处制造")
                 .navigationDestination(for: CraftItem.self) { item in
                     CraftDetailView(item: item, placeLabel: placeLabel(of: item.place))
@@ -220,8 +270,13 @@ struct CraftView: View {
                 .background(on ? Theme.accentBg : Theme.card2, in: Capsule())
                 .overlay(Capsule().strokeBorder(on ? Theme.accent.opacity(0.45) : Theme.line, lineWidth: 1))
                 .contentShape(Capsule())
+                // 选中三态（文字 / 底 / 描边）animFast 渐变、无位移（§3-B chip 选中档）：
+                // 切台时旧 chip 褪色、新 chip 点亮同步交叉，原先硬切；RM 门内建于 .motion
+                .motion(Theme.animFast, value: on)
         }
-        .buttonStyle(.plain)
+        // 按压态由系统 .plain 整体变暗换为全站统一 lift 面（MOTION.md §3-D）；chip 是胶囊，
+        // 共享 PressableButtonStyle 只收 RoundedRectangle 圆角值贴不上轮廓，形状本地实现见下
+        .buttonStyle(CapsulePressStyle())
         .accessibilityAddTraits(on ? .isSelected : [])
     }
 
@@ -251,7 +306,7 @@ struct CraftView: View {
         if reduceMotion {
             proxy.scrollTo(Self.topAnchor, anchor: .top)
         } else {
-            withAnimation(.easeOut(duration: Theme.durMed)) {
+            withAnimation(Theme.animMed) { // 档位预设（§2.2，等价原字面值 .easeOut(durMed)）
                 proxy.scrollTo(Self.topAnchor, anchor: .top)
             }
         }
@@ -329,9 +384,11 @@ struct CraftBestCard: View {
                     }
                 }
                 Spacer(minLength: Theme.Space.sm)
-                // 主角数字：时利（hero 档 + 语义色，§1.3 同层级同档）
+                // 主角数字：时利（hero 档 + 语义色，§1.3 同层级同档）；数字滚动（§3-E 单点
+                // 关键数字，SSE 快照替换后自动跟随；跨配方切换由调用处 .id(best.id) 换身份挡掉）
                 VStack(alignment: .trailing, spacing: 2) {
                     Mono(hourlyText, step: .hero, color: profitColor, minScale: 0.7)
+                        .numericChange(value: item.profitPerHour)
                     Text("每小时")
                         .font(Theme.font(.micro))
                         .foregroundStyle(Theme.faint)
@@ -412,6 +469,8 @@ struct CraftRow: View {
     }
 
     private var trailing: some View {
+        // 行级数字（时利 / 单次利润）不做滚动：列表多行 60s 静默刷新 + 排序 / 筛选重排，
+        // 整表滚动 = 噪声（MOTION.md §3-E / 原则 3）——瞬时更新；滚动语义只留给主卡与详情页的单点 hero
         VStack(alignment: .trailing, spacing: Theme.Space.xs) {
             // 缺价配方的服务端字段是 0 而非 null（契约 §1.3 降级展示）：
             // 一律以 hasEstimate 为显示门槛，「+0」绿色时利是估算可用的假象
@@ -439,5 +498,98 @@ struct CraftRow: View {
         }
         if let period = item.periodLabel { parts.append("耗时 \(period)") }
         return parts.joined(separator: "，")
+    }
+}
+
+// MARK: - 首载骨架（MOTION.md §4；共享基块 SkeletonBlock / SkeletonLine 直接复用，
+// 行结构为 CraftRow / CraftBestCard 专属同构——见下方各类型注释）
+
+/// 骨架行集合（对齐共享 SkeletonList 的 Group 容器形态）：Group 在 List 里是透明容器，
+/// 每条 CraftSkeletonRow 各自成行；行数固定 8（§4.2 共性红线，不随屏幕无限堆）
+private struct CraftSkeletonRows: View {
+    var rows: Int = 8
+
+    var body: some View {
+        Group {
+            ForEach(0..<max(0, rows), id: \.self) { _ in
+                CraftSkeletonRow()
+            }
+        }
+    }
+}
+
+/// 制造页骨架行（对齐 CraftRow 结构：名次槽 / 36 缩略图位 / 名称+徽标条 / 右列 lead+sub
+/// 数字条）。不直接用共享 SkeletonRow——那是 AmmoRow 同构（无名次槽、拇指位差 4pt、多
+/// 56pt 分位条尾槽），骨架→内容落位会整体错位，违背 §4「结构贴近真实布局」；待共享层
+/// 把行结构参数化后收编（见 sharedRequests）。无分隔线（骨架纪律：低对比、安静）；
+/// 行底与行内边距**不覆写**——继承配方 Section 的 Theme.card 与默认 insets，与真实行同壳。
+private struct CraftSkeletonRow: View {
+    var body: some View {
+        HStack(spacing: 10) {
+            SkeletonLine(width: 20, height: 12) // 名次「01」（sub 档）
+                .frame(minWidth: 30, alignment: .leading) // 对齐 CraftRow.rankMinWidth 槽位
+            SkeletonBlock(width: 36, height: 36) // ItemThumb 36
+            VStack(alignment: .leading, spacing: Theme.Space.xs) {
+                SkeletonLine(width: 100, height: 14) // 产物名（md 档行高位）
+                SkeletonLine(width: 72, height: 10) // 台名 + 等级徽标行（micro 档）
+            }
+            Spacer(minLength: 4)
+            VStack(alignment: .trailing, spacing: Theme.Space.xs) {
+                SkeletonLine(width: 72, height: 14) // 时利（lead 档行高位）
+                SkeletonLine(width: 56, height: 11) // 「利润 N」（sub 档）
+            }
+        }
+        // 近似预留 NavigationLink 尾缘 chevron 位，让右列数字条与真实行落位一致
+        // （骨架纪律：结构预告；具体值按 insetGrouped 行 chevron 区估取）
+        .padding(.trailing, 26)
+        .padding(.vertical, 2)
+        .listRowSeparator(.hidden)
+        .accessibilityHidden(true) // 纯装饰占位整行隐藏，加载语义由页面状态承担
+    }
+}
+
+/// 时利最佳主卡的骨架位（对齐 web /craft 首载 variant="hero"，MOTION.md §4.1 / 原则 4
+/// 双端同语义；iOS §4.2 表未列，按「结构贴近真实布局」本地补齐）：眉标条 / 44 缩略图位 +
+/// 名称与徽标条 / 右列 hero 数字条 / 四格统计行，与 CraftBestCard 同间距同层级。
+private struct CraftBestSkeleton: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: Theme.Space.md) {
+            SkeletonLine(width: 56, height: 10) // 「时利最佳」眉标（micro 档）
+            HStack(spacing: Theme.Space.md) {
+                SkeletonBlock(width: 44, height: 44) // ItemThumb 44
+                VStack(alignment: .leading, spacing: Theme.Space.xs) {
+                    SkeletonLine(width: 120, height: 15) // 产物名（md 档行高位）
+                    SkeletonLine(width: 92, height: 12) // 台名 + 等级 + Lv 徽标行
+                }
+                Spacer(minLength: Theme.Space.sm)
+                VStack(alignment: .trailing, spacing: Theme.Space.xs) {
+                    SkeletonLine(width: 96, height: 20) // 时利 hero（22pt 档）
+                    SkeletonLine(width: 32, height: 10) // 「每小时」（micro 档）
+                }
+            }
+            HStack(spacing: 10) {
+                // StatQuadRow 四格位：label + 值两条，等宽铺满（对齐真实四格布局）
+                ForEach(0..<4, id: \.self) { _ in
+                    VStack(alignment: .leading, spacing: 4) {
+                        SkeletonLine(width: 40, height: 10)
+                        SkeletonLine(width: 56, height: 12)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+        }
+        .padding(.vertical, Theme.Space.xs)
+        .accessibilityHidden(true) // 纯装饰占位整块隐藏
+    }
+}
+
+/// 胶囊按压面：与共享 PressableButtonStyle 同配方（按压叠 Theme.lift 白 6%、animFast 档、
+/// RM 下动画置 nil 但色面态仍生效，MOTION.md §3-D），仅把按压面形状换成 Capsule——
+/// 待共享层开放形状参数后与 ItemDetailView.CapsulePressStyle 一并收编
+private struct CapsulePressStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .overlay(Capsule().fill(Theme.lift).opacity(configuration.isPressed ? 1 : 0))
+            .motion(Theme.animFast, value: configuration.isPressed)
     }
 }

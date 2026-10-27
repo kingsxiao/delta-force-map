@@ -9,7 +9,8 @@ import SwiftUI
 
 struct AccountView: View {
     @Environment(AppModel.self) private var app
-    // §7-9 Reduce Motion：错误行淡入为纯透明度过渡，仍与 FadeInModifier 同口径跳过
+    // §7-9 Reduce Motion：本环境值现仅作同步按钮 pulse 图标的 isActive 门；
+    // 其余动画（面板互切 / 错误行 / 角标 / 文案交叉）的 RM 门统一内建于 .motion（置 nil 即瞬时）
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     // 二分触感：登录/注册成功 / 失败各自 tick（§4.5-3 同口径）
     @State private var okTick = 0
@@ -45,9 +46,29 @@ struct AccountView: View {
         usernameOk && passwordOk && !submitting
     }
 
+    /// 校验角标三态（MOTION.md §3-D 行内反馈）：作 .motion(value:) 的驱动键——
+    /// 逐字输入不改变 mark 时不触发动画，只在「无 ↔ 绿勾 ↔ 红叹号」档位切换时动
+    private enum FieldMark: Equatable { case none, ok, bad }
+
+    private var usernameMark: FieldMark {
+        if username.isEmpty { return .none }
+        if usernameOk { return .ok }
+        return touchedUsername ? .bad : .none
+    }
+
+    private var passwordMark: FieldMark {
+        if password.isEmpty { return .none }
+        if passwordOk { return .ok }
+        return touchedPassword ? .bad : .none
+    }
+
     var body: some View {
         Form {
             if let user = app.auth.user {
+                // 登录成功 → 账号面板整组进场（§3-H 状态切换）：淡入淡出互切，驱动挂 Form 层
+                // .contentSwap(user != nil)。刻意不用 .swapTransition 的 6pt 上移——Form 多 Section
+                // 插删已带列表布局动画，再叠位移是双重运动（上移留给页面级内容区分支）
+                Group {
                 Section {
                     LabeledContent {
                         Text(user.username)
@@ -92,6 +113,8 @@ struct AccountView: View {
                         } label: {
                             rowTitle("上次同步")
                         }
+                        // 行首次出现淡入（§3-H）；后续同步的时间文字更新保持瞬时（原则 3）
+                        .transition(.opacity)
                     }
                     Button {
                         guard !syncing else { return }
@@ -101,11 +124,15 @@ struct AccountView: View {
                             syncing = false
                         }
                     } label: {
-                        HStack(spacing: Theme.Space.sm) {
-                            Label("立即同步", systemImage: "arrow.clockwise")
-                                .font(Theme.font(.md, weight: .semibold))
-                            if syncing { ProgressView().controlSize(.small) }
-                        }
+                        // 进行中双通道与设置页「立即刷新全部快照」同构（图标 pulse + 状态文案）：
+                        // 原先静默图标 + 突现 spinner 环，动作状态不可见且三信号重复（MOTION.md 原则 3）
+                        Label(syncing ? "同步中…" : "立即同步", systemImage: "arrow.clockwise")
+                            .font(Theme.font(.md, weight: .semibold))
+                            // .rotate 属 iOS 18 API（RotateSymbolEffect），iOS 17 以 .repeating .pulse
+                            // 等价表达「进行中」（§5 对照表钦定）；Reduce Motion 跳过
+                            .symbolEffect(.pulse, options: .repeating, isActive: syncing && !reduceMotion)
+                            .contentTransition(.opacity)
+                            .motion(Theme.animFast, value: syncing)
                     }
                     .disabled(syncing)
                 } header: {
@@ -148,6 +175,8 @@ struct AccountView: View {
                         .foregroundStyle(Theme.faint)
                 }
                 .listRowBackground(Theme.card)
+                }
+                .transition(.opacity)
             } else {
                 Section {
                     Picker("方式", selection: $mode) {
@@ -165,7 +194,11 @@ struct AccountView: View {
                             .onSubmit { focusedField = .password }
                         usernameStatusIcon
                     }
-                    // 密码行：SecureField / TextField 按 showPassword 切换，右侧眼睛切换不夺键盘焦点
+                    // 校验角标进出驱动（animFast 微交互档）：value 取三态 mark 而非原始文本——
+                    // 只在「无 ↔ 绿勾 ↔ 红叹号」切换时动，逐字输入不触发动画
+                    .motion(Theme.animFast, value: usernameMark)
+                    // 密码行：SecureField / TextField 按 showPassword 切换，右侧眼睛切换不夺键盘焦点。
+                    // 字段互切刻意保持瞬时：淡入淡出会让新旧两个输入框短暂并存，键盘焦点易跳（原则 3 取舍）
                     HStack(spacing: Theme.Space.sm) {
                         Group {
                             if showPassword {
@@ -183,32 +216,43 @@ struct AccountView: View {
                             Image(systemName: showPassword ? "eye.slash" : "eye")
                                 .font(Theme.font(.md))
                                 .foregroundStyle(focusedField == .password ? Theme.tx : Theme.faint)
+                                // 眼睛开合用符号替换过渡（iOS 17 contentTransition，只动 opacity/scale 层）；
+                                // RM 下 motion 置 nil 即瞬时换图
+                                .contentTransition(.symbolEffect(.replace))
+                                .motion(Theme.animFast, value: showPassword)
                         }
                         .buttonStyle(.plain)
                         .accessibilityLabel(showPassword ? "隐藏密码" : "显示密码")
                         passwordStatusIcon
                     }
+                    .motion(Theme.animFast, value: passwordMark)
 
                     // 主操作：全宽实心主色按钮（行背景透明化，CTA 不嵌卡片条）
                     Button {
                         submit()
                     } label: {
                         HStack(spacing: Theme.Space.sm) {
-                            if submitting { ProgressView().tint(Theme.bg) }
+                            // 提交中 spinner 淡入淡出（原先突现突隐）；主按钮无图标，环是唯一「进行中」视觉，保留
+                            if submitting { ProgressView().tint(Theme.bg).transition(.opacity) }
                             Text(submitting
                                  ? (mode == "login" ? "登录中…" : "注册中…")
                                  : (mode == "login" ? "登录" : "注册并登录"))
+                                .contentTransition(.opacity) // 「登录」↔「登录中…」/ 登录 ↔ 注册文案交叉淡入
                         }
+                        .motion(Theme.animFast, value: submitting)
+                        .motion(Theme.animFast, value: mode)
                     }
                     .buttonStyle(AuthPrimaryButtonStyle())
                     .opacity(canSubmit ? 1 : 0.45)
+                    // 失能降透明随校验结果平滑过渡（原先逐字输入到合规瞬间硬跳 0.45 → 1）
+                    .motion(Theme.animFast, value: canSubmit)
                     .disabled(!canSubmit)
                     .listRowBackground(Color.clear)
                     .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
 
                     if let errorText {
                         // §5 P2：错误行淡入淡出（纯透明度，Reduce Motion 跳过）；出现/消失由下方
-                        // .animation(value: errorText) 统一驱动，赋值处无需各自 withAnimation
+                        // .motion(animSwap, value: errorText) 统一驱动，赋值处无需各自 withAnimation
                         Label(errorText, systemImage: "exclamationmark.triangle.fill")
                             .font(Theme.font(.xs))
                             .foregroundStyle(Theme.danger)
@@ -222,9 +266,15 @@ struct AccountView: View {
                         .foregroundStyle(Theme.faint)
                 }
                 .listRowBackground(Theme.card)
+                // 登录表单分支与账号面板（if 分支 Group）对称：互切淡入淡出（§3-H）
+                .transition(.opacity)
             }
         }
         .themedList()
+        // 账号面板 ↔ 登录表单互切驱动（§3-H 状态切换 animSwap 档；RM 门内建于 .motion）；
+        // 「上次同步」条件行的进出由下方 lastSyncAt motion 一并驱动
+        .contentSwap(app.auth.user != nil)
+        .motion(Theme.animSwap, value: app.auth.lastSyncAt != nil)
         .frame(maxWidth: 600)
         .frame(maxWidth: .infinity)
         .background(Theme.bg)
@@ -242,8 +292,9 @@ struct AccountView: View {
         }
         .sensoryFeedback(.success, trigger: okTick)
         .sensoryFeedback(.error, trigger: errTick)
-        // 错误行出现 / 消失（提交失败、切换方式清除）统一淡入淡出（§5 P2）
-        .animation(reduceMotion ? nil : .easeOut(duration: Theme.durFast), value: errorText)
+        // 错误行出现 / 消失（提交失败、切换方式清除）统一淡入淡出：animSwap 档对齐兄弟页
+        // 错误 banner（AmmoView/RadarView 的 bannerMessage 同款）；全站 .animation 一律经 .motion 挂载
+        .motion(Theme.animSwap, value: errorText)
     }
 
     /* ---------- 私有 ---------- */
@@ -254,18 +305,22 @@ struct AccountView: View {
     }
 
     /// 字段校验角标：合规 → 绿勾（accent）；失焦后不合规 → 红叹号；空 / 未触碰 → 无（不打扰输入）。
-    /// 角标带 a11y label（非 hidden）：校验状态对 VoiceOver 可达，不只在提交报错后才被感知
+    /// 角标带 a11y label（非 hidden）：校验状态对 VoiceOver 可达，不只在提交报错后才被感知。
+    /// 进出用缩放 + 淡入（行内星标同款，只动 opacity / transform）——条件插入视图上
+    /// symbolEffect(.bounce) 在插入帧不触发，transition 才可靠（AmmoView 行内星标口径）
     @ViewBuilder
     private var usernameStatusIcon: some View {
         if !username.isEmpty && usernameOk {
             Image(systemName: "checkmark.circle.fill")
                 .font(Theme.font(.md))
                 .foregroundStyle(Theme.accent)
+                .transition(.scale.combined(with: .opacity))
                 .accessibilityLabel("用户名格式正确")
         } else if !username.isEmpty && touchedUsername {
             Image(systemName: "exclamationmark.circle.fill")
                 .font(Theme.font(.md))
                 .foregroundStyle(Theme.danger)
+                .transition(.scale.combined(with: .opacity))
                 .accessibilityLabel("用户名格式不符")
         }
     }
@@ -276,11 +331,13 @@ struct AccountView: View {
             Image(systemName: "checkmark.circle.fill")
                 .font(Theme.font(.md))
                 .foregroundStyle(Theme.accent)
+                .transition(.scale.combined(with: .opacity))
                 .accessibilityLabel("密码符合要求")
         } else if !password.isEmpty && touchedPassword {
             Image(systemName: "exclamationmark.circle.fill")
                 .font(Theme.font(.md))
                 .foregroundStyle(Theme.danger)
+                .transition(.scale.combined(with: .opacity))
                 .accessibilityLabel("密码不足 8 位")
         }
     }
@@ -325,17 +382,21 @@ struct AccountView: View {
 
     private var syncStateText: some View {
         // 行值字阶与同列其余行（用户名 / 同步内容）及设置页同口径：.md semibold——
-        // 原先漏挂 font 会回退系统 body regular，同屏行值粗细不一
+        // 原先漏挂 font 会回退系统 body regular，同屏行值粗细不一。
+        // 文案与颜色（dim/ok/danger）随同步状态平滑切换：单一 Text + contentTransition 交叉淡入，
+        // 驱动键 syncState（SyncState: Equatable）；原先四个分支硬切
+        let pair: (text: String, color: Color)
         switch app.auth.syncState {
-        case .idle: Text(user == nil ? "未登录" : "待同步")
-            .font(Theme.font(.md, weight: .semibold)).foregroundStyle(Theme.dim)
-        case .syncing: Text("同步中…")
-            .font(Theme.font(.md, weight: .semibold)).foregroundStyle(Theme.dim)
-        case .ok: Text("已同步")
-            .font(Theme.font(.md, weight: .semibold)).foregroundStyle(Theme.ok)
-        case .error: Text("同步失败")
-            .font(Theme.font(.md, weight: .semibold)).foregroundStyle(Theme.danger)
+        case .idle: pair = (user == nil ? "未登录" : "待同步", Theme.dim)
+        case .syncing: pair = ("同步中…", Theme.dim)
+        case .ok: pair = ("已同步", Theme.ok)
+        case .error: pair = ("同步失败", Theme.danger)
         }
+        return Text(pair.text)
+            .font(Theme.font(.md, weight: .semibold))
+            .foregroundStyle(pair.color)
+            .contentTransition(.opacity)
+            .motion(Theme.animFast, value: app.auth.syncState)
     }
 
     private var user: AuthUser? { app.auth.user }
@@ -358,7 +419,7 @@ struct AccountView: View {
 }
 
 /// 登录 / 注册主操作按钮：全宽 accent 实心、bg 深字（对齐 base.css .submit 的同款语义），
-/// 按压 0.82 透明度 + durFast（Reduce Motion 不跳过——纯透明度淡出非位移动效）
+/// 按压 0.82 透明度 + animFast；动画挂载收编 .motion（RM 置 nil 即按压瞬时切换，色面态仍生效）
 private struct AuthPrimaryButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
@@ -368,6 +429,6 @@ private struct AuthPrimaryButtonStyle: ButtonStyle {
             .padding(.vertical, 12)
             .background(Theme.accent, in: RoundedRectangle(cornerRadius: Theme.radiusTile, style: .continuous))
             .opacity(configuration.isPressed ? 0.82 : 1)
-            .animation(.easeOut(duration: Theme.durFast), value: configuration.isPressed)
+            .motion(Theme.animFast, value: configuration.isPressed)
     }
 }

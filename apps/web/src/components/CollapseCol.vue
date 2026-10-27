@@ -88,13 +88,17 @@ defineEmits(['toggle'])
 .chev {
   flex: none;
   color: var(--faint);
-  transition: transform var(--t-collapse) var(--ease), color var(--t-fast);
+  /* 箭头统一 --t-slow .22s（MOTION.md §3-C 收编三档并存）：略快于折叠体 .25s，
+     先转后合，读作同一动作的前导 */
+  transition: transform var(--t-slow) var(--ease), color var(--t-fast);
 }
 .col.open .chev { transform: rotate(180deg); color: var(--accent); }
 .col-body {
   display: grid;
   grid-template-rows: 0fr;
-  transition: grid-template-rows var(--t-collapse) var(--ease);
+  /* 高度动画走 grid-rows 0fr→1fr（只动布局轨，不动画 height）；时长取状态切换档
+     --t-panel .25s（--t-collapse 同值历史别名，新代码一律写新名，MOTION.md §2.1） */
+  transition: grid-template-rows var(--t-panel) var(--ease);
 }
 .col.open .col-body { grid-template-rows: 1fr; }
 .col-inner { overflow: hidden; }

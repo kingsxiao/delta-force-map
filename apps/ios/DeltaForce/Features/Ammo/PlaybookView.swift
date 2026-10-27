@@ -59,12 +59,21 @@ struct PlaybookView: View {
     ]
 
     var body: some View {
+        // 节律卡数据源提到 body 顶（同 ItemDetailView `let it = resolved` 写法）：
+        // 下方 contentSwap 以「有无卡」布尔作切换键
+        let clock = SellEtaEngine.marketClock(app.market.items)
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: Theme.Space.md) {
-                    // 全市场日内节律（数据驱动）：快照不足时静默跳过，手册静态内容不受影响
-                    if let clock = SellEtaEngine.marketClock(app.market.items) {
+                    // 全市场日内节律（数据驱动）：快照不足时静默跳过，手册静态内容不受影响。
+                    // 手册入口不等数据，可在首个快照落地前打开（marketClock([]) = nil）：卡随后
+                    // 到达时按 MOTION.md §3-H 内容进场（淡入 + 6pt 轻上移），下方静态区随之平滑
+                    // 让位，不再瞬插顶推；首开即有数据时无状态变化、不播进场。不做骨架：
+                    // 本页主体是本地静态内容（§4.2「本地已有数据…不动」），且 marketClock 可因
+                    // 样本不足永久为 nil，占位会变成永不兑现的「加载中」
+                    if let clock {
                         MarketClockCard(clock: clock)
+                            .swapTransition()
                     }
 
                     Text("倒卖 = 低价囤消耗品 + 高位分批抛售。信号解决「哪种弹、什么价」，下面是验证过的「什么时间、怎么操作」——按 时段 → 买 → 卖 → 窗口 串成一条完整动线。")
@@ -126,6 +135,9 @@ struct PlaybookView: View {
                 // regular 宽度内容列上限 640 居中（对齐网页 --wrap 可读列）
                 .frame(maxWidth: 640)
                 .frame(maxWidth: .infinity)
+                // 有无节律卡的状态切换挂一次 animSwap（驱动上方 .swapTransition 与静态区让位）；
+                // RM 门内建于 .contentSwap（置 nil 即瞬时插入）
+                .contentSwap(clock != nil)
             }
             .background(Theme.bg)
             .navigationTitle("倒卖手册")

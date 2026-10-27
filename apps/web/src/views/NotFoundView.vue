@@ -2,7 +2,8 @@
 /* NotFoundView — 未匹配路由的兜底提示页（/:pathMatch(.*)*）
    hash 路由下无 catch-all 时 RouterView 渲染空、页面只剩顶栏页脚；README
    收录的旧链接（如已下线的 /#/tactics）或手滑地址落进来至少要有去处指引。 */
-import { onBeforeUnmount, onMounted } from 'vue'
+import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { useReveal } from '../composables/useReveal'
 
 const LINKS = [
   { to: '/ammo', label: '子弹行情' },
@@ -12,24 +13,30 @@ const LINKS = [
   { to: '/account', label: '账号' },
 ]
 
+/* 入场：卡片挂 .reveal（12px 上移 + 淡入，base.css 页面级档）——路由层只管整页
+   淡入，位移交给页内 reveal，两层各司其职（MOTION.md §3-A，与其余页同构） */
+const rootEl = ref(null)
+const { observeRoot } = useReveal()
+
 let prevTitle = '' // 路由标题：进入存默认值，卸载还原（模式同 AmmoMarketView）
 onMounted(() => {
   prevTitle = document.title
   document.title = '三角洲行动 · 页面不存在'
+  observeRoot(rootEl.value)
 })
 onBeforeUnmount(() => { document.title = prevTitle })
 </script>
 
 <template>
-  <div class="wrap page nf">
-    <div class="nf-card">
+  <div ref="rootEl" class="wrap page nf">
+    <div class="nf-card reveal">
       <h1 class="nf-title">页面不存在</h1>
       <p class="nf-desc">
         当前地址没有对应页面（旧的战术地图等已下线的模块会落到这里）。
         可从下面入口继续：
       </p>
       <nav class="nf-links" aria-label="可用页面">
-        <router-link v-for="l in LINKS" :key="l.to" :to="l.to" class="nf-link">{{ l.label }}</router-link>
+        <router-link v-for="l in LINKS" :key="l.to" :to="l.to" class="nf-link press">{{ l.label }}</router-link>
       </nav>
     </div>
   </div>
@@ -59,8 +66,15 @@ onBeforeUnmount(() => { document.title = prevTitle })
   color: var(--dim);
   font-size: var(--fs-sm);
   text-decoration: none;
-  transition: color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
+  transition: color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease), transform var(--t-fast) var(--ease);
 }
 .nf-link:hover,
 .nf-link:active { color: var(--tx); border-color: var(--line-hover); }
+/* 按压微缩挂全局 .press（motion.css 状态类；transition 已含 transform 项，符合其约定） */
+
+/* .reveal 的 RM 降级由 base.css 全局兜底；.press 的 RM 由 motion.css 兜底，
+   这里只关本地 color/border 过渡 */
+@media (prefers-reduced-motion: reduce) {
+  .nf-link { transition: none; }
+}
 </style>

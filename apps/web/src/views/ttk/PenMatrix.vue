@@ -85,6 +85,7 @@ const MX_NOTE = '对角线（弹等级 = 甲等级）为 50% 减半线，即「�
   border: 1px solid var(--line2);
   min-width: 56px;
   color: var(--dim);
+  position: relative; /* 格 hover 面纱（::after）的定位锚 */
 }
 .matrix td .pc {
   display: block;
@@ -103,11 +104,27 @@ const MX_NOTE = '对角线（弹等级 = 甲等级）为 50% 减半线，即「�
 .matrix td.m50 { background: rgba(45, 212, 191, .08); background: color-mix(in srgb, var(--accent) 8%, transparent); }
 .matrix td.m0 { background: rgba(217, 106, 89, .09); background: color-mix(in srgb, var(--danger) 9%, transparent); }
 .matrix td.diag { box-shadow: inset 0 0 0 1px var(--accent-dim); }
+/* 格 hover 高亮：--lift 白 6% 面纱叠在语义底色之上（全站通用 hover 面，MOTION.md §3-D：
+   颜色/底三态切换、无位移）。四类格同一规则成立、不动各语义底色本体；只动 opacity（§6-1）。
+   「选中」交互不存在（格不可点、无选中态业务），不另造状态 */
+.matrix td::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: var(--lift);
+  opacity: 0;
+  transition: opacity var(--t-fast) var(--ease);
+  pointer-events: none;
+}
+.matrix tbody td:hover::after { opacity: 1; }
 .matrix :deep(.pen) { margin-right: 7px; }
 .mx-note {
   padding: 0 var(--sp-4) var(--sp-3);
   font-size: var(--fs-xs);
   color: var(--faint);
   line-height: 1.7;
+}
+@media (prefers-reduced-motion: reduce) {
+  .matrix td::after { transition: none; } /* 面纱瞬现瞬隐：状态反馈而非位移，保留 */
 }
 </style>

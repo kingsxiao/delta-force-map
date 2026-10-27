@@ -1,4 +1,6 @@
 // TtkView.swift — 枪械 TTK 排行：兵种 / 部位 / 护甲 / 弹药筛选，逐枪展开全弹药对比，穿透矩阵
+// 动效对齐 MOTION.md §4.2：首载不加骨架（TTK 专档决策，见加载态注释）/ 三态互切 contentSwap /
+// 空态 swapTransition / 筛选回顶 animMed；榜单重排刻意无动画（§3-B 大表重排口径）
 import DeltaForceCore
 import SwiftUI
 
@@ -56,6 +58,9 @@ struct TtkView: View {
             Group {
                 if let data = app.ttk.data {
                     content(data)
+                        // 内容进场：淡入 + 6pt 轻上移、离场只淡出（§3-H 内容分支口径；
+                        // RM 仅淡入），由下方两枚切换键驱动
+                        .swapTransition()
                 } else if let err = app.ttk.error {
                     // 错误态给出口（DESIGN §4.4-4）：只给「复制错误信息」——数据自 bundle 一次性加载，
                     // loadIfNeeded 的 guard（State/Stores.swift:69-80，禁改）决定「重试」必空转，诚实降级不给假按钮
@@ -81,16 +86,25 @@ struct TtkView: View {
                     }
                     .transition(.opacity) // 错误态出现淡入（DESIGN §5 P2）
                 } else {
-                    // 加载态：转圈配一句说明，冷启动不再是白屏转圈
+                    // 加载态：转圈配一句说明，冷启动不再是白屏转圈。
+                    // 刻意不上骨架屏（MOTION.md §4.2 TTK 专档）：ttk.json 是 bundle 内同步读 + 解码
+                    // （Stores.swift loadIfNeeded 无 await），本分支只存在一帧——骨架只会一帧闪现
+                    // 后又整套淡出（原则 3 噪声）；spinner 同为一帧但零布局位移，观感更稳。
+                    // 刷新语义不适用：bundle 数据无 refreshable
                     VStack(spacing: Theme.Space.sm) {
                         ProgressView()
                         Text("正在载入 TTK 数据").font(Theme.font(.xs)).foregroundStyle(Theme.dim)
                     }
+                    .transition(.opacity) // 只淡出不位移（§3-H，防布局跳动）
                 }
             }
             .background(Theme.bg)
-            // 错误态出现淡入（durFast 令牌；Reduce Motion 直接呈现，§7-9）
-            .animation(reduceMotion ? nil : .easeOut(duration: Theme.durFast), value: app.ttk.error)
+            // 三态互切挂载（§4.2 口径，RM 内建置 nil）：双键各管半区——
+            // data==nil 管「加载 ↔ 内容」（数据就绪 / 卸载），error!=nil 管「加载 ↔ 错误」
+            //（同在 data==nil 半区内的分支换防，原先裸 .animation 只挂 error 键、
+            // 且 durFast 是微交互档，状态切换档位归位 animSwap 0.25）
+            .contentSwap(app.ttk.data == nil)
+            .motion(Theme.animSwap, value: app.ttk.error != nil)
             .navigationTitle("TTK 排行")
             .toolbar {
                 Button {
@@ -207,8 +221,9 @@ struct TtkView: View {
             // 搜索栏常驻（DESIGN §4.4-6）：与行情页对齐，数据密集工具搜索是跨 Tab 恒量
             .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "搜索枪械")
             .sensoryFeedback(.selection, trigger: hapticTick)
-            // 空态出现/消失淡入（DESIGN §5 P2；Reduce Motion 直接呈现，§7-9）
-            .animation(reduceMotion ? nil : .easeOut(duration: Theme.durFast), value: ranking.isEmpty)
+            // 空态出现/消失走状态切换档（§3-H / §5 250ms，原 durFast 0.15 属档位误用）；
+            // RM 下 contentSwap 内建置 nil = 瞬时呈现（§7-9）
+            .contentSwap(ranking.isEmpty)
             .onChange(of: classId) { _, _ in filterChanged(proxy) }
             .onChange(of: partId) { _, _ in filterChanged(proxy) }
             .onChange(of: armor) { _, _ in filterChanged(proxy) }
@@ -267,7 +282,7 @@ struct TtkView: View {
                 }
             }
             .frame(maxWidth: .infinity)
-            .transition(.opacity)
+            .swapTransition() // 空态进场淡入 + 6pt 轻上移、离场只淡出（§3-H 内容分支口径）
         } else {
             ContentUnavailableView {
                 Label("当前筛选无匹配弹药", systemImage: "line.3.horizontal.decrease.circle")
@@ -282,18 +297,20 @@ struct TtkView: View {
                 }
             }
             .frame(maxWidth: .infinity)
-            .transition(.opacity)
+            .swapTransition() // 空态进场淡入 + 6pt 轻上移、离场只淡出（§3-H 内容分支口径）
         }
     }
 
     /// 筛选变化：滚回榜首 + 轻触反馈（长榜单深处换筛选不再迷失位置）；
-    /// 动画走 durMed 令牌（DESIGN §5），Reduce Motion 下无动画直达（§7-9）
+    /// 滚动走 animMed 预设（§3-B 筛选回顶档，等价原字面值 .easeOut(durMed)），Reduce Motion 下
+    /// 无动画直达（§7-9）。换榜本身刻意不加行级进出动画（§3-B 大表重排口径）：几十~200 行重排
+    /// 的可感反馈由「回顶 + 触感 + Section 头计数瞬时更新」承担，行级 FLIP 代价大于收益
     private func filterChanged(_ proxy: ScrollViewProxy) {
         hapticTick += 1
         if reduceMotion {
             proxy.scrollTo(Self.topAnchor, anchor: .top)
         } else {
-            withAnimation(.easeOut(duration: Theme.durMed)) { proxy.scrollTo(Self.topAnchor, anchor: .top) }
+            withAnimation(Theme.animMed) { proxy.scrollTo(Self.topAnchor, anchor: .top) }
         }
     }
 }

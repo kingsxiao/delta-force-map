@@ -25,7 +25,7 @@ const peak = computed(() => {
 
 <template>
   <button
-    class="sell-card"
+    class="sell-card press"
     :aria-label="`${item.name}，现价 ${fmt(item.current)}，处 7 天 ${Math.round(item.rank * 100)}% 高位，查看走势`"
     :title="peak ? `${item.name}：日内高位通常在 ${peak}（近 7 天同小时均价统计），建议在该时段分批挂卖` : `${item.name} 卖出信号`"
     @click="$emit('open')"
@@ -59,6 +59,7 @@ const peak = computed(() => {
 /* 卖出语义派生色统一 color-mix（真值 rgba 兜底，写法同 ttk PenMatrix）；
    可点卡 hover 上浮基准 translateY(-2px)，与 SignalCard 对齐 */
 .sell-card {
+  position: relative; isolation: isolate; /* 给 ::before 泛红叠层定位 + 独立层叠（z:-1 压在卡面之上、内容之下） */
   display: flex; align-items: center; gap: var(--sp-2);
   width: 100%; min-width: 0;
   padding: 9px 12px;
@@ -70,7 +71,21 @@ const peak = computed(() => {
   border-left: 2px solid color-mix(in srgb, var(--danger) 45%, transparent);
   border-radius: var(--radius);
   box-shadow: var(--edge-light);
-  transition: transform var(--t-med) var(--ease), border-color var(--t-med) var(--ease), background var(--t-med) var(--ease), box-shadow var(--t-med) var(--ease);
+  transition: transform var(--t-med) var(--ease), border-color var(--t-med) var(--ease), box-shadow var(--t-med) var(--ease);
+}
+/* hover 泛红面走独立叠层淡入：两段 linear-gradient 之间不可插值，原先直接换 background
+   会在 lift / 描边缓动的同一帧里面色瞬跳（动与不动叠在一起不精致）；叠层只动 opacity，
+   也落在动效红线（opacity/transform）内。border-radius 继承卡面圆角，inset:0 贴
+   padding box 不压描边 */
+.sell-card::before {
+  content: '';
+  position: absolute; inset: 0; z-index: -1;
+  border-radius: inherit;
+  background: linear-gradient(180deg, rgba(217, 106, 89, .12) 0%, transparent 70%);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--danger) 12%, transparent) 0%, transparent 70%);
+  opacity: 0;
+  transition: opacity var(--t-med) var(--ease);
+  pointer-events: none;
 }
 .sell-card:hover,
 .sell-card:focus-visible {
@@ -78,9 +93,15 @@ const peak = computed(() => {
   border-color: rgba(217, 106, 89, .45);
   border-color: color-mix(in srgb, var(--danger) 45%, transparent);
   border-left-color: var(--danger);
-  background: linear-gradient(180deg, rgba(217, 106, 89, .12) 0%, var(--card) 70%);
-  background: linear-gradient(180deg, color-mix(in srgb, var(--danger) 12%, transparent) 0%, var(--card) 70%);
   box-shadow: var(--edge-hover);
+}
+.sell-card:hover::before,
+.sell-card:focus-visible::before { opacity: 1; }
+/* 按压「按实」的 scale(.98) 挂全局 .press（motion.css 状态类）；这里只留按压当帧的
+   150ms 微交互档时长——按下时落回原位并微缩，松手沿卡片 hover 档（--t-med）缓动回
+   lift 态；键盘 Enter/Space 与触屏点按同样命中 :active */
+.sell-card:active {
+  transition-duration: var(--t-fast);
 }
 
 .sl-ic {
@@ -114,9 +135,10 @@ const peak = computed(() => {
 .sl-price i { font-style: normal; font-family: var(--mono); font-size: var(--fs-micro); color: var(--faint); }
 .sl-price b { font-family: var(--mono); font-size: var(--fs-md); color: var(--tx-strong); font-variant-numeric: tabular-nums; }
 
-/* 微交互过渡的 reduced-motion 关闭（hover 上浮降级为仅描边/面变化） */
+/* 微交互过渡的 reduced-motion 关闭（hover 上浮降级为仅描边与面变化，泛红面瞬显；
+   .press 按压微缩的 RM 由 motion.css 文件尾统一兜底） */
 @media (prefers-reduced-motion: reduce) {
-  .sell-card { transition: none; }
+  .sell-card, .sell-card::before { transition: none; }
   .sell-card:hover, .sell-card:focus-visible { transform: none; }
 }
 </style>

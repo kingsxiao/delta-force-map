@@ -51,6 +51,18 @@ enum Theme {
     /// 动效时长（微交互 ≤ 0.22s，对齐 base.css --t-fast/-slow）；缓动惯例一律 `.easeOut(duration:)`
     static let durFast: TimeInterval = 0.15
     static let durMed: TimeInterval = 0.22
+    /// 状态切换时长（骨架→内容 / 空错态进场 / 提示条进出）：对齐 web --t-panel（MOTION.md §2.1）
+    static let durSwap: TimeInterval = 0.25
+
+    /// 动画预设（MOTION.md §2.2）：缓动唯一家族 .easeOut（上行注释口径），档位封闭——
+    /// 新动效只能取 §5 对照表内档位（0.15 / 0.22 / 0.25 / 循环类各语义位专属），新场景先定档再写码
+    static let animFast = Animation.easeOut(duration: durFast) // 0.15 微交互（chip / 按压 / 图表十字线）
+    static let animMed = Animation.easeOut(duration: durMed)   // 0.22 数字滚动 / 回顶 / 卡片按压后的回复
+    static let animSwap = Animation.easeOut(duration: durSwap) // 0.25 状态切换（骨架→内容 / 空错态进场）
+
+    /// 骨架底色（对齐 web --sk-base = card2：面阶最浅的一档，低对比占位，MOTION.md §4）；
+    /// 扫光高光不新增令牌，复用 lift（白 6% = MOTION.md §6-9 扫光幅度上限）
+    static let skBase = card2
 
     /// 等级色 0…6（0 = 无甲灰）
     static let levels: [Color] = [
@@ -243,6 +255,31 @@ extension View {
             // push 详情页），sheet 内列表不走本样式、不受影响。
             .safeAreaPadding(.bottom, 186 + Theme.Space.xl)
             .background(Theme.bg)
+    }
+}
+
+// MARK: - 动效挂载（MOTION.md §2.2 / §6-5）
+
+/// 动效统一挂载修饰符：RM（accessibilityReduceMotion）下动画置 nil——降级即瞬时 / 仅淡入，
+/// 禁止留更慢版本（MOTION.md 原则 5）。**@Environment 必须是修饰符结构体的存储属性**：
+/// View 扩展函数体内的局部 @Environment 不进 SwiftUI 环境注入管线，可编译但渲染期恒读
+/// 默认值（MOTION.md §2.2 NSHostingView 探针实测），照抄该写法会让 RM 降级静默全失效。
+struct MotionModifier<V: Equatable>: ViewModifier {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    let animation: Animation
+    let value: V
+
+    func body(content: Content) -> some View {
+        content.animation(reduceMotion ? nil : animation, value: value)
+    }
+}
+
+extension View {
+    /// Reduce Motion 判定辅助（MOTION.md §6-5「RM 全覆盖」红线）：按 value 变化挂动画预设，
+    /// RM 下自动置 nil。全站 .animation 一律经它挂载（等价于强制「带 value:」形态），例如：
+    /// `chip.motion(Theme.animFast, value: isOn)`
+    func motion<V: Equatable>(_ animation: Animation, value: V) -> some View {
+        modifier(MotionModifier(animation: animation, value: value))
     }
 }
 

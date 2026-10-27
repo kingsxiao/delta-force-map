@@ -12,7 +12,6 @@ struct PriceChart: View {
     /// VO 逐点听值游标（P4）：-1 = 未开始（从最新点起步），否则为 points 下标；
     /// 只服务 accessibilityValue，不与拖动 selected 互扰
     @State private var voCursor = -1
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private struct Pt: Identifiable {
         let id: String
@@ -150,9 +149,10 @@ struct PriceChart: View {
         // P1：拖动查值逐点触感——选点跨数据点时轻「咯哒」；condition 必须带：onEnded 把 selected 置 nil，
         // selected?.id 从非 nil 变 nil 同样是一次 trigger 变化，不带条件抬手会多一声咯哒（trigger 绑图内局部 State）
         .sensoryFeedback(.selection, trigger: selected?.id) { _, new in new != nil }
-        // P2：十字线气泡淡入——选点变化时 durFast/easeOut 过渡（Charts 对 annotation 过渡支持有限，
-        // 系统不产生过渡时按 DESIGN.md §3 P2 允许降级为瞬现）；Reduce Motion 下跳过（触感不受影响）
-        .animation(reduceMotion ? nil : .easeOut(duration: Theme.durFast), value: selected?.id)
+        // P2：十字线气泡淡入——选点变化时 animFast 档过渡（Charts 对 annotation 过渡支持有限，
+        // 系统不产生过渡时按 DESIGN.md §3 P2 允许降级为瞬现）；RM 门内建于 .motion（置 nil 即跳过，
+        // 触感不受影响——触感不属动效，DESIGN.md §7-9 口径）
+        .motion(Theme.animFast, value: selected?.id)
     }
 
     /// 拖动查值：把拖动位置 x 换算到最近的数据点
