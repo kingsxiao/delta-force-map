@@ -100,6 +100,7 @@ Schema：[schema/radar-snapshot.schema.json](schema/radar-snapshot.schema.json)
 
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
+| `grade` | int 0–6 \| null | 继承子弹条目字段但放宽下界：涨幅榜为全品类，枪械等无品质物品上游 `itemGrade` 即为 0（如实透传，非数据错误） |
 | `hiRank` | int | kkrb 涨幅榜名次（1 起） |
 | `category` | string | 品类（`props` / `key` / `armor` / `attachment` / `gun` …以榜单返回为准） |
 | `crossDev` | number \| null | 双源曲线重叠小时的中位偏差（kkrb 榜单 vs moligod）；重叠 <24h 时为 null（无结论） |
