@@ -3,11 +3,40 @@
 // 共享动效层：骨架屏四件套 / .contentSwap / .swapTransition / .numericChange / MiniSpin /
 // PressableButtonStyle（MOTION.md §2.2）
 // 字阶一律走 Theme.font/monoFont（随 Dynamic Type）；含中文的胶囊用默认 design + .monospacedDigit()。
-// 徽标四族统一配方（§1.4）：文字=语义色、底=同色 12%、描边=同色 40%、内边距 h8/v2；
+// 徽标四族统一配方（§1.4）：文字=语义色、底=同色 12%、描边=同色 40%、内边距 h8/v2；配方执行体为 badgeCoat
+// （系统「增强对比度」下自动去半透明底、提描边）。
 // 圆角按语义二分——状态类（SignalChip / StatusChip）=胶囊，属性类（GradeBadge / PenBadge / CategoryChip）=方角 radiusBadge。
 import Charts
 import DeltaForceCore
 import SwiftUI
+
+/// 徽标统一涂层（§1.4 配方的执行体 + AX 高对比分支）：标准态 = tint×fill 底（默认 12%）+ tint×stroke 描边
+/// （默认 40%），渲染与原 background+overlay 两行逐字节一致；系统「增强对比度」开启时去半透明底、描边提亮到
+/// stroke+0.4（思路库「高对比令牌·徽标去半透明底」）。为什么去底：半透明涂层的实际底色是 tint 与卡面的混色，
+/// 文字令牌提亮后混色对比随底面漂移、不可控；去底让语义色文字直贴卡片面（对比只取决于文字色），描边提亮保轮廓。
+/// @Environment 必须是修饰符结构体的存储属性（Theme.swift MotionModifier 注释实测口径），故不做 View 扩展体内局部读取。
+struct BadgeCoatModifier<S: Shape>: ViewModifier {
+    @Environment(\.colorSchemeContrast) private var contrast
+    let tint: Color
+    let shape: S
+    let fill: Double
+    let stroke: Double
+
+    func body(content: Content) -> some View {
+        let increased = contrast == .increased
+        content
+            .background(increased ? Color.clear : tint.opacity(fill), in: shape)
+            .overlay { shape.stroke(tint.opacity(increased ? min(1, stroke + 0.4) : stroke), lineWidth: 1) }
+    }
+}
+
+extension View {
+    /// 徽标涂层挂载：状态类 `.badgeCoat(color, in: Capsule())`、属性类 `.badgeCoat(color, in: RoundedRectangle(cornerRadius: Theme.radiusBadge))`；
+    /// CategoryChip 传 fill 0.10 / stroke 0.3（最轻一族）。tint 只收 Theme 语义色 / 等级色（图形用原色，文字色另走 levelText/penText）
+    func badgeCoat(_ tint: Color, in shape: some Shape, fill: Double = 0.12, stroke: Double = 0.4) -> some View {
+        modifier(BadgeCoatModifier(tint: tint, shape: shape, fill: fill, stroke: stroke))
+    }
+}
 
 struct SignalChip: View {
     let signal: Signal
@@ -34,8 +63,7 @@ struct SignalChip: View {
         .foregroundStyle(color)
         .padding(.horizontal, 8)
         .padding(.vertical, 2)
-        .background(color.opacity(0.12), in: Capsule())
-        .overlay(Capsule().stroke(color.opacity(0.4), lineWidth: 1))
+        .badgeCoat(color, in: Capsule()) // 状态类=胶囊；高对比去底见 BadgeCoatModifier
     }
 }
 
@@ -53,9 +81,8 @@ struct GradeBadge: View {
                 .foregroundStyle(Theme.levelText(grade))
                 .padding(.horizontal, 8)
                 .padding(.vertical, 2)
-                // C1：补 12% 底（原仅描边），描边统一 40%；底色 / 描边属图形，保留 level() 原色
-                .background(Theme.level(grade).opacity(0.12), in: RoundedRectangle(cornerRadius: Theme.radiusBadge))
-                .overlay(RoundedRectangle(cornerRadius: Theme.radiusBadge).stroke(Theme.level(grade).opacity(0.4), lineWidth: 1))
+                // C1：12% 底 + 40% 描边（原仅描边）；底色 / 描边属图形，保留 level() 原色；属性类=方角 radiusBadge
+                .badgeCoat(Theme.level(grade), in: RoundedRectangle(cornerRadius: Theme.radiusBadge))
         }
     }
 }
@@ -73,9 +100,8 @@ struct PenBadge: View {
             .foregroundStyle(Theme.penText(pen))
             .padding(.horizontal, 8)
             .padding(.vertical, 2)
-            .background(Theme.pen(pen).opacity(0.12), in: RoundedRectangle(cornerRadius: Theme.radiusBadge))
-            // C1：补 40% 描边（原仅底）
-            .overlay(RoundedRectangle(cornerRadius: Theme.radiusBadge).stroke(Theme.pen(pen).opacity(0.4), lineWidth: 1))
+            // C1：12% 底 + 40% 描边（原仅底）；属性类=方角 radiusBadge
+            .badgeCoat(Theme.pen(pen), in: RoundedRectangle(cornerRadius: Theme.radiusBadge))
     }
 }
 
@@ -99,8 +125,7 @@ struct CategoryChip: View {
             .padding(.vertical, 2)
             // C1：card2 实底 → dim 色 10% 底 + 30% 描边（最轻的一族，比状态 / 等级徽标再降一档）；
             // 属性类徽标取方角 radiusBadge（§1.4 圆角语义二分）
-            .background(Theme.dim.opacity(0.10), in: RoundedRectangle(cornerRadius: Theme.radiusBadge))
-            .overlay(RoundedRectangle(cornerRadius: Theme.radiusBadge).stroke(Theme.dim.opacity(0.3), lineWidth: 1))
+            .badgeCoat(Theme.dim, in: RoundedRectangle(cornerRadius: Theme.radiusBadge), fill: 0.10, stroke: 0.3)
     }
 }
 
@@ -122,8 +147,7 @@ struct StatusChip: View {
             .foregroundStyle(tint)
             .padding(.horizontal, 8)
             .padding(.vertical, 2)
-            .background(tint.opacity(0.12), in: Capsule())
-            .overlay(Capsule().stroke(tint.opacity(0.4), lineWidth: 1))
+            .badgeCoat(tint, in: Capsule()) // 状态类=胶囊
     }
 }
 
@@ -186,11 +210,14 @@ private struct FilterChipLabel: View {
         }
         .padding(.horizontal, 13)
         .padding(.vertical, 8)
-        .background(Capsule().fill(Theme.card2))
-        .overlay(Capsule().strokeBorder(active ? Theme.accent.opacity(0.45) : Theme.line, lineWidth: 1))
-        // 选中三态（caption / 箭头字色 + 描边）animFast 渐变、无位移（MOTION.md §3-B chip 选中档）——
-        // 与 ItemDetailView CalcChip / Craft 制造台 chip 同口径（一致性评审收口：原先此处硬切，
-        // 双端也不一致——web .chip.on 全部带 --t-fast）；RM 门内建于 .motion
+        // 激活三件套与 web .chip.on 同口径（AmmoMarketView.vue:1435 / CraftView.vue:750 /
+        // MarketRadarView.vue:586：accent 文字 + accent-dim 描边 + accent-bg 底）——原先描边用
+        // accent.opacity(0.45) 裸值、底不换装，与制造台 chip（CraftView 已用 accentBg）并置时是
+        // 第三种激活长相；描边 / 底一律走令牌（T4：accentDim / accentBg 仅供描边与强调底）。
+        // 选中三态（caption / 箭头字色 + 描边 + 底）animFast 渐变、无位移（MOTION.md §3-B chip
+        // 选中档）；RM 门内建于 .motion
+        .background(Capsule().fill(active ? Theme.accentBg : Theme.card2))
+        .overlay(Capsule().strokeBorder(active ? Theme.accentDim : Theme.line, lineWidth: 1))
         .motion(Theme.animFast, value: active)
     }
 
@@ -270,11 +297,27 @@ struct Sparkline: View {
 
     var body: some View {
         let pts = Array(curve.suffix(84)) // 近 3.5 天足够看形态
-        Chart(Array(pts.enumerated()), id: \.offset) { i, p in
-            LineMark(x: .value("i", i), y: .value("价", p.price))
-                .interpolationMethod(.monotone)
-                .lineStyle(StrokeStyle(lineWidth: 1.5))
-                .foregroundStyle(color)
+        Chart {
+            ForEach(Array(pts.enumerated()), id: \.offset) { i, p in
+                // 面积填充（对齐 web .spark-fill，Sparkline.vue polygon + opacity .1）：56×26 的
+                // 小尺寸下单靠 1.5pt 线条方向感偏弱，线下 10% 同色填充把「价位相对区间的高低」
+                // 铺成面，涨 / 跌形态一眼可辨；填充随线色（= 调用方信号语境色），是线的轻回声而非第二语义
+                AreaMark(x: .value("i", i), y: .value("价", p.price))
+                    .interpolationMethod(.monotone)
+                    .foregroundStyle(color.opacity(0.1))
+                LineMark(x: .value("i", i), y: .value("价", p.price))
+                    .interpolationMethod(.monotone)
+                    .lineStyle(StrokeStyle(lineWidth: 1.5))
+                    .foregroundStyle(color)
+            }
+            // 末点圆（对齐 web spark-dot）：走势的「现在」锚点——列表行不摆 RankBar（它只在信号卡/详情），
+            // 曲线终点即现价落位，以调用方传入的信号语境色收口，「现在在哪」扫读一眼可辨；
+            // 单点曲线也由「空白」变一个可见点。纯图形，随整图 accessibilityHidden
+            if let last = pts.last {
+                PointMark(x: .value("i", pts.count - 1), y: .value("价", last.price))
+                    .foregroundStyle(color)
+                    .symbolSize(20) // Ø≈5pt：比 PriceChart 现价点（40）低一档——迷你图不抢行内主数字
+            }
         }
         .chartXAxis(.hidden)
         .chartYAxis(.hidden)
@@ -463,9 +506,9 @@ struct StatCell: View {
             Text(label).font(Theme.font(.micro)).foregroundStyle(Theme.faint)
             switch emphasis {
             case .plain:
-                Mono(value, size: 14, color: color) // 随基础层 ScaledMetric 自动缩放（兼容通道，观感与历史一致）
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.75) // 窄屏大数兜底
+                // 次级统计格与 hero 档同走 MonoStep 通道（§2 T2 迁移约定：新代码禁用 size 兼容通道，
+                // 共享层自身先吃完狗粮）：sub=14 semibold，观感与历史一致；minScale 通道内建 lineLimit+缩放
+                Mono(value, step: .sub, color: color, minScale: 0.75) // 窄屏大数兜底
             case .hero:
                 Mono(value, step: .lead, color: color, minScale: 0.8) // 主数字立权：lead 档 + 0.8 缩放兜底
             }
@@ -710,6 +753,7 @@ private struct SwapTransitionModifier: ViewModifier {
 /// 数字滚动修饰符（MOTION.md §3-E / DESIGN.md §5「详情现价」）：封装 contentTransition(.numericText())
 /// + animMed 档；RM 下 .identity + 无动画（跳过滚动，DESIGN.md §7-9）。只用于单点关键数字
 /// （详情 hero 现价 / 预赚）——表格多行 60s 静默刷新禁用（原则 3：整表滚动 = 噪声）。
+/// 本泛型通道只服务非数值键（无方向滚动）；数值键一律命中下方 Double / Double? 重载（方向感知）。
 private struct NumericChangeModifier<V: Equatable>: ViewModifier {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let value: V
@@ -717,6 +761,20 @@ private struct NumericChangeModifier<V: Equatable>: ViewModifier {
     func body(content: Content) -> some View {
         content
             .contentTransition(reduceMotion ? .identity : .numericText())
+            .motion(Theme.animMed, value: value)
+    }
+}
+
+/// 方向感知数字滚动（思路库「数字滚动带方向」，iOS 17 `numericText(value:)`）：涨→数位上滚、跌→数位下滚，
+/// 滚动方向与涨跌语义色互为印证；无参 `.numericText()` 只按位差滚、方向与涨跌无关。SwiftUICore 接口只声明
+/// `numericText(value: Double)`，故仅 Double 一种底层，Int 等其它数值由调用处转 Double。RM 口径同上。
+private struct DirectionalNumericChangeModifier: ViewModifier {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    let value: Double
+
+    func body(content: Content) -> some View {
+        content
+            .contentTransition(reduceMotion ? .identity : .numericText(value: value))
             .motion(Theme.animMed, value: value)
     }
 }
@@ -740,6 +798,18 @@ extension View {
     /// `Mono(price, step: .hero).numericChange(value: price)`
     func numericChange<V: Equatable>(value: V) -> some View {
         modifier(NumericChangeModifier(value: value))
+    }
+
+    /// 方向感知重载（Double）：涨上滚 / 跌下滚。现有 Double 调用点（制造详情时利）零改动自动命中本重载
+    /// （具体类型优先于泛型），观感只多出方向、时长 / RM 门不变
+    func numericChange(value: Double) -> some View {
+        modifier(DirectionalNumericChangeModifier(value: value))
+    }
+
+    /// 方向感知重载（Double?）：详情现价 / 制造行时利等可选价直接传入。nil（缺价显「—」）按 0 参与方向判定——
+    /// 缺价→有价一律上滚；不用 NaN 占位（numericText 对非有限值行为未定义）
+    func numericChange(value: Double?) -> some View {
+        modifier(DirectionalNumericChangeModifier(value: value ?? 0))
     }
 }
 

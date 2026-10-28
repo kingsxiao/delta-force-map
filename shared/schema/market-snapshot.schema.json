@@ -36,6 +36,67 @@
       "type": "string",
       "pattern": "^[0-9a-f]{64}$"
     },
+    "rules": {
+      "description": "信号门槛展示子集（analyze.mjs RULES，随快照下发供页面渲染文案与刻度线；null = 该门槛关闭）",
+      "type": "object",
+      "properties": {
+        "BUY_RANK_MAX": { "type": ["number", "null"] },
+        "BUY_MIN_NET_PCT": { "type": ["number", "null"] },
+        "WATCH_RANK_MAX": { "type": ["number", "null"] },
+        "SELL_RANK_MIN": { "type": ["number", "null"] },
+        "BUY_MKT_SLOPE_MIN": { "type": ["number", "null"] },
+        "MAX_HOLD_H": { "type": ["number", "null"] },
+        "TARGET_WINDOW_H": { "type": ["number", "null"] }
+      }
+    },
+    "officialAnchor": {
+      "description": "官方均价锚元信息（server/official/ammo-anchor.mjs 产物，fetch-once join 时带上）；null = 未跑过锚或无可用均价",
+      "type": [
+        "object",
+        "null"
+      ],
+      "properties": {
+        "fetchedAt": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "joined": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "season": {
+      "description": "当前赛季日历（fetch-once 从 kkrb 活动日历接口 6h TTL 拉取）；阶段判定用 js/marketMeta.js seasonPhase；上游失败时字段缺省",
+      "type": "object",
+      "required": [
+        "name",
+        "start",
+        "end"
+      ],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "start": { "type": "string", "format": "date-time" },
+        "end": { "type": "string", "format": "date-time" },
+        "fetchedAt": { "type": "string", "format": "date-time" },
+        "events": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name", "start", "end"],
+            "properties": {
+              "name": { "type": "string" },
+              "start": { "type": "string", "format": "date-time" },
+              "end": { "type": "string", "format": "date-time" },
+              "type": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
     "items": {
       "type": "array",
       "items": {
@@ -94,6 +155,13 @@
         "watch": {
           "type": "integer",
           "minimum": 0
+        },
+        "mktSlope48": {
+          "description": "全市场 48h 斜率中位（%/h）：市场体制读数（≥0 上行 / <0 全盘阴跌）；null = 无法计算",
+          "type": [
+            "number",
+            "null"
+          ]
         }
       }
     }
@@ -255,6 +323,89 @@
         "maxHoldH": {
           "description": "建议最长持有小时数（168 = 7 天）",
           "type": "number"
+        },
+        "chg24h": {
+          "description": "现价相对 24h 前的涨跌幅；null = 曲线不足 25 点",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "chg7d": {
+          "description": "现价相对窗口首点（约 7 天前）的涨跌幅",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "official": {
+          "description": "官方均价参照（腾讯 AMS 352246 avg_buyprice，fetch-once 从 data/ammo/official-anchor.json join，旁路参照不进任何信号）；无锚时字段不出现",
+          "type": "object",
+          "required": [
+            "avg",
+            "dev"
+          ],
+          "properties": {
+            "avg": {
+              "description": "官方近期平均成交价",
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
+            "dev": {
+              "description": "= (current − avg) / avg，4 位小数；|dev| > 0.15 提示数据可疑",
+              "type": "number"
+            },
+            "at": {
+              "description": "锚抓取时刻 ISO 字串；null = 锚文件无 fetchedAt",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        "trade": {
+          "description": "军需处兑换折算（kkrb 军需处兑换接口 10min TTL 拉取，旁路参照不进任何信号）；仅约 7 种可兑换弹有此字段",
+          "type": "object",
+          "required": [
+            "costPerRound",
+            "perCount",
+            "marketPrice"
+          ],
+          "properties": {
+            "costPerRound": {
+              "description": "材料市价折算成本 / 发",
+              "type": "number",
+              "minimum": 0
+            },
+            "perCount": {
+              "description": "一次兑换产出的发数",
+              "type": "integer",
+              "minimum": 1
+            },
+            "marketPrice": {
+              "description": "上游同刻的交易行现价 / 发",
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
+            "materials": {
+              "description": "兑换材料清单（名称 / 数量 / 市价单价）",
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["name", "count", "perPrice"],
+                "properties": {
+                  "name": { "type": "string" },
+                  "count": { "type": "integer", "minimum": 1 },
+                  "perPrice": { "type": "number", "minimum": 0 }
+                }
+              }
+            },
+            "version": {
+              "description": "上游数据版本（YYYYMMDDHHmm）",
+              "type": "string"
+            }
+          }
         }
       },
       "if": {

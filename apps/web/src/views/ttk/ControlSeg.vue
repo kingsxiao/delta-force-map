@@ -172,8 +172,28 @@ watch(() => props.modelValue, measure, { flush: 'post' })
 }
 @media (max-width: 680px) {
   .seg { flex-wrap: wrap; width: 100%; }
-  /* 全宽堆叠下按钮均衡分摊行宽；字阶降一档与 .ctrl-label 的紧凑堆叠形态匹配 */
-  .seg-btn { flex: 1 1 auto; justify-content: center; padding: 4px 9px; font-size: var(--fs-2xs); }
+  /* 全宽堆叠下按钮均衡分摊行宽。字号守 --fs-xs：按钮文案（「每枪最佳弹药」等）是实义
+     控件标签，base.css 把 12px 定为实义文字下限、--fs-2xs 只给 kicker/mono 小标签/表头——
+     此前降到 11px 越了字阶纪律，手机端恰是最需要可读性的场景 */
+  .seg-btn { flex: 1 1 auto; justify-content: center; padding: 4px 9px; }
+}
+/* ---------- 触屏命中垫层（可点目标 ≥44px 原则：视觉可小、命中区用 padding/伪元素补足） ----------
+   桌面 4.5px 内距的按钮高约 25px，手指点击误触相邻等级钮；无 hover 能力的设备（触屏）
+   真实内距提到 7px（钮高约 29px）、再用 ::before 向外延 5px 命中区（约 39px）。
+   不垫到满 44：组内钮间距仅 2px，换行后上下行垫层会互相叠压、点字面边缘会命中邻行——
+   水平只外延 2px、垂直 5px 是「命中区增幅 vs 邻钮抢占」的折中。::before 不绘制只承接
+   点击；按钮本身已是 position: relative（滑块遮字修复），伪元素绝对定位有锚。
+   源序放在 680 断点块之后：触屏手机同时命中两块时，内距由本块接管 */
+@media (hover: none) {
+  .seg-btn { padding: 7px 10px; }
+  .seg-btn::before {
+    content: "";
+    position: absolute;
+    left: -2px;
+    right: -2px;
+    top: -5px;
+    bottom: -5px;
+  }
 }
 @media (prefers-reduced-motion: reduce) {
   .seg-btn { transition: none; }

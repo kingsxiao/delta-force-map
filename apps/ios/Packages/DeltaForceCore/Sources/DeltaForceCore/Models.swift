@@ -54,6 +54,50 @@ public struct CurvePoint: Sendable, Hashable, Codable {
     }
 }
 
+/// 官方均价参照（腾讯 AMS 对账口径；契约 shared/API.md §1 items[].official）。
+/// 旁路参照：不进任何信号计算；快照无锚时字段不出现。
+public struct OfficialPrice: Codable, Sendable, Hashable {
+    public let avg: Double
+    public let dev: Double
+    public let at: String?
+
+    public init(avg: Double, dev: Double, at: String? = nil) {
+        self.avg = avg
+        self.dev = dev
+        self.at = at
+    }
+}
+
+/// 军需处兑换折算（kkrb 军需处兑换接口；契约 shared/API.md §1 items[].trade）。
+/// 旁路参照：不进任何信号计算；仅约 7 种可兑换弹有此字段。
+public struct AmmoTrade: Codable, Sendable, Hashable {
+    public let costPerRound: Double
+    public let perCount: Int
+    public let marketPrice: Double
+    public let materials: [TradeMaterial]?
+    public let version: String?
+
+    public struct TradeMaterial: Codable, Sendable, Hashable {
+        public let name: String
+        public let count: Int
+        public let perPrice: Double
+
+        public init(name: String, count: Int, perPrice: Double) {
+            self.name = name
+            self.count = count
+            self.perPrice = perPrice
+        }
+    }
+
+    public init(costPerRound: Double, perCount: Int, marketPrice: Double, materials: [TradeMaterial]? = nil, version: String? = nil) {
+        self.costPerRound = costPerRound
+        self.perCount = perCount
+        self.marketPrice = marketPrice
+        self.materials = materials
+        self.version = version
+    }
+}
+
 /// 单个物品的分析结果（子弹与雷达物品共用）
 public struct MarketItem: Codable, Sendable, Hashable, Identifiable {
     public var id: String { name }
@@ -89,6 +133,14 @@ public struct MarketItem: Codable, Sendable, Hashable, Identifiable {
     public let stopLoss: Double?
     /// 建议最长持有小时数（回测口径 168h = 7 天）；nil = 旧快照无此字段
     public let maxHoldH: Double?
+    /// 现价相对 24h 前的涨跌幅（展示特征，不进判定）；nil = 曲线不足 25 点或旧快照
+    public let chg24h: Double?
+    /// 现价相对窗口首点（约 7 天前）的涨跌幅（展示特征，不进判定）；nil = 旧快照
+    public let chg7d: Double?
+    /// 官方均价参照（旁路参照不进信号）；nil = 无锚 / 旧快照
+    public let official: OfficialPrice?
+    /// 军需处兑换折算（旁路参照不进信号）；nil = 不可兑换弹 / 旧快照
+    public let trade: AmmoTrade?
     public let signal: Signal
     public let reason: String?
 
@@ -108,6 +160,7 @@ public struct MarketItem: Codable, Sendable, Hashable, Identifiable {
         p75Local: Double? = nil, targetSell: Double? = nil, netSell: Double? = nil, netHigh: Double? = nil,
         profitPerRound: Double? = nil, profitPct: Double? = nil, slope48: Double? = nil, lowAgeH: Double? = nil,
         bounceOffLow: Double? = nil, stopLoss: Double? = nil, maxHoldH: Double? = nil,
+        chg24h: Double? = nil, chg7d: Double? = nil, official: OfficialPrice? = nil, trade: AmmoTrade? = nil,
         signal: Signal, reason: String? = nil,
         hiRank: Int? = nil, category: String? = nil, crossDev: Double? = nil, crossOverlap: Int? = nil,
         anomaly: Bool? = nil, rawSignal: Signal? = nil, curveSource: String? = nil
@@ -137,6 +190,10 @@ public struct MarketItem: Codable, Sendable, Hashable, Identifiable {
         self.bounceOffLow = bounceOffLow
         self.stopLoss = stopLoss
         self.maxHoldH = maxHoldH
+        self.chg24h = chg24h
+        self.chg7d = chg7d
+        self.official = official
+        self.trade = trade
         self.signal = signal
         self.reason = reason
         self.hiRank = hiRank

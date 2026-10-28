@@ -2,6 +2,7 @@
 // 蓝黑中性阶 + 唯一冷钢青主色；护甲/穿透等级色 1白 2绿 3蓝 4紫 5金 6红）
 import DeltaForceCore
 import SwiftUI
+import UIKit // 仅供 UIColor 动态提供器接 accessibilityContrast（下方文字令牌），不引入任何 UIKit 视图
 
 enum Theme {
     static let bg = Color(hex: 0x0D1013)
@@ -9,11 +10,28 @@ enum Theme {
     static let card = Color(hex: 0x171D24)
     static let card2 = Color(hex: 0x1E252E)
     static let line = Color(hex: 0x29313B)
-    static let txStrong = Color(hex: 0xF0F4F7)
-    static let tx = Color(hex: 0xD9DEE3)
-    static let dim = Color(hex: 0x9AA4AD)
-    static let faint = Color(hex: 0x848E97)
+
+    // MARK: - 文字令牌（AX 高对比自适应）
+    /// 四枚文字色经 UIColor 动态提供器接 UITraitCollection.accessibilityContrast：系统开启「增强对比度」
+    /// 时各自提亮约一档（txStrong→纯白、tx→原 txStrong、dim / faint 各升两阶灰），标准态十六进制值与历史
+    /// 逐字节一致。为什么走 UIColor 而非 @Environment(\.colorSchemeContrast)：文字令牌全站数百处调用，
+    /// 环境值方案要逐处改；动态色由 SwiftUI 渲染期按当前 trait 解析（机制同系统色 .secondaryLabel），
+    /// 零调用点改动全站生效。面阶 / 强调色 / 等级色不参与提亮——只提文字对比、不动层次语言
+    /// （levelText / penText 已各自做过对比度特例）；半透明徽标底的对应处理见 Components.swift badgeCoat。
+    static let txStrong = contrastText(0xF0F4F7, boosted: 0xFFFFFF)
+    static let tx = contrastText(0xD9DEE3, boosted: 0xF0F4F7)
+    static let dim = contrastText(0x9AA4AD, boosted: 0xC3CCD4)
+    static let faint = contrastText(0x848E97, boosted: 0xA9B3BC)
     static let accent = Color(hex: 0x2DD4BF)
+
+    /// 标准态 / 增强对比态双值文字色（UIColor 为 NS_SWIFT_SENDABLE 且非 MainActor，静态上下文构造安全）
+    private static func contrastText(_ normal: UInt32, boosted: UInt32) -> Color {
+        let normalColor = UIColor(Color(hex: normal))
+        let boostedColor = UIColor(Color(hex: boosted))
+        return Color(uiColor: UIColor { trait in
+            trait.accessibilityContrast == .high ? boostedColor : normalColor
+        })
+    }
 
     // MARK: - 强调色衍生（base.css:41-44 同纪律：仅供描边 / hover 面 / 强调底，禁止作文字色）
     /// 强调色 38%：描边提亮（accent 实色过重时的降档替代）

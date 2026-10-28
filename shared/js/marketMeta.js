@@ -75,3 +75,38 @@ export function staleTipText(source, ageMin) {
   }
   return `数据已 ${age} 未更新，价格可能已变化，可点『刷新数据』重试`
 }
+
+/**
+ * 赛季阶段判定（Playbook「版本与赛季窗口」的倒计时数据源，纯函数）：
+ * 赛季窗口套利的口径来自 Playbook 03 静态经验——更新前 3–7 天囤货、
+ * 开更后 3 天内出货（全服补弹需求暴增）、赛季末物价波动。阶段：
+ *   fresh  开更出货窗（赛季开始 ≤3 天，tone=sell）
+ *   hoard  囤货窗（距赛季结束 3–7 天，tone=buy）
+ *   late   赛季末（距结束 ≤3 天，tone=warn：物价波动大，按信号操作）
+ *   mid    常规期（tone=dim，仅给倒计时）
+ * @param {{name:string, start:string, end:string}} season 快照顶层 season（ISO 起止）
+ * @param {number} [now] epoch ms，默认当下
+ * @returns {{phase:'fresh'|'hoard'|'late'|'mid', label:string, tone:'buy'|'sell'|'warn'|'dim',
+ *            daysLeft:number, daysFromStart:number}|null} 无有效赛季 / 起止倒挂 → null
+ */
+export function seasonPhase(season, now = Date.now()) {
+  if (!season || typeof season !== 'object') return null
+  const start = Date.parse(season.start)
+  const end = Date.parse(season.end)
+  if (!Number.isFinite(start) || !Number.isFinite(end) || start >= end) return null
+  const DAY = 86400000
+  const daysLeft = (end - now) / DAY
+  const daysFromStart = (now - start) / DAY
+  if (daysFromStart < 0) return { phase: 'mid', label: '赛季未开始', tone: 'dim', daysLeft, daysFromStart }
+  if (daysFromStart <= 3) {
+    return { phase: 'fresh', label: '开更出货窗（新赛季 +3 天内，补弹需求高峰）', tone: 'sell', daysLeft, daysFromStart }
+  }
+  if (daysLeft <= 0) return { phase: 'late', label: '赛季已到点（待新赛季数据刷新）', tone: 'warn', daysLeft, daysFromStart }
+  if (daysLeft <= 3) {
+    return { phase: 'late', label: '赛季末（T−3 内，物价波动大）', tone: 'warn', daysLeft, daysFromStart }
+  }
+  if (daysLeft <= 7) {
+    return { phase: 'hoard', label: '囤货窗（T−7~T−3：新赛季前囤热门口径）', tone: 'buy', daysLeft, daysFromStart }
+  }
+  return { phase: 'mid', label: '常规期', tone: 'dim', daysLeft, daysFromStart }
+}

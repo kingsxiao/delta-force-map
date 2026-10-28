@@ -24,7 +24,21 @@ const { stars } = useStars()
 const { positions } = usePositions()
 
 const ledgerCount = computed(() => positions.value.length)
-const mycostCount = computed(() => Object.keys(mycostMap()).length)
+/* 买入价读数必须挂响应式依赖：mycostMap() 只读 localStorage（非响应式源），零依赖
+   computed 首算后永不失效（Vue 惰性求值 + 缓存，已实测）——账号页停留时点「立即
+   同步」，云端买入价合并落库（useAccount 的 saveMycost）后本读数与 syncEmpty 仍停
+   留旧值；stars / positions 是 ref 会即时刷新，唯独 mycost 对用户撒谎。读 lastSyncAt
+   建立依赖：它在每次成功同步落库的同一时刻被更新（useAccount.js 的 pullAndMerge /
+   schedulePush 尾部），失效时机与数据写盘严格同步，不多算一次也不少算一次 */
+const mycostCount = computed(() => {
+  void lastSyncAt.value
+  return Object.keys(mycostMap()).length
+})
+/* 三项同步内容全零 = 还没有可同步的数据：读数行会连说三个 0 并声称「已并入云端」，
+   语义失真——换一条带出路的空态文案（去哪产生数据），任一项有数据即恢复读数 */
+const syncEmpty = computed(
+  () => stars.value.size === 0 && ledgerCount.value === 0 && mycostCount.value === 0
+)
 function mycostMap() {
   try {
     const raw = JSON.parse(localStorage.getItem('ammo-mycost'))
@@ -42,6 +56,11 @@ onMounted(() => observeRoot(rootEl.value))
    .reveal / .reveal-group 是新节点，若不重挂观察会永远停在 opacity:0
    （登录成功 / 刷新恢复会话都会触发）——状态翻转后补一次观察。 */
 watch([ready, user], () => nextTick(() => observeRoot(rootEl.value)))
+/* 三态舞台套了 out-in 过渡（见模板）：新舞台要等旧节点淡出完才插入，上面 watch
+   的 nextTick 那一刻它还不在 DOM 里，observeRoot 会扑空、新 .reveal 永远停在
+   opacity:0——@enter 在节点插入后立刻触发，这里补挂一次（observeRoot 只观察尚未
+   .in 的节点，重复调用无副作用；watch 保留给 RM 等过渡被关成瞬时的场景兜底） */
+function onStageEnter() { observeRoot(rootEl.value) }
 
 /* ---------- 表单 ---------- */
 const mode = ref('login') // login | register
@@ -148,6 +167,7 @@ function onLogout() {
   }
   confirmLogout.value = true
   clearTimeout(logoutTimer)
+  // 3s 与样式里 .logout.arming::before 倒计时条的 animation 时长成对，改一处同改另一处
   logoutTimer = setTimeout(() => { confirmLogout.value = false }, 3000)
 }
 function resetLogout() {
@@ -178,6 +198,11 @@ const lastSyncText = computed(() => {
       <p class="meta">自选星标云同步 · 换设备不丢</p>
     </div>
 
+    <!-- 三态舞台（下方三个 v-if 分支）互切走 .swap out-in：旧舞台先淡出、新舞台再
+         淡入上移（MOTION §2.1 / §3-H）——登录成功的「翻面」、会话恢复完成、退出登录
+         是本页最大的状态变化时刻，此前瞬时硬切。out-in 让两套高度不同的卡片不同屏，
+         避免并行模式下页面高度翻倍的跳动；@enter 补挂 .reveal 观察（见 script） -->
+    <Transition name="swap" mode="out-in" @enter="onStageEnter">
     <!-- ============ 会话恢复中：短暂加载态（避免登录表单闪现后翻面） ============ -->
     <section v-if="!ready" class="card pend" role="status" aria-label="正在恢复登录状态">
       <span class="pend-spin" aria-hidden="true"></span>
@@ -291,7 +316,7 @@ const lastSyncText = computed(() => {
             </Transition>
           </div>
 
-          <button class="submit" type="submit" :class="{ busy: submitting }" :disabled="!canSubmit">
+          <button class="submit" type="submit" :class="{ busy: submitting }" :disabled="!canSubmit" :aria-busy="submitting">
             <span v-if="submitting" class="spinner" aria-hidden="true"></span>
             {{ submitting ? (mode === 'login' ? '登录中…' : '注册中…') : mode === 'login' ? '登录' : '注册并登录' }}
           </button>
@@ -306,7 +331,7 @@ const lastSyncText = computed(() => {
 
         <div class="ac-switch">
           <span>{{ mode === 'login' ? '还没有账号？' : '已有账号？' }}</span>
-          <button type="button" @click="switchMode(mode === 'login' ? 'register' : 'login')">
+          <button type="button" :disabled="submitting" @click="switchMode(mode === 'login' ? 'register' : 'login')">
             {{ mode === 'login' ? '创建账号' : '直接登录' }}
           </button>
         </div>
@@ -332,12 +357,15 @@ const lastSyncText = computed(() => {
         >{{ confirmLogout ? '确认退出？' : '退出登录' }}</button>
       </div>
 
-      <div class="sync-box" :class="syncState" role="status">
+      <!-- role="status" 只挂 sync-v：live region 若挂在整盒（原写法），idle→syncing→ok 每次
+           状态翻转读屏都会把盒内按钮文字与三行计数一并重播；收窄到状态文本单点，
+           播报的正是用户要听的那句（按钮/计数各有自身语义，不该卷进状态播报） -->
+      <div class="sync-box" :class="syncState">
         <div class="sync-line">
           <span class="sync-dot" aria-hidden="true"></span>
           <span class="sync-k">云端同步</span>
-          <span class="sync-v">{{ syncStateText }}</span>
-          <button class="sync-btn" :disabled="syncing" @click="onSyncNow">
+          <span class="sync-v" role="status">{{ syncStateText }}</span>
+          <button class="sync-btn" :class="{ busy: syncing }" :disabled="syncing" :aria-busy="syncing" @click="onSyncNow">
             <svg v-if="!syncing" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.5a5.5 5.5 0 1 0 5.3 7h-1.6A4 4 0 1 1 8 4v2l3-2.5L8 1v1.5Z" fill="currentColor"/></svg>
             <!-- 同步中换共享层 12px 进度环（.mini-spin，进度语义 RM 下保留）：
                  按钮禁用 + 文案 + 内联环三件套构成完整进度反馈 -->
@@ -345,15 +373,30 @@ const lastSyncText = computed(() => {
             {{ syncing ? '同步中…' : '立即同步' }}
           </button>
         </div>
-        <p class="sync-detail">
-          自选 {{ stars.size }} 项 · 囤货台账 {{ ledgerCount }} 条 · 买入价 {{ mycostCount }} 条已并入云端
-          （星标并集 / 台账按弹名合并·同名本机优先）· <span class="sync-last">上次同步 {{ lastSyncText }}</span>
+        <!-- 全零空态：三个 0 的读数行换成「去哪产生数据」的出路文案（空态给一条出路）；
+             时间戳保留——同步机制仍在工作的证据不该随空态一起消失 -->
+        <p v-if="syncEmpty" class="sync-detail">
+          还没有可同步的内容——在行情页点亮星标、或记一笔囤货台账，下次同步会自动带上
+          · <span class="sync-last">上次同步 {{ lastSyncText }}</span>
         </p>
-        <p v-if="syncState === 'error'" class="sync-err">{{ syncError }}。可点「立即同步」重试，本地功能不受影响。</p>
+        <p v-else class="sync-detail">
+          自选 <b>{{ stars.size }}</b> 项 · 囤货台账 <b>{{ ledgerCount }}</b> 条 · 买入价 <b>{{ mycostCount }}</b> 条已并入云端
+          · <span class="sync-last">上次同步 {{ lastSyncText }}</span>
+          <!-- 机制说明拆出独立行（对齐 iOS 端信息分层：读数行干净，合并规则放 footer，
+               AccountView.swift:159）：原先 15 字括号混在读数句中段，「N 条已并入云端」
+               的因果读法被规则文本拦腰打断，扫读时主数字还要跳过一行术语 -->
+          <span class="sync-rule">星标并集 / 台账按弹名合并 · 同名本机优先</span>
+        </p>
+        <!-- 同步失败提示与 form-err / caps-warn 同口径：淡入淡出（MOTION §3-F），
+             不再瞬现瞬隐——error↔idle 切换正是「状态变化」动效该服务的场景 -->
+        <Transition name="swap">
+          <p v-if="syncState === 'error'" class="sync-err" role="alert">{{ syncError }}。可点「立即同步」重试，本地功能不受影响。</p>
+        </Transition>
       </div>
 
       <p class="hint">退出会同时让所有已登录设备下线；本机的自选、台账与买入价保留，只是不再同步。</p>
     </section>
+    </Transition>
   </main>
 </template>
 
@@ -475,7 +518,9 @@ form { margin-top: var(--sp-5); display: flex; flex-direction: column; }
   transition: color var(--t-fast) var(--ease); /* 中性→红→绿随校验结果平滑换色（状态过渡，无布局成本） */
 }
 .f-st.bad { color: var(--danger); }
-.f-st.ok { color: var(--accent); }
+/* 校验通过是 success 语义：与同页 .sync-box.ok 的「已同步」同语义同色（--ok 是 base.css
+   反馈色段的成功位），--accent 收回「强调 / 选中」本职——同页同义不双色（语义色纪律） */
+.f-st.ok { color: var(--ok); }
 .st-ic { width: 11px; height: 11px; }
 
 .f-in-wrap { position: relative; }
@@ -515,6 +560,8 @@ form { margin-top: var(--sp-5); display: flex; flex-direction: column; }
   transition: color var(--t-fast) var(--ease), background var(--t-fast) var(--ease);
 }
 .pw-toggle:hover { color: var(--tx); background: var(--lift); }
+/* 触屏点按只有瞬态 :active、没有 hover——补按压态，hover 提示不独享给鼠标 */
+.pw-toggle:active { color: var(--tx); background: var(--lift); }
 .pw-toggle svg { width: 17px; height: 17px; }
 
 .caps-warn {
@@ -543,9 +590,13 @@ form { margin-top: var(--sp-5); display: flex; flex-direction: column; }
   border-radius: 50%;
   border: 2px solid rgba(13, 16, 19, .3); /* --bg 派生（主按钮上的半透明轨道） */
   border-top-color: var(--bg);
-  animation: spin .7s linear infinite;
+  /* fade-in：进度环进场淡入（150ms 对齐 iOS animFast + .transition(.opacity) 的提交
+     spinner 口径，AccountView.swift:273）——环原先随 v-if 瞬现，点击后的第一帧反馈
+     生硬；离场保持瞬删（文案同时切回，完成信号已可感，双向淡出是多余动效） */
+  animation: spin .7s linear infinite, fade-in var(--t-fast) var(--ease);
 }
 @keyframes spin { to { transform: rotate(1turn); } }
+@keyframes fade-in { from { opacity: 0; } }
 
 /* 错误条：警示图标 + 外层 <Transition name="swap"> 淡入淡出 + 抖动一次（每次 v-if
    重挂重新播放）；抖动时长收编 --t-panel .25s（MOTION.md §5 表单错误行的档位登记） */
@@ -576,6 +627,7 @@ form { margin-top: var(--sp-5); display: flex; flex-direction: column; }
   color: var(--faint); font-size: var(--fs-sm);
 }
 .ac-switch button {
+  position: relative; /* 触屏命中垫层的定位锚（见 pointer:coarse 块） */
   border: 0; background: none; padding: 2px 2px;
   color: var(--accent); font-size: var(--fs-sm); font-weight: 600;
   cursor: pointer; border-radius: var(--radius-sm);
@@ -583,8 +635,16 @@ form { margin-top: var(--sp-5); display: flex; flex-direction: column; }
 }
 .ac-switch button:hover { opacity: .75; text-decoration: underline; text-underline-offset: 4px; }
 .ac-switch button:active { opacity: .55; }
+/* 提交中锁定切换：在途请求绑定的是提交时的 mode，此时切走会让按钮文案变成
+   「注册中…」但实际发的是登录请求、失败错误挂到新卡头下——状态错乱。键盘侧
+   disabled 本身已挡下；pointer-events 断掉 :hover 的下划线/提亮（disabled 元素
+   在部分浏览器仍匹配 :hover 伪类），禁用视觉只此一处，与 .submit:disabled 同口径 */
+.ac-switch button:disabled { opacity: .45; pointer-events: none; cursor: default; }
 
-.ac-note { margin-top: var(--sp-4); color: var(--faint); font-size: var(--fs-2xs); line-height: 1.7; }
+/* 与已登录态 .hint 同层级同字号（同口径收编，iOS 端两处对应 footer 均 .xs）：
+   原先 fs-2xs(11px) + faint 承载 60 字长句，刚过 AA 的对比度叠最小长文字号，
+   可读性 weakest；两个舞台的「页脚说明」是一个层级，不该两个字号 */
+.ac-note { margin-top: var(--sp-4); color: var(--faint); font-size: var(--fs-xs); line-height: 1.7; }
 
 /* ============================================================
    已登录 · 账号卡
@@ -624,16 +684,37 @@ form { margin-top: var(--sp-5); display: flex; flex-direction: column; }
 .meta { color: var(--faint); font-size: var(--fs-xs); margin-top: 2px; }
 .logout {
   margin-left: auto;
+  position: relative; /* 触屏命中垫层的定位锚（见 pointer:coarse 块） */
   background: none; border: 1px solid var(--line); border-radius: var(--radius-pill);
   color: var(--dim); font-size: var(--fs-sm); padding: 6px 18px; cursor: pointer;
-  transition: color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease), background var(--t-fast) var(--ease); /* arming 的微警示底也走过渡 */
+  transition: color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease), background var(--t-fast) var(--ease), transform var(--t-fast) var(--ease); /* arming 的微警示底也走过渡 */
 }
 .logout:hover { color: var(--danger); border-color: var(--danger); }
+/* 按压下沉 1px——与 submit / sync-btn 同「按实」语言，触屏也有按压反馈 */
+.logout:active { transform: translateY(1px); }
 /* 两步确认的第一步：常驻危险色 + 微警示底，与 hover 态区分开（hover 是瞬态提示，arming 是持续状态） */
 .logout.arming {
   color: var(--danger); border-color: var(--danger);
   background: rgba(217, 106, 89, .08); /* --danger 派生，同 form-err 底 */
 }
+/* 时限可视化：arming 3 秒无操作自动回退（script logoutTimer），此前只有代码知道、按钮会
+   静默还原——按钮底缘一条 danger 细线从满宽收缩到 0，与计时器同为 3s，「还剩多久」一眼
+   可见。收缩走 transform: scaleX（MOTION §6-1，不动 width）、origin 靠左顺阅读方向；
+   linear 而非 --ease：它映射真实时间流逝，曲线缓动会让剩余量失真（进度类同 .mini-spin /
+   sk-pass 的 linear 先例）。走 ::before——pointer:coarse 的触控垫层已占 ::after；两端
+   内缩 12px 不出胶囊圆角。每次重新进入 arming 类重新匹配、动画从头播 */
+.logout.arming::before {
+  content: '';
+  position: absolute;
+  left: 12px; right: 12px; bottom: 3px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--danger);
+  transform-origin: left;
+  animation: logout-tick 3s linear forwards;
+  pointer-events: none;
+}
+@keyframes logout-tick { to { transform: scaleX(0); } }
 
 .sync-box {
   margin-top: var(--sp-5);
@@ -662,6 +743,7 @@ form { margin-top: var(--sp-5); display: flex; flex-direction: column; }
 .sync-box.ok .sync-v { color: var(--ok); }
 .sync-box.error .sync-v { color: var(--danger); }
 .sync-btn {
+  position: relative; /* 触屏命中垫层的定位锚（见 pointer:coarse 块） */
   display: inline-flex; align-items: center; gap: 6px;
   background: none; border: 1px solid var(--accent-dim); border-radius: var(--radius-pill);
   color: var(--accent); font-size: var(--fs-xs); font-weight: 600;
@@ -672,13 +754,47 @@ form { margin-top: var(--sp-5); display: flex; flex-direction: column; }
 .sync-btn:hover:not(:disabled) { background: var(--accent-bg); }
 .sync-btn:active:not(:disabled) { transform: translateY(1px); }
 .sync-btn:disabled { opacity: .55; cursor: default; }
+/* 同步中不随 disabled 压暗：与 .submit.busy 同口径——内联进度环本身就是「进行中」
+   反馈，半透明会削弱它（MOTION 一致性：两处进度反馈同一语义同一呈现） */
+.sync-btn:disabled.busy { opacity: 1; }
+/* 共享层 .mini-spin（motion.css）在本页补同款进场淡入：与 .spinner 一个口径
+   （iOS 双端进度指示均带 opacity 进场）。scoped 选择器特异性高于共享类，只影响
+   本页；spin 引用 motion.css 的全局 keyframes，fade-in 用本文件 scoped 定义 */
+.sync-btn .mini-spin { animation: spin .7s linear infinite, fade-in var(--t-fast) var(--ease); }
 .sync-detail { margin-top: var(--sp-3); color: var(--faint); font-size: var(--fs-xs); }
+/* 三项计数是已登录态唯一的数据读数：数字提亮一档立权 + 等宽数字，
+   同步完成后数值变化不跳宽、扫读时可先行锚定（数据行扫读三件套口径） */
+.sync-detail b { color: var(--tx); font-weight: 600; font-variant-numeric: tabular-nums; }
 /* 「上次同步 + 时间戳」整段不断行：sync-detail 是一整段内联文本，断行点随机，
    桌面下四字词组曾拦腰拆到两行（首行末「上次」、次行起「同步 …」）；nowrap 后
    要么整段留在行尾、要么整体换到下一行，且整段约 20 字符远窄于移动端 sync-box
-   内宽，不会引入横向溢出 */
-.sync-last { white-space: nowrap; }
+   内宽，不会引入横向溢出。tabular 让时间戳刷新时秒数跳变不牵动整段宽 */
+.sync-last { white-space: nowrap; font-variant-numeric: tabular-nums; }
+/* 机制说明独立成行：同 faint 同 fs-xs（辅助说明下限，不降 2xs——那是 kicker/表头
+   白名单），靠「不在主读数句里」完成弱化，而不是再造一档更小的字 */
+.sync-rule { display: block; }
 .sync-err { margin-top: var(--sp-2); color: var(--danger); font-size: var(--fs-xs); }
+
+/* 错误文案两行时均衡断行（渐进增强）：长错误文案（如用户名规则提示约 32 字）
+   在卡内容宽 ~326px 下必折两行，默认折行头重脚轻；不支持 balance 的浏览器
+   回退默认折行，功能完整无损 */
+@supports (text-wrap: balance) {
+  .form-err, .sync-err { text-wrap: balance; }
+}
+
+/* 触屏粗指针补足命中区：本页四个小按钮视觉尺寸 26–36px，低于 44px 最小
+   可点目标——伪元素向四周扩 10px 做触控垫层，视觉零变化；桌面细指针
+   （pointer: fine）不命中本块，hover 精度不受影响 */
+@media (pointer: coarse) {
+  .pw-toggle::after,
+  .sync-btn::after,
+  .logout::after,
+  .ac-switch button::after {
+    content: '';
+    position: absolute;
+    inset: -10px;
+  }
+}
 
 .hint { margin-top: var(--sp-4); color: var(--faint); font-size: var(--fs-xs); line-height: 1.7; }
 
@@ -706,13 +822,26 @@ form { margin-top: var(--sp-5); display: flex; flex-direction: column; }
   /* kicker .42em 字距在窄卡内放不下会拦腰折行；按 --bp-mini「字距减半」约定收窄 */
   .hero-kicker { letter-spacing: .21em; }
   .auth-card { padding: var(--sp-5); }
+  /* 极窄屏（~320px 机型）sync-line 内容宽 ≈172px，装不下「圆点 + 键值 + 胶囊按钮」
+     ≈230px：flex 默认不换行，inline-flex 按钮被压缩到文字折行、胶囊变形。允许折行
+     兜底（与 .who 的 wrap 同范式）——放得下的宽度 wrap 是被动零效果，只在真挤时
+     按钮整只换到次行；margin-left:auto 让次行按钮右对齐回行尾（首行 sync-v 的
+     margin-right:auto 照旧吸收首行剩余空隙，两个 auto 分属不同行互不干扰） */
+  .sync-line { flex-wrap: wrap; row-gap: var(--sp-2); }
+  .sync-btn { margin-left: auto; }
 }
 
 @media (prefers-reduced-motion: reduce) {
   /* shake 停；外层 swap 淡入淡出由 motion.css 文件尾 RM 兜底统一关停为瞬时 */
   .form-err { animation: none; }
+  /* 倒计时收缩停、条静态满宽——保留「正处于确认态」的静态等价物（语义反馈不随装饰动效
+     一起关）；失去的只是精确剩余量，3 秒后静默还原与改动前 RM 体验一致、不退化 */
+  .logout.arming::before { animation: none; }
   /* spinner / pend-spin / mini-spin 是进度语义循环（MOTION.md 原则 5 例外），RM 下按原速 .7s
      保留——不再降速 1.4s：与本页共用的 .mini-spin 同速，且「降级禁留更慢版本」（§6-5） */
   .sync-box.syncing .sync-dot { animation: none; }
+  /* 进度环的 fade-in 是装饰性进场过渡，RM 关（animation-name 收窄到只剩 spin：
+     进度语义保留、淡入消失）；离去场本就瞬删，无残留在播的动画 */
+  .spinner, .sync-btn .mini-spin { animation-name: spin; }
 }
 </style>

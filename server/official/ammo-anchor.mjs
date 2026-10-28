@@ -5,7 +5,10 @@
    objectID 给值、无小时曲线）给 moligod 主源的 67 弹现价做一个外部参照：
    逐弹算 dev=(moli−official)/official，|dev|>15% 逐弹 console.warn。官方
    口径与 moligod 分钟级现价不是同一个量，所以本模块只校验、不替代、不改
-   口径——绝不写 apps/web/public/ammo/market.json、不碰契约、不碰页面文案。
+   口径——不写 apps/web/public/ammo/market.json、不碰契约、不碰页面文案。
+   对外展示走 server/ammo/fetch-once.mjs 的 joinOfficialAnchor：它读取本
+   模块产物把 official{avg,dev,at} 按弹名 join 进 market.json（dev 按当时
+   现价现算），见 shared/API.md §1 / §7.5。
    数据源：
      · moli 侧：apps/web/public/ammo/market.json 的 items[].name / current /
        grade（只读）

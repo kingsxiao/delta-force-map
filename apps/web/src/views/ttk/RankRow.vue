@@ -4,7 +4,7 @@
 // - 详情懒加载：首次展开才计算该枪全弹药对比（open=false 时 computed 返回 null，不产生开销）；
 // - 详情列表 = 当前筛选下该枪全部组合按 TTK 升序（legacy L772-773 同口径），
 //   与点击行 TTK 相同的卡标记 best（legacy L775）。
-import { computed } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { CAL } from '../../data/ttk/calibers.js'
 import { ttkAmmoMarketName } from '../../data/ttk/ammo-market-alias.js'
@@ -69,7 +69,13 @@ const barScale = computed(() =>
     ? 1
     : Math.max(4, Math.min(100, props.best / props.c.ttk * 100)) / 100)
 
-const detail = computed(() => {
+/* 详情懒计算（open=false 不算、不产生开销）。收起保活：detail 若在收起瞬间变 null，
+   内容会在折叠动画起点被卸载、250ms 塌缩只剩空壳（CollapseCol 的槽内容是随折叠体
+   一起收拢的，同页两种收起形态不一致）——detailCache 保住最近一次结果，收起期间
+   旧内容随折叠体一起收拢；open→false 再等 260ms（≈ --t-collapse 250ms + 1 帧，
+   同下方展开定位定时器口径）才撤挂载：0fr + overflow:hidden 不出焦也不隐没，
+   必须真的卸载才不给读屏器 / Tab 序残留一份隐藏详情，DOM 也不常驻 */
+const detailLive = computed(() => {
   if (!props.open) return null
   // 详情限定在点击行同一场景（部位 × 护甲），跨场景数值混排会失去对比意义
   const list = props.combos
@@ -86,19 +92,48 @@ const detail = computed(() => {
   return {
     list: list.map((x) => ({
       x,
-      /* ttk=0 条画满，0 基准防 0/0=NaN——守卫与行级 barScale 同款（基准恒正后仅兜底） */
+      /* ttk=0 条画满，0 基准防 0/0=NaN——守卫与行级 barScale 同款（基准恒正后仅兜底）。
+         表达同样与行级统一为 scaleX 系数（0-1）：同页面同语义（TTK 比例条）一套配方，
+         杜绝后续任何给详情条加过渡时把 width 动画带回来（MOTION.md §6-3 口径） */
       w: (base <= 0 || x.ttk <= 0)
-        ? '100%'
-        : Math.max(4, Math.min(100, base / x.ttk * 100)) + '%',
+        ? 1
+        : Math.max(4, Math.min(100, base / x.ttk * 100)) / 100,
     })),
     bits,
   }
 })
+const detailCache = ref(null)
+watch(detailLive, (d) => { if (d) detailCache.value = d })
+let unmountTimer = 0
+watch(() => props.open, (v) => {
+  clearTimeout(unmountTimer)
+  if (v) return
+  unmountTimer = setTimeout(() => { detailCache.value = null }, 260)
+})
+/* 模板沿用 detail 名：展开期取实时值，收起动画期间回落到缓存 */
+const detail = computed(() => detailLive.value || detailCache.value)
+
+/* 展开后定位（MOTION.md §3-C「展开后定位」口径，行情页 expander 同款反馈闭环）：
+   详情带（头带 + 全弹对比）高 300-600px，点视口中部的行时行头常被顶出视口、
+   详情尾部悬在屏外——展开完成后按 nearest 做最小滚动（整行已可见则不动）。
+   等 260ms（≈ --t-collapse 250ms + 1 帧）再判：折叠动画中行头仍可见、以瞬时
+   盒子判定会漏滚；RM 下折叠瞬时完成，定时器路径一致、仅滚动直达 */
+const wrapEl = ref(null)
+let scrollTimer = 0
+watch(() => props.open, (v) => {
+  clearTimeout(scrollTimer)
+  if (!v) return
+  scrollTimer = setTimeout(() => {
+    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    wrapEl.value?.scrollIntoView({ behavior: reduced ? 'auto' : 'smooth', block: 'nearest' })
+  }, 260)
+})
+onBeforeUnmount(() => { clearTimeout(scrollTimer); clearTimeout(unmountTimer) })
 </script>
 
 <template>
   <!-- 根 wrapper 挂 --ri 供容器级级联错峰（§7.3）；hover 过渡留在内层 button、与入场 animation 正交 -->
-  <div class="rk-row-wrap" :class="{ open }" :style="{ '--ri': rank - 1 }">
+  <div ref="wrapEl" class="rk-row-wrap" :class="{ open }" :style="{ '--ri': rank - 1 }">
     <button
       type="button"
       class="rk-row"
@@ -191,17 +226,20 @@ const detail = computed(() => {
                   <PenBadge :p="item.x.am.pen" />
                   <span class="d-an">{{ item.x.am.n }}</span>
                 </span>
+                <!-- aria-label：可见名只有「现价 · 分位」数字串，title 仅鼠标可见——
+                     触屏与读屏用户都需要一个含弹名的可读名 -->
                 <button
                   v-if="marketOf(item.x.am)"
                   type="button"
                   class="d-mp"
                   :title="'去行情页看 ' + ttkAmmoMarketName(c.gun.cal, item.x.am.n) + ' 走势'"
+                  :aria-label="ttkAmmoMarketName(c.gun.cal, item.x.am.n) + ' 现价与行情走势'"
                   @click="gotoMarket(item.x.am)"
                 >{{ priceText(marketOf(item.x.am)) }}</button>
               </span>
               <span class="d-ttk">
                 <span class="d-ttv">{{ fmtMs(item.x.ttk) }}</span>
-                <span class="d-bar"><i :style="{ width: item.w }"></i></span>
+                <span class="d-bar"><i :style="{ transform: 'scaleX(' + item.w + ')' }"></i></span>
                 <span class="d-btk">{{ item.x.btk }} 发击杀</span>
               </span>
               <span class="d-parts">
@@ -231,6 +269,13 @@ const detail = computed(() => {
 }
 .rk-row-wrap:last-child {
   border-bottom: 0;
+}
+/* 展开定位的滚动让位（配合上方 watch 的 scrollIntoView）：>680 控制面板吸顶
+   （top:8px、常态高约 145px），nearest 把整行贴视口顶时行头须落在面板之下，
+   160px 留少量余量；提示条再展开时行头可能被其下缘轻微压住——nearest 多数
+   情况不贴顶、属可忍。680 以下面板解除吸顶且全局顶栏不吸顶，无需让位 */
+@media (min-width: 681px) {
+  .rk-row-wrap { scroll-margin-top: 160px; }
 }
 /* 斑马纹（.rk-head 是第 1 个子元素，odd 子位恰好落在第 2/4/6…行） */
 .rk-row-wrap:nth-child(odd) { background: var(--zebra); }
@@ -264,22 +309,17 @@ const detail = computed(() => {
   background: linear-gradient(90deg, rgba(45, 212, 191, .12), transparent 70%);
   background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 12%, transparent), transparent 70%);
 }
-.rk-row.top1::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  width: 2px;
-  background: var(--accent);
-}
-/* 展开选中：底 --accent-bg + 左缘 2px --accent-dim 内描边（一眼可辨且与 top1 实色分层） */
-.rk-row.open { background: var(--accent-bg); box-shadow: inset 2px 0 0 var(--accent-dim); }
+/* 展开选中：--accent-bg 微底（与 top1 渐变底分层，一眼可辨） */
+.rk-row.open { background: var(--accent-bg); }
 .rk-row.open:hover,
 .rk-row.open:focus-visible {
   background: rgba(45, 212, 191, .12);
   background: color-mix(in srgb, var(--accent) 12%, transparent);
 }
+/* 按压态（触屏无 hover 的「按实」回声）：--lift 抬一档面，全站按压配方
+   （同 CollapseCol .col-head:active）。源序压过 top1/open 各态底——按压瞬间
+   无论何态统一变面，展开/收起动画随即起跑，点击与回声之间不留空窗 */
+.rk-row:active { background: var(--lift); }
 .rk-num {
   font-family: var(--mono);
   font-size: var(--fs-xs);
@@ -315,7 +355,12 @@ const detail = computed(() => {
   padding: 2px 4px;
   margin-right: 6px;
   border: 1px solid currentColor;
-  border-radius: 4px;
+  border-radius: var(--radius-sm); /* 徽标圆角走令牌（PenBadge / TierBoard 徽标同值）；原 4px 是脱离圆角阶梯的字面值 */
+  /* 一套徽标配方（对齐 PenBadge .pen「描边 + 同色 12% 底」外形）：分档身份色仍由
+     字色/描边承载（与 .pen 的统一亮字不同——徽标本身即内容）；色来自 inline style，
+     无法预写 rgba 兜底行，直接 color-mix 单行——不支持的环境整行丢弃、回退现状
+     纯描边款（功能完整，仅少一层底色） */
+  background: color-mix(in srgb, currentColor 12%, transparent);
   opacity: .92;
   vertical-align: 1px;
 }
@@ -534,15 +579,16 @@ const detail = computed(() => {
 }
 .drow.capt small {
   display: block;
-  font-size: var(--fs-2xs); /* 注不压列名（capt-t 为 micro）；同 .rk-head .th-ta small 的层级关系 */
-  letter-spacing: .06em;
+  font-size: var(--fs-micro); /* 表头附注（「条越长越快」等口径注）与主表头 .rk-head .th-ta small
+                                 同层级同字号同字距（.08em）——同一张排行表的两排表头不做出两套注；
+                                 micro 白名单本就含表头（不承载实义数据，base.css --fs-micro 注释） */
+  letter-spacing: .08em;
   color: var(--faint);
   margin-top: 2px;
 }
 .drow.capt .d-ttk { display: block; }
 .drow.best {
   background: linear-gradient(90deg, var(--accent-bg), transparent 62%);
-  box-shadow: inset 2px 0 0 var(--accent);
 }
 .d-rank {
   grid-area: rank;
@@ -567,13 +613,17 @@ const detail = computed(() => {
   gap: 8px;
   min-width: 0;
 }
-/* 现价文本链（跳行情页）：等宽数字 + accent，hover/active 下划线（规格同 .ammo-toggle） */
+/* 现价文本链（跳行情页）：等宽数字 + accent，hover/active 下划线（规格同 .ammo-toggle）。
+   垫层同 AmmoTable .mp（垂直 padding + 等量负 margin，外框与文字位置不变，命中区上下各扩 9px）；
+   字阶 xs：现价·分位是实义数据，不低于字阶实义下限 12px（base.css --fs-xs 注释），
+   并与 AmmoTable .mp 同尺寸——同一语义链接不做两套配方 */
 .d-mp {
   border: 0;
   background: none;
-  padding: 0;
+  padding: 9px 0;
+  margin: -9px 0;
   font-family: var(--mono);
-  font-size: var(--fs-2xs);
+  font-size: var(--fs-xs);
   letter-spacing: .02em;
   color: var(--accent);
   cursor: pointer;
@@ -582,6 +632,20 @@ const detail = computed(() => {
 }
 .d-mp:hover,
 .d-mp:active { text-decoration: underline; }
+/* 触屏垫层再外延（同 TtkView .ammo-toggle / ControlSeg .seg-btn 手法）：9px 垫层后
+   命中区约 38px 仍低于 44px 原则，hover:none 下伪元素上下再外延 5px 到位；左右不扩——
+   链接文字本身够宽，两侧是列边界与相邻内容，外扩只会吞邻格点击。伪元素只承接点击不绘制 */
+@media (hover: none) {
+  .d-mp { position: relative; }
+  .d-mp::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: -5px;
+    bottom: -5px;
+  }
+}
 .d-an {
   font-size: var(--fs-xs);
   font-weight: 600;
@@ -616,9 +680,13 @@ const detail = computed(() => {
 }
 .d-bar i {
   display: block;
+  /* 与行级 .rk-bar i 同配方（§6-3）：满宽 + scaleX 系数左起缩放；详情条在展开期间
+     基准不变、无重算场景，不挂过渡（挂了也只是首帧即终值） */
+  width: 100%;
   height: 100%;
   border-radius: 3px;
   background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 50%, transparent), var(--accent));
+  transform-origin: left center;
 }
 .drow.best .d-bar i { background: var(--accent); }
 .d-btk {

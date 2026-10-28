@@ -42,18 +42,17 @@ defineEmits(['toggle'])
   background: var(--card);
   overflow: hidden;
   box-shadow: var(--edge-light);
-  transition: border-color var(--t-med), box-shadow var(--t-med);
+  transition: border-color var(--t-med) var(--ease), box-shadow var(--t-med) var(--ease);
 }
 .col + .col { margin-top: var(--sp-3); }
 .col:hover {
   border-color: var(--line-hover);
   box-shadow: var(--edge-hover);
 }
-/* 展开态：左缘 2px --accent-dim 指示条（展开/选中统一语义；实色 --accent 留给冠军/最佳）
-   + 提亮描边，折叠列表里一眼可辨哪些已展开 */
+/* 展开态：提亮描边，折叠列表里一眼可辨哪些已展开 */
 .col.open {
-  border-color: var(--line-hover);
-  box-shadow: var(--edge-light), inset 2px 0 0 var(--accent-dim);
+  border-color: var(--accent-dim);
+  box-shadow: var(--edge-hover);
 }
 .col-head {
   display: flex;
@@ -69,11 +68,15 @@ defineEmits(['toggle'])
   font-size: var(--fs-md);
   font-weight: 600;
   line-height: var(--lh-tight); /* 长标题折行时行距不塌缩（button 默认 line-height:normal） */
-  transition: background var(--t-med);
+  transition: background var(--t-med) var(--ease);
 }
 .col-head:hover { background: var(--row-hover); }
 /* 按下态：面再抬一档（--lift），触屏无 hover 时按压可见 */
 .col-head:active { background: var(--lift); }
+/* 焦点环内缩：.col 有 overflow:hidden（裁圆角与折叠溢出），.col-head 又铺满卡片
+   宽——全局 :focus-visible 的 outline 外扩 2px 会被卡片四边裁掉，键盘用户只见
+   残环。改画盒内侧（-2px，同顶栏 .tab 的 SiteHeader 手法），环完整可见 */
+.col-head:focus-visible { outline-offset: -2px; }
 .col-label { flex: 1; min-width: 0; }
 .col-note {
   font-size: var(--fs-xs);
@@ -90,7 +93,7 @@ defineEmits(['toggle'])
   color: var(--faint);
   /* 箭头统一 --t-slow .22s（MOTION.md §3-C 收编三档并存）：略快于折叠体 .25s，
      先转后合，读作同一动作的前导 */
-  transition: transform var(--t-slow) var(--ease), color var(--t-fast);
+  transition: transform var(--t-slow) var(--ease), color var(--t-fast) var(--ease);
 }
 .col.open .chev { transform: rotate(180deg); color: var(--accent); }
 .col-body {

@@ -9,7 +9,7 @@
    「数据时刻」取快照曲线末点的墙钟小时，不用设备本地时间——海外设备不错位。
    历史统计不代表未来——脚注必带。
    ============================================================ */
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { marketClock, fmtPeak } from '@shared/js/sellEta.js'
 
 const props = defineProps({
@@ -71,6 +71,12 @@ const lowHour = computed(() => {
 })
 const pct = (n) => (Number.isFinite(n) ? `${n >= 0 ? '+' : ''}${(n * 100).toFixed(1)}%` : '—')
 
+/* 点击查值（触屏等价物）：格子的 hover title 只活在鼠标下；触屏点格子把读数
+   放到色带下方固定位置（通用原则：移动端查值读数放固定位置、不做贴指针浮层，
+   避免被手指遮挡）；再点同格收起。桌面 title 保留（就地提示更轻） */
+const pickedHour = ref(null)
+const picked = computed(() => cells.value.find((c) => c.hour === pickedHour.value) || null)
+
 const bandLabel = computed(() => {
   const c = clock.value
   if (!c) return '全市场日内节律'
@@ -87,15 +93,21 @@ const bandLabel = computed(() => {
       <span class="bhc">全市场日内节律 · {{ clock.counted }} 种弹聚合</span>
     </div>
 
-    <!-- 判读行：数据时刻 + 大字判读 + 高位/低位窗口读数 -->
+    <!-- 判读行：数据时刻 + 大字判读 + 高位/低位窗口读数。换挡淡切（swap 全局类，
+         MOTION.md §2.1）：数据时刻/判读档随快照推进跳变时淡入淡出而非瞬换——
+         必须带 out-in（同四态根/脉搏 .nv 的换挡口径）：swap 的 leave 态不脱流，
+         无 out-in 时新旧两卡同时在流内叠放 250ms、判读行高度瞬时翻倍且进场
+         带多余 6px 位移。RM 下全局兜底瞬时，低频更新（小时级）不构成噪声 -->
     <div class="mc-read">
-      <div class="mc-verdict" :class="vMeta?.cls">
-        <span class="mc-clock">数据时刻 <b class="mono">{{ dataClockLabel || '—' }}</b></span>
-        <template v-if="vMeta">
-          <strong class="mc-word">{{ vMeta.label }}</strong>
-          <span class="mc-note">{{ vMeta.note }}</span>
-        </template>
-      </div>
+      <Transition name="swap" mode="out-in">
+        <div :key="`${clock.dataHour ?? 'x'}-${clock.verdict ?? 'x'}`" class="mc-verdict" :class="vMeta?.cls">
+          <span class="mc-clock">数据时刻 <b class="mono">{{ dataClockLabel || '—' }}</b></span>
+          <template v-if="vMeta">
+            <strong class="mc-word">{{ vMeta.label }}</strong>
+            <span class="mc-note">{{ vMeta.note }}</span>
+          </template>
+        </div>
+      </Transition>
       <p v-if="peakLabel" class="mc-windows">
         高位窗口 <b class="mono">{{ peakLabel }}</b><template v-if="clock.liftPct != null">（较最低小时 {{ pct(clock.liftPct) }}）</template><template v-if="lowHour != null"> · 最低小时 {{ pad2(lowHour) }}:00 前后</template>
       </p>
@@ -105,8 +117,9 @@ const bandLabel = computed(() => {
     <div class="mc-band" role="img" :aria-label="bandLabel">
       <div
         v-for="cell in cells" :key="cell.hour"
-        class="mc-cell" :class="{ now: cell.now }"
+        class="mc-cell" :class="{ now: cell.now, pick: pickedHour === cell.hour }"
         :title="`${pad2(cell.hour)}:00 · 相对水位${cell.pos == null ? '无样本' : ` ${(cell.pos * 100).toFixed(0)}%`}${cell.now ? ' · 数据时刻' : ''}`"
+        @click="pickedHour = pickedHour === cell.hour ? null : cell.hour"
       >
         <i class="mc-mark" aria-hidden="true">▼</i>
         <span class="mc-track">
@@ -115,6 +128,11 @@ const bandLabel = computed(() => {
         <span class="mc-h">{{ [0, 6, 12, 18].includes(cell.hour) ? pad2(cell.hour) : '' }}</span>
       </div>
     </div>
+
+    <!-- 点击查值读数行（固定位置，不跟指针）：所选小时的精确读数；role=status 播报 -->
+    <p v-if="picked" class="mc-pick" role="status">
+      {{ pad2(picked.hour) }}:00 · 相对水位 <b>{{ picked.pos == null ? '无样本' : `${(picked.pos * 100).toFixed(0)}%` }}</b>{{ picked.now ? ' · 数据时刻' : '' }}<span class="mc-pick-x">（再点该格收起）</span>
+    </p>
 
     <p class="mc-foot">
       按 {{ clock.counted }} 种子弹 7 天小时曲线逐弹归一（相对自身 7 天均价）后跨弹取中位聚合；「数据时刻」为快照曲线末点的墙钟时刻，不用设备本地时间。历史统计不代表未来。
@@ -131,20 +149,17 @@ const bandLabel = computed(() => {
 .mc-verdict {
   display: flex; align-items: baseline; gap: 10px 14px; flex-wrap: wrap;
   padding: 10px 16px;
-  border: 1px solid var(--line); border-left-width: 2px; border-radius: var(--radius);
+  border: 1px solid var(--line); border-radius: var(--radius);
   background: var(--card);
 }
 .mc-clock { font-family: var(--mono); font-size: var(--fs-2xs); color: var(--faint); }
 .mc-clock b { color: var(--dim); font-variant-numeric: tabular-nums; }
 .mc-word { font-size: var(--fs-xl); font-weight: 700; line-height: 1; letter-spacing: .06em; }
 .mc-note { font-size: var(--fs-xs); color: var(--faint); }
-/* 三档语义派生色（color-mix + rgba 真值兜底，写法同 Playbook 时段标签） */
+/* 三档语义色由判读词文字承担（卡片不用左边条装饰） */
 .mc-verdict.buy .mc-word { color: var(--ok); }
-.mc-verdict.buy { border-left-color: var(--ok); }
 .mc-verdict.sell .mc-word { color: var(--danger); }
-.mc-verdict.sell { border-left-color: var(--danger); }
 .mc-verdict.wait .mc-word { color: var(--dim); }
-.mc-verdict.wait { border-left-color: var(--line-hover); }
 .mc-windows { font-size: var(--fs-sm); color: var(--dim); }
 .mc-windows b { color: var(--tx-strong); font-variant-numeric: tabular-nums; }
 
@@ -154,7 +169,9 @@ const bandLabel = computed(() => {
   background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
   padding: 6px 10px 8px;
 }
-.mc-cell { display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 0; }
+.mc-cell { display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 0; cursor: pointer; }
+/* 点击查值：选中格轨道点亮（与 .now 的 accent-dim 描边区分——实线全亮） */
+.mc-cell.pick .mc-track { outline: 1px solid var(--accent); outline-offset: -1px; }
 /* 指针槽（固定高度，仅数据时刻那格点亮，避免色带跳动） */
 .mc-mark {
   height: 12px; font-style: normal; font-size: 10px; line-height: 12px;
@@ -185,7 +202,18 @@ const bandLabel = computed(() => {
   font-variant-numeric: tabular-nums;
 }
 
-.mc-foot { font-size: var(--fs-2xs); color: var(--faint); margin: var(--sp-3) 0 0; line-height: 1.8; }
+/* 口径脚注与页尾 Playbook .pb-src 同层级同规格（fs-xs / faint / lh1.8 / 上距 sp-3）：
+   字阶按 base.css 阶梯注释，fs-2xs 只承载标签类，整段统计口径说明属「辅助说明」
+   档 fs-xs——11px 整句低于角色下限且两区块不一致 */
+.mc-foot { font-size: var(--fs-xs); color: var(--faint); margin: var(--sp-3) 0 0; line-height: 1.8; }
+
+/* 点击查值读数行（色带正下方固定位置）：mono 等宽防数字跳动，主读数 tx-strong 立权 */
+.mc-pick {
+  font-family: var(--mono); font-size: var(--fs-xs); color: var(--dim);
+  margin: var(--sp-2) 0 0; font-variant-numeric: tabular-nums;
+}
+.mc-pick b { color: var(--tx-strong); }
+.mc-pick-x { color: var(--faint); margin-left: 6px; }
 
 /* 窄屏：格子随宽收缩（24 格在 320px 仍约 9px/格，hour 标注只留 0/12 两处） */
 @media (max-width: 480px) {

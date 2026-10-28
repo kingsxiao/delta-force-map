@@ -3,7 +3,8 @@
    ------------------------------------------------------------
    原先台账状态内联在 AmmoMarketView（与星标同模式），账号云同步需要
    跨视图读写，抽为模块级单例：
-     · positions 为全站共享的响应式数组（[{name, qty, cost}]）
+     · positions 为全站共享的响应式数组（[{name, qty, cost, at?}]，at=记账时刻
+       epoch ms 可选，iOS 端同构透传，契约 shared/API.md §6.3）
      · 视图沿用「直接改 positions.value 再调 save()」的既有写法
      · 变更统一经 save / replacePositions 收口：持久化 + 订阅通知
        （source: 'save' = 用户编辑，'replace' = 云合并落地）
@@ -18,7 +19,13 @@ function loadPositions() {
     if (!Array.isArray(raw)) return []
     return raw
       .filter((p) => p && typeof p.name === 'string' && Number.isFinite(+p.qty) && Number.isFinite(+p.cost))
-      .map((p) => ({ name: p.name, qty: Math.max(1, Math.round(+p.qty)), cost: Math.max(0, +p.cost) }))
+      .map((p) => ({
+        name: p.name,
+        qty: Math.max(1, Math.round(+p.qty)),
+        cost: Math.max(0, +p.cost),
+        // at（记账时刻 epoch ms）：旧存档无此字段则不带；非法值剔除
+        ...(Number.isFinite(+p.at) && +p.at > 0 ? { at: +p.at } : {}),
+      }))
   } catch {
     return []
   }
@@ -29,8 +36,9 @@ const listeners = new Set()
 
 function persist() {
   try {
-    // 只存账本事实三字段：内存里的行对象可能被视图 join 进展示字段（item/curve 等），
-    // 整体落盘会污染本地与云端 ledger.ammo（多次编辑即超 64KB 上限）
+    // 只存账本事实字段（name/qty/cost/at）：内存里的行对象可能被视图 join 进展示
+    // 字段（item/curve 等），整体落盘会污染本地与云端 ledger.ammo（多次编辑即超
+    // 64KB 上限）
     localStorage.setItem(POSITIONS_KEY, JSON.stringify(loadSanitized(positions.value)))
   } catch {
     /* 隐私模式等写入失败时仅本次会话生效 */
@@ -67,5 +75,10 @@ function loadSanitized(list) {
   if (!Array.isArray(list)) return []
   return list
     .filter((p) => p && typeof p.name === 'string' && Number.isFinite(+p.qty) && Number.isFinite(+p.cost))
-    .map((p) => ({ name: p.name, qty: Math.max(1, Math.round(+p.qty)), cost: Math.max(0, +p.cost) }))
+    .map((p) => ({
+      name: p.name,
+      qty: Math.max(1, Math.round(+p.qty)),
+      cost: Math.max(0, +p.cost),
+      ...(Number.isFinite(+p.at) && +p.at > 0 ? { at: +p.at } : {}),
+    }))
 }

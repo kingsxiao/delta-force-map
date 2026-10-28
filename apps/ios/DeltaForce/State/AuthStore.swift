@@ -211,7 +211,15 @@ final class AuthStore {
     }
 
     private static func accountValue(_ positions: [LedgerEntry]) -> AccountValue {
-        .array(positions.map { .object(["name": .string($0.name), "qty": .number(Double($0.qty)), "cost": .number($0.cost)]) })
+        .array(positions.map { p in
+            var o: [String: AccountValue] = [
+                "name": .string(p.name),
+                "qty": .number(Double(p.qty)),
+                "cost": .number(p.cost),
+            ]
+            if let at = p.at { o["at"] = .number(at) } // 可选记账时刻：缺省不带键（契约 §6.3）
+            return .object(o)
+        })
     }
 
     /// 云端缓存里的两项（部分推送时补全另一项用）

@@ -12,7 +12,13 @@ const failed = ref(false)
 const open = ref(false)
 const note = ref('镜像快照')
 
-onMounted(async () => {
+/* 加载抽成可重入（错误态「重试」复用同一路径）：入口先回 loading 骨架
+   （failed=false、entries=null，swap 淡入骨架）；重试按钮随 failed 分支一起
+   卸载——分支互斥即天然防连点，不需要额外 busy 态 */
+async function load() {
+  failed.value = false
+  entries.value = null
+  note.value = '镜像快照'
   try {
     // BASE_URL 前缀与 TtkView 行情快照同口径：子路径静态托管（BASE_URL 非 '/'）下不再 404
     const res = await fetch(`${import.meta.env.BASE_URL}data/balance-updates.json`)
@@ -24,7 +30,8 @@ onMounted(async () => {
     failed.value = true
     note.value = '快照缺失'
   }
-})
+}
+onMounted(load)
 </script>
 
 <template>
@@ -37,6 +44,9 @@ onMounted(async () => {
         <p v-if="failed" key="failed" class="bal-empty">
           本地快照缺失：在仓库根目录运行 <code>npm run dfttk:snapshot</code> 生成
           <code>apps/web/public/data/balance-updates.json</code>（一次性抓取后自托管，前端不再请求外部站点）。
+          <!-- 错误态给重试出路（通用原则「错误可重试」）：网络抖动可恢复；快照真缺失时
+               重试后仍落回本态（按钮在、不空转）；点击即切回 loading 骨架，按钮随分支卸载防连点 -->
+          <button type="button" class="bal-retry" @click="load">重试</button>
         </p>
         <div v-else-if="!entries" key="loading" class="bal-list" role="status" aria-label="正在加载">
           <div v-for="n in 3" :key="n" class="bal-item" aria-hidden="true">
@@ -95,7 +105,10 @@ onMounted(async () => {
 .bal-date {
   font-family: var(--mono);
   font-size: var(--fs-xs);
-  color: var(--accent);
+  /* 日期是实义数据不是强调位：accent 文字色只给 链接/选中/单点主数（base.css 用色
+     硬约束），10 条日期全 accent 会稀释全页唯一强调色；dim（≥6.1:1）与 TierBoard
+     .tb-range 同为「数据 dim > 标注 faint」秩序，条目标题 tx-strong 立权 */
+  color: var(--dim);
   letter-spacing: .06em;
   padding-top: 2px;
   font-variant-numeric: tabular-nums;
@@ -150,6 +163,24 @@ onMounted(async () => {
   border-radius: var(--radius-sm);
   padding: 1px 5px;
 }
+/* 错误态重试按钮（文本链规格，同 TtkView .rk-clear / .ammo-toggle 一族）：错误态里
+   唯一的操作，内距与 .rk-clear 同取 sp-3/sp-4（命中区 ~48px，满足 ≥44px 原则；
+   原 sp-2 竖距约 42px 差一线）而非 12px 裸文字；按钮是 phrasing
+   content，block 化在 p 内合法，左对齐跟随上方说明文字 */
+.bal-retry {
+  display: block;
+  margin-top: var(--sp-2);
+  border: 0;
+  background: none;
+  padding: var(--sp-3) var(--sp-4);
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  letter-spacing: .08em;
+  color: var(--accent);
+  cursor: pointer;
+}
+.bal-retry:hover,
+.bal-retry:active { text-decoration: underline; }
 @media (max-width: 680px) {
   .bal-item {
     grid-template-columns: 1fr;

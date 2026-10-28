@@ -72,8 +72,9 @@ function buildFeatures(curve, tax) {
 const VARIANTS = {
   old: { enter: (f) => f.rank <= 0.25 && f.p75 * (1 - f.tax) - f.cur > 0 && (f.p75 * (1 - f.tax) - f.cur) / f.cur >= 0.08, target: (f) => f.p75 },
 }
-/* prod：直接跑生产 analyzeItem（回测/上线同源，防两套口径漂移） */
-const { analyzeItem } = await import('./analyze.mjs')
+/* prod：直接跑生产 analyzeItem（回测/上线同源，防两套口径漂移）；
+   RULES 供 --mkt-min 扫描临时改市场体制门槛后复位 */
+const { analyzeItem, RULES } = await import('./analyze.mjs')
 
 /* ---------- 数据与去重 ---------- */
 async function loadAll() {
@@ -224,32 +225,8 @@ if (GRID) {
     const trades = runVariant(itemFeats, (f) => v.enter(f), (f) => v.target(f))
     out[name] = { summary: summarize(trades), trades }
   }
-  // prod：逐时刻喂截断曲线给生产 analyzeItem，信号/目标/止损全用其输出
   {
-    const trades = []
-    for (const { curve, feats } of itemFeats) {
-      let pos = null
-      for (let t = 24; t < feats.length; t++) {
-        const f = feats[t]
-        if (!f) continue
-        if (pos) {
-          const held = t - pos.entryT
-          if (f.cur <= pos.stop) { trades.push(fin(pos, f.cur, 'SL', held, f)); pos = null }
-          else if (f.cur >= pos.target) { trades.push(fin(pos, f.cur, 'TP', held, f)); pos = null }
-          else if (held >= pos.maxHoldH) { trades.push(fin(pos, f.cur, 'TIME', held, f)); pos = null }
-        }
-        if (!pos && t < feats.length - 2) {
-          const res = analyzeItem({ itemName: f.name, currectPrice: f.cur, priceCurve: Object.fromEntries(curve.slice(0, f.t + 1)) })
-          if (res.signal === 'BUY') {
-            pos = { name: f.name, entryT: t, entry: f.cur, target: res.targetSell, stop: res.stopLoss, maxHoldH: res.maxHoldH || MAX_HOLD_H }
-          }
-        }
-      }
-      if (pos) {
-        const f = feats[feats.length - 1]
-        trades.push(fin(pos, f.cur, 'OPEN', feats.length - 1 - pos.entryT, f))
-      }
-    }
+    const trades = runProd(itemFeats)
     out.prod = { summary: summarize(trades), trades }
   }
   if (AS_JSON) {
@@ -259,4 +236,51 @@ if (GRID) {
     console.log('\n— prod（生产算法）交易明细 —')
     for (const r of out.prod.trades) console.log(`  ${r.name} ${r.reason} 净${Math.round(r.net)} (${(r.retPct * 100).toFixed(1)}%, ${r.heldH}h)`)
   }
+}
+
+/* prod 路径：逐时刻喂截断曲线给生产 analyzeItem，信号/目标/止损全用其输出。
+   市场体制 ctx 逐时刻取已算好的全弹 48h 斜率中位（mktSlope Map，跨物品同键），
+   与生产 analyzeMarket 的「全弹中位」同构——回测/上线同一门槛口径 */
+function runProd(itemFeats) {
+  const trades = []
+  for (const { curve, feats } of itemFeats) {
+    let pos = null
+    for (let t = 24; t < feats.length; t++) {
+      const f = feats[t]
+      if (!f) continue
+      if (pos) {
+        const held = t - pos.entryT
+        if (f.cur <= pos.stop) { trades.push(fin(pos, f.cur, 'SL', held, f)); pos = null }
+        else if (f.cur >= pos.target) { trades.push(fin(pos, f.cur, 'TP', held, f)); pos = null }
+        else if (held >= pos.maxHoldH) { trades.push(fin(pos, f.cur, 'TIME', held, f)); pos = null }
+      }
+      if (!pos && t < feats.length - 2) {
+        const ctx = Number.isFinite(f.mktSlope) ? { mktSlope48: f.mktSlope } : {}
+        const res = analyzeItem({ itemName: f.name, currectPrice: f.cur, priceCurve: Object.fromEntries(curve.slice(0, f.t + 1)) }, ctx)
+        if (res.signal === 'BUY') {
+          pos = { name: f.name, entryT: t, entry: f.cur, target: res.targetSell, stop: res.stopLoss, maxHoldH: res.maxHoldH || MAX_HOLD_H }
+        }
+      }
+    }
+    if (pos) {
+      const f = feats[feats.length - 1]
+      trades.push(fin(pos, f.cur, 'OPEN', feats.length - 1 - pos.entryT, f))
+    }
+  }
+  return trades
+}
+
+/* --mkt-min：市场体制门槛扫描（临时改 RULES 后逐档重跑 prod 路径，跑完复位）。
+   判据：门槛加入后胜率 / 单笔均值应升、笔数降幅可接受（宁缺毋滥口径）；
+   全档都不改善即 BUY_MKT_SLOPE_MIN 保持 -Infinity（关闭） */
+if (process.argv.includes('--mkt-min')) {
+  const prod0 = RULES.BUY_MKT_SLOPE_MIN
+  console.log('市场体制门槛扫描（prod 路径，其余参数不变）：')
+  for (const min of [-Infinity, 0, 0.02, 0.05]) {
+    RULES.BUY_MKT_SLOPE_MIN = min
+    const s = summarize(runProd(itemFeats))
+    const label = min === -Infinity ? '关闭' : `≥${min}`
+    console.log(`  mktSlope ${String(label).padEnd(6)} trades=${String(s.trades).padStart(3)} 胜率=${String(s.winRate).padStart(5)}% 均值=${String(s.meanRetPct).padStart(7)}% 总=${String(s.totalRetPct).padStart(8)}% worst=${String(s.worstRetPct).padStart(7)}%`)
+  }
+  RULES.BUY_MKT_SLOPE_MIN = prod0
 }

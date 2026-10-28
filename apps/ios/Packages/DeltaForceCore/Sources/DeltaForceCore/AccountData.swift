@@ -119,16 +119,21 @@ public func mergeStars(local: [String], remote: [String]) -> [String] {
 
 // MARK: - 囤货台账（键 ledger.ammo 的合并口径，与 shared/js/accountData.js 同构）
 
-/// 台账条目：弹名 + 数量 + 成本单价（哈夫币/发）。Codable 形状 = 客户端存储与云端 K/V 的 ledger.ammo。
+/// 台账条目：弹名 + 数量 + 成本单价（哈夫币/发）+ 记账时刻（epoch ms，可选）。
+/// Codable 形状 = 客户端存储与云端 K/V 的 ledger.ammo（契约 shared/API.md §6.3）。
 public struct LedgerEntry: Codable, Sendable, Hashable {
     public var name: String
     public var qty: Int
     public var cost: Double
+    /// 记账时刻 epoch ms；nil = 旧条目未记录（合成 Codable 对 Optional 走
+    /// decodeIfPresent / encodeIfPresent，旧存档与旧云文档双向兼容）
+    public var at: Double?
 
-    public init(name: String, qty: Int, cost: Double) {
+    public init(name: String, qty: Int, cost: Double, at: Double? = nil) {
         self.name = name
         self.qty = qty
         self.cost = cost
+        self.at = at
     }
 }
 
@@ -143,11 +148,16 @@ extension AccountValue {
         let cost: Double
         if case .number(let c) = o["cost"] ?? .null { cost = c } else { return nil }
         guard qty.isFinite, cost.isFinite else { return nil }
+        // at 记账时刻（可选）：只认 JSON number 且 > 0，其余（缺键 / 字符串 /
+        // 非正数）一律剔除为 nil——与 shared/js/accountData.js normalizePosition
+        // 同一清洗口径，同一云文档两端清洗后形状一致
+        var at: Double?
+        if case .number(let a) = o["at"] ?? .null, a.isFinite, a > 0 { at = a }
         // qty 是有限但超出 Int64 范围的值（如 1e300，web 侧 loadSanitized 无上限
         // 即可落盘）时 Int() 强转会 trap 崩 App——Int(exactly:) 落空按方向退哨兵
         // （正向 Int.max / 负向 1，max(1,·) 本就把一切 ≤1 钳到 1），同 TtkEngine
         // 的防崩手法
-        return LedgerEntry(name: name, qty: max(1, Int(exactly: qty.rounded()) ?? (qty > 0 ? Int.max : 1)), cost: max(0, cost))
+        return LedgerEntry(name: name, qty: max(1, Int(exactly: qty.rounded()) ?? (qty > 0 ? Int.max : 1)), cost: max(0, cost), at: at)
     }
 
     /// 台账数组视图（ledger.ammo 取值用）：剔除非法条目

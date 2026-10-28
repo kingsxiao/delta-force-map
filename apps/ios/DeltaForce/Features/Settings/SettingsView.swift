@@ -8,6 +8,9 @@ struct SettingsView: View {
     @Environment(AppModel.self) private var app
     // §7-9 Reduce Motion：为 true 时跳过 symbolEffect（触感不属动效，保留）
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    // 回前台重查通知授权：用户从「前往设置」放行后返回，本页仍在屏上、onAppear 不会再触发，
+    // 不重查则「系统授权」行会一直停在「未允许」（根 handleScenePhase 不管通知授权，State 禁改，故本页自查）
+    @Environment(\.scenePhase) private var scenePhase
     @State private var refreshing = false // 三路快照刷新进行中（防连点）
     // UI 巡检：-openAccount 启动参数直达账号页（见 onAppear 处注释）
     @State private var showAccount = false
@@ -26,7 +29,25 @@ struct SettingsView: View {
                     // live 显 ok 点、其余 faint，行值随通道状态可见变化（消除左右同文的无信息行）；
                     // 本页只传 state，error/stale 维度归 FeedHeader 全参调用
                     LabeledContent {
-                        ConnectionDot(state: app.channel.state)
+                        // 行值字号对齐同列（§1.3「档位跟层级」）：ConnectionDot 内置文字是页头 FeedHeader 的 xs 档
+                        // （Components.swift ConnectionDot），放进表单行值位比下方「行情版本」「收到推送」矮一档；
+                        // 这里只取它的圆点（showLabel: false），文字按本列行值口径 .md semibold dim 自绘。
+                        // a11y：圆点自带 state.label、再加文字会读两遍——整组合并为单元素、label 只取一份
+                        HStack(spacing: Theme.Space.sm) {
+                            ConnectionDot(state: app.channel.state, showLabel: false)
+                            Text(app.channel.state.label)
+                                .font(Theme.font(.md, weight: .semibold))
+                                .monospacedDigit()
+                                .foregroundStyle(Theme.dim)
+                                // 状态文案交叉淡入（同页「系统授权」行值同款）：与圆点换色同一驱动键、同时渐变
+                                .contentTransition(.opacity)
+                        }
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel(app.channel.state.label)
+                        // 圆点换色（live ok ↔ 掉线 faint）animFast 渐变：连接恢复 / 掉线正是用户
+                        // 盯着这行的状态变化时刻，色块硬切不可感（MOTION.md §6-1 色允许作状态过渡）；
+                        // RM 门内建于 .motion（置 nil 即硬切，色态仍生效）
+                        .motion(Theme.animFast, value: app.channel.state)
                     } label: {
                         rowTitle("连接状态")
                     }
@@ -40,6 +61,14 @@ struct SettingsView: View {
                         Mono(MarketMeta.formatVersionLabel(app.radar.snapshot?.version), step: .sub, color: Theme.dim)
                     } label: {
                         rowTitle("雷达版本")
+                    }
+                    // 三路口径补齐：下方「立即刷新全部快照」与 footer 失败分支都点名制造路，
+                    // 版本行却原先只有行情 / 雷达两路——制造快照健康度（版本新旧 / 首拉失败停「—」）
+                    // 全 App 无处可看（制造页不显示版本），「制造刷新失败」点名时用户对不上哪路坏了
+                    LabeledContent {
+                        Mono(MarketMeta.formatVersionLabel(app.craft.snapshot?.version), step: .sub, color: Theme.dim)
+                    } label: {
+                        rowTitle("制造版本")
                     }
                     if app.channel.eventCount > 0 {
                         LabeledContent {
@@ -88,6 +117,13 @@ struct SettingsView: View {
                     .disabled(refreshing)
                 } header: {
                     sectionHeader("数据")
+                } footer: {
+                    // §1.5 闭环：刷新成败除触感外还要有「看得见的回声」——原先失败只有一声 .error 震动、
+                    // 成功而版本未变时整屏零变化，用户无法确认动作是否生效。页脚承接可见结果（见 dataFooter）
+                    dataFooter
+                        // 成败互切淡入淡出（§3-H 状态进场 animSwap 档）：刷新失败警示行出现 / 恢复后回到
+                        // 节拍说明，是「立即刷新」动作的可见结果切换，原先两分支硬切；驱动键与分支条件同源
+                        .motion(Theme.animSwap, value: feedFailure != nil)
                 }
                 .listRowBackground(Theme.card)
 
@@ -100,10 +136,40 @@ struct SettingsView: View {
                         if on { Task { await app.notifications.requestAuthorization() } }
                     }
                     LabeledContent {
-                        // 纯中文行值：默认 design（同列锚定），已允许 txStrong / 未允许 dim 分层
-                        Text(app.notifications.authorized ? "已允许" : "未允许")
-                            .font(Theme.font(.md, weight: .semibold))
-                            .foregroundStyle(app.notifications.authorized ? Theme.txStrong : Theme.dim)
+                        // 纯中文行值：默认 design（同列锚定），已允许 txStrong / 未允许 dim 分层。
+                        // 开关已开却未获系统授权 = 通知永远发不出去的「卡死态」：行值转 warn 点名问题，
+                        // 并给出路「前往设置」直达系统通知页（思路库「空态给一条出路」；accent 只上导航动作，
+                        // 状态色与动作色分离）。开关关着时「未允许」是中性事实，保持 dim、不给链接
+                        HStack(spacing: Theme.Space.sm) {
+                            Text(app.notifications.authorized ? "已允许" : "未允许")
+                                .font(Theme.font(.md, weight: .semibold))
+                                .foregroundStyle(authorizationColor)
+                                // 行值文字交叉淡入：「前往设置 → 放行 → 返回」时 scenePhase 重查翻转
+                                // authorized，文字与卡死态 warn 色同时变化——这条出路闭环的回声时刻，
+                                // 硬切不可感（contentTransition 需 animation 驱动，由下方 .motion 承担）
+                                .contentTransition(.opacity)
+                            if needsSystemPermission, let url = URL(string: UIApplication.openSettingsURLString) {
+                                Link(destination: url) {
+                                    Text("前往设置")
+                                        .font(Theme.font(.sm, weight: .semibold))
+                                        // 触控垫层（思路库「视觉可小、命中区 ≥44pt」；与账号页密码显隐眼睛同手法）：
+                                        // 四字 sm 文字命中区约 52×18，纵向远低于 44，这是卡死态唯一出路、落空即「点了没反应」。
+                                        // 正 padding 垫出命中形状 → contentShape → 负 padding 收回布局占位：
+                                        // 行高与同列行不变，只向上下扩命中、不侵入左侧状态文字
+                                        .padding(.vertical, 13)
+                                        .contentShape(Rectangle())
+                                        .padding(.vertical, -13)
+                                }
+                                // 行内独立命中：List 行里的按钮默认样式可能把整行点击转给它，点「系统授权」标题
+                                // 就跳系统设置属误触；borderless 只响应自身区域且保留 accent 着色（导航动作色）
+                                .buttonStyle(.borderless)
+                                // 授权通过后链接随之退场：随 authorized 同一驱动键淡出（开关关掉引发的退场
+                                // 保持瞬时——开关自身动画已是回声，不叠加，原则 3）
+                                .transition(.opacity)
+                            }
+                        }
+                        // authorized 翻转驱动整组（含 warn → txStrong 色渐变）；RM 门内建于 .motion
+                        .motion(Theme.animFast, value: app.notifications.authorized)
                     } label: {
                         rowTitle("系统授权")
                     }
@@ -133,7 +199,18 @@ struct SettingsView: View {
                     NavigationLink {
                         AccountView()
                     } label: {
-                        rowTitle("账号与云同步")
+                        // 入口行值直接显示登录态（web 顶栏账号入口同口径：登录后显示用户名、未登录显「登录」，
+                        // SiteHeader.vue）：本区唯一的决策信息是「登没登、哪个号」，原先要推进二级页才知道。
+                        // 已登录用户名 txStrong（身份主信息，与账号页「用户名」行同色）、未登录 dim（中性事实，
+                        // 与「系统授权」关着时的「未允许」同口径）；文案「未登录」与账号页 syncState idle 态一致
+                        LabeledContent {
+                            Text(app.auth.user?.username ?? "未登录")
+                                .font(Theme.font(.md, weight: .semibold))
+                                .foregroundStyle(app.auth.user == nil ? Theme.dim : Theme.txStrong)
+                                .lineLimit(1) // 用户名最长 16 字中文：单行截断兜底（web .name ellipsis 同款）
+                        } label: {
+                            rowTitle("账号与云同步")
+                        }
                     }
                 } header: {
                     sectionHeader("账号")
@@ -177,10 +254,18 @@ struct SettingsView: View {
                 if ProcessInfo.processInfo.arguments.contains("-openAccount") { showAccount = true }
                 Task { await app.notifications.refreshAuthorization() }
             }
+            // 从系统设置返回（scenePhase 回 active）重查授权：让「前往设置 → 放行 → 返回」这条出路闭环，
+            // 行值即时从 warn「未允许」回到「已允许」（只调既有 refreshAuthorization，不动 State）
+            .onChange(of: scenePhase) { _, phase in
+                guard phase == .active else { return }
+                Task { await app.notifications.refreshAuthorization() }
+            }
             // §4.5-3 二分触感：成功 / 失败各自 tick，分别挂不同 sensoryFeedback
             .sensoryFeedback(.success, trigger: refreshOkTick) // 全部快照刷新成功
             .sensoryFeedback(.error, trigger: refreshErrTick) // 任一路刷新失败
-            .sensoryFeedback(.success, trigger: notifyTick) // 通知开关
+            // 通知开关是「切换」不是「任务结果」：触感语义分层（思路库）—— .success/.error 只留给刷新成败类
+            // 结果，切换一律 .selection；与雷达 / 制造页 toggleTick 同款，原先 .success 让开关与刷新成功同声
+            .sensoryFeedback(.selection, trigger: notifyTick)
         }
     }
 
@@ -192,6 +277,62 @@ struct SettingsView: View {
     /// Section 眉题（§4.5-1）：micro accent 小节题，对齐各页「口径」标题心智
     private func sectionHeader(_ s: String) -> some View {
         Text(s).font(Theme.font(.micro, weight: .bold)).foregroundStyle(Theme.accent)
+    }
+
+    /// 数据区页脚 = 刷新动作的可见结果（§1.5 闭环「可见结果 + 可触结果」缺前者）：
+    /// 任一路 lastError 非空 → danger 警示行点名失败的数据源并指引重试（后台轮询失败同样在此可见，
+    /// 口径对齐各列表页 FeedErrorBanner「有快照的刷新失败也要一眼看到」）；否则 → 最近一次成功刷新时刻
+    /// + 刷新节拍说明（顺带解释「连接状态 = 定时刷新」是什么意思，连接状态可视化不再只有一枚灰点）。
+    /// lastRefreshAt 只在成功时前进（FeedModel.refresh），刷新一成功时间即归新——成功侧也有看得见的变化
+    @ViewBuilder
+    private var dataFooter: some View {
+        if let failure = feedFailure {
+            // 警示图标固定 exclamationmark.triangle（§6.1-2 语义映射），不用 .fill 变体；
+            // 进出场淡入淡出由 Section footer 处的 .motion(animSwap) 驱动（§3-H 状态进场）
+            Label(failure, systemImage: "exclamationmark.triangle")
+                .font(Theme.font(.xs))
+                .foregroundStyle(Theme.danger)
+                .transition(.opacity)
+        } else {
+            Text(refreshCadenceText)
+                .font(Theme.font(.xs))
+                .monospacedDigit() // 时间数字等宽，刷新归新时位宽不跳
+                .foregroundStyle(Theme.faint)
+                .transition(.opacity)
+        }
+    }
+
+    /// 三路快照里第一个失败的数据源（按行情 / 雷达 / 制造顺序点名，一次只报一条，避免页脚堆三行）
+    private var feedFailure: String? {
+        let feeds: [(name: String, error: String?)] = [
+            ("行情", app.market.lastError),
+            ("雷达", app.radar.lastError),
+            ("制造", app.craft.lastError),
+        ]
+        guard let hit = feeds.first(where: { $0.error != nil }), let err = hit.error else { return nil }
+        return "\(hit.name)刷新失败：\(err)。可点「立即刷新全部快照」重试。"
+    }
+
+    /// 刷新节拍说明（AppModel.channel.onStateChange：实时在线 5 分钟兜底轮询、否则 60s）；
+    /// 有过成功刷新时前置「上次刷新 HH:mm:ss」
+    private var refreshCadenceText: String {
+        let cadence = "实时推送在线时价格变动即时到达，推送不可用时每 60 秒自动刷新。"
+        let latest = [app.market.lastRefreshAt, app.radar.lastRefreshAt, app.craft.lastRefreshAt]
+            .compactMap { $0 }
+            .max()
+        guard let latest else { return cadence }
+        return "上次刷新 \(latest.formatted(date: .omitted, time: .standard))。" + cadence
+    }
+
+    /// 开关已开但系统未授权 = 通知发不出去的卡死态（requestAuthorization 已被拒后 authorized 恒 false）
+    private var needsSystemPermission: Bool {
+        app.settings.settings.notificationsEnabled && !app.notifications.authorized
+    }
+
+    /// 「系统授权」行值色：已允许 txStrong / 卡死态 warn（提醒需处理）/ 关着时未允许 dim（中性事实）
+    private var authorizationColor: Color {
+        if app.notifications.authorized { return Theme.txStrong }
+        return needsSystemPermission ? Theme.warn : Theme.dim
     }
 
     private var appVersion: String {

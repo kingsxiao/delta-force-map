@@ -87,8 +87,10 @@ function gotoMarket(am) {
             <td class="mono num">{{ fmtCoef(am.amult) }}</td>
             <td class="mono num">{{ refShot(am) }}</td>
             <td class="num">
-              <!-- 文本链按钮（§5.3 无底无边框）：现价即入口，跳行情页搜该弹 -->
-              <button v-if="marketOf(am)" type="button" class="mp" :title="'去行情页看 ' + ttkAmmoMarketName(calKey, am.n) + ' 走势'" @click="gotoMarket(am)">{{ priceText(marketOf(am)) }}</button>
+              <!-- 文本链按钮（§5.3 无底无边框）：现价即入口，跳行情页搜该弹。
+                   aria-label：可见名只有「现价 · 分位」数字串，title 仅鼠标可见——
+                   触屏与读屏用户都需要一个含弹名的可读名 -->
+              <button v-if="marketOf(am)" type="button" class="mp" :title="'去行情页看 ' + ttkAmmoMarketName(calKey, am.n) + ' 走势'" :aria-label="ttkAmmoMarketName(calKey, am.n) + ' 现价与行情走势'" @click="gotoMarket(am)">{{ priceText(marketOf(am)) }}</button>
               <template v-else>—</template>
             </td>
             <td class="dimc">{{ remark(am) }}</td>
@@ -112,11 +114,14 @@ function gotoMarket(am) {
   color: var(--faint);
   padding: 0 var(--sp-4) var(--sp-2);
 }
-/* 现价文本链（跳行情页）：等宽数字 + accent，hover/active 下划线（规格同 .ammo-toggle） */
+/* 现价文本链（跳行情页）：等宽数字 + accent，hover/active 下划线（规格同 .ammo-toggle）。
+   触控垫层：垂直 padding + 等量负 margin——外框占位与文字位置都不变（表格对齐不动），
+   命中区从一行文字高（~20px）扩满整行（表格行密度下 44px 原则的可达上限） */
 .mp {
   border: 0;
   background: none;
-  padding: 0;
+  padding: 9px 0;
+  margin: -9px 0;
   font-family: var(--mono);
   font-size: var(--fs-xs);
   letter-spacing: .02em;
@@ -127,4 +132,42 @@ function gotoMarket(am) {
 }
 .mp:hover,
 .mp:active { text-decoration: underline; }
+/* 触屏垫层再外延（同 RankRow .d-mp / TtkView .ammo-toggle 手法）：9px 垫层后命中区
+   约 38px 仍低于 44px 原则，hover:none 下伪元素上下再外延 5px 到位；左右不扩——
+   单元格左右各有 10px td padding，外扩会吞掉相邻列的点击。伪元素只承接点击不绘制 */
+@media (hover: none) {
+  .mp { position: relative; }
+  .mp::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: -5px;
+    bottom: -5px;
+  }
+}
+
+/* ≤820 首列（弹药名 = 行主键）吸附左侧：表 min-width 720px 在该断点以下必然横滚，
+   滚到右侧「现价·分位」列时行主键滚出视口即失去查值上下文（「移动端查值读数」思路：
+   读数锚点固定，不做贴指针浮层）。首列自身须不透明底才能盖住下滑过的单元格；
+   斑马纹 / 行 hover 是半透明白，直接平涂会吃掉行状态——用「同值渐变层叠不透明底」
+   逐态复刻，hover 写在 zebra 之后（覆盖顺序与 base.css 的 tr 级源序一致） */
+@media (max-width: 820px) {
+  .tbl th:first-child,
+  .tbl td:first-child {
+    position: sticky;
+    left: 0;
+    z-index: 1;
+    box-shadow: inset -1px 0 0 var(--line2); /* 分界线与 .tbl 行线同语言，滚动时与滑过的格块分层 */
+  }
+  .tbl td:first-child { background: var(--card); }
+  .tbl tbody tr:nth-child(even of :where(.data-row)) td:first-child {
+    background-color: var(--card);
+    background-image: linear-gradient(var(--zebra), var(--zebra));
+  }
+  .tbl tbody tr:hover td:first-child {
+    background-color: var(--card);
+    background-image: linear-gradient(var(--row-hover), var(--row-hover));
+  }
+}
 </style>

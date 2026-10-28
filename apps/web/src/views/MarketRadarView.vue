@@ -19,8 +19,9 @@ const loadState = ref('loading') // loading | ready | empty | error
 const loadError = ref('')
 const refreshing = ref(false)
 const refreshTip = ref('')
+const refreshTipKind = ref('ok') // ok=成功回声（dim 低调）/ warn=失败提示，模板按此挂色
+let tipTimer = null // 成功回声 4s 自动消失（失败提示常驻到下次刷新，不抢定时器）
 const expanded = ref(null)
-const pageRef = ref(null)
 const searchRef = ref(null)
 
 /* BASE_URL 前缀：子路径静态托管（BASE_URL 非 "/"）下不 404（同子弹页口径） */
@@ -33,9 +34,14 @@ let prevTitle = '' // 路由标题：进入存默认值，卸载还原（模式�
    先发慢到的旧快照不覆盖新快照（fetch 不取消、响应落地即丢弃） */
 let loadSeq = 0
 
-async function load({ silent = false } = {}) {
+async function load({ silent = false, auto = false } = {}) {
   const seq = ++loadSeq
-  if (silent) refreshing.value = true
+  /* 无条件置位（原先仅 silent 才置）：空/错态的重试按钮借此 :disabled 防连点空转——
+     silent 与否只区分「是否回骨架」，不区分「是否有请求在飞」，busy 语义应当一致。
+     auto：区分轮询/SSE/回前台补拉与用户手点刷新——成功提示的出不出声由它决定 */
+  refreshing.value = true
+  const prevVersion = market.value?.version
+  const prevItems = market.value?.items
   try {
     const res = await fetch(DATA_URL, { cache: 'no-store' })
     if (seq !== loadSeq) return
@@ -43,12 +49,25 @@ async function load({ silent = false } = {}) {
       const j = await res.json()
       if (seq !== loadSeq) return
       if (Array.isArray(j.items) && j.items.length) {
+        diffPriceFlash(prevItems, j.items)
         market.value = j
         loadState.value = 'ready'
+        /* 刷新成功回声（同子弹页口径）：手动刷新恒提示「已更新至 X」——点击后
+           除按钮一闪的 disabled 外无任何结果反馈；轮询/SSE 只在版本真的前进时
+           提示（纯静态环境快照永不变化，每分钟弹一次旧版本号是误导），此刻
+           恰有价格闪变脉冲在表内发生，两条回声互为因果说明 */
+        if (silent && (!auto || j.version !== prevVersion)) {
+          refreshTip.value = `已更新至 ${formatVersionLabel(j.version)}`
+          refreshTipKind.value = 'ok'
+          if (tipTimer) clearTimeout(tipTimer)
+          tipTimer = setTimeout(() => { refreshTip.value = '' }, 4000)
+        } else {
+          refreshTip.value = ''
+        }
       } else {
         loadState.value = 'empty'
+        refreshTip.value = ''
       }
-      refreshTip.value = ''
     } else if (!silent) {
       loadError.value = `HTTP ${res.status}`
       loadState.value = 'error'
@@ -57,6 +76,7 @@ async function load({ silent = false } = {}) {
     if (seq !== loadSeq) return
     if (silent) {
       refreshTip.value = '刷新失败，仍显示之前的数据'
+      refreshTipKind.value = 'warn'
     } else {
       loadError.value = e instanceof SyntaxError
         ? '雷达数据格式异常，请稍后重试'
@@ -68,6 +88,30 @@ async function load({ silent = false } = {}) {
   }
 }
 
+/* ---------- 价格闪变（同 AmmoMarketView.diffPriceFlash）：轮询/SSE 刷出新快照
+   后 diff 新旧现价，真变了的格挂 up/down 类做一次性 0.8s 低幅度（≤14%）底色
+   脉冲，900ms 后 JS 摘类。MOTION.md §3-E 禁的是整表数字滚动（翻牌=噪声），
+   这里不动数字本身；底色脉冲属 §6-1 允许的状态过渡（无布局成本），只给真变
+   了的格、一次性。纯静态环境快照版本不变 → diff 天然为空，不会整表乱闪 ---------- */
+const priceFlash = reactive({})
+let flashTimer = null
+function diffPriceFlash(prevItems, nextItems) {
+  if (!prevItems?.length) return // 首载无旧值可比，不闪
+  const prev = new Map(prevItems.map((i) => [i.name, i.current]))
+  let hit = false
+  for (const it of nextItems) {
+    const p = prev.get(it.name)
+    if (p == null || it.current == null || it.current === p) continue
+    priceFlash[it.name] = it.current > p ? 'up' : 'down'
+    hit = true
+  }
+  if (!hit) return
+  clearTimeout(flashTimer)
+  flashTimer = setTimeout(() => {
+    for (const k of Object.keys(priceFlash)) delete priceFlash[k]
+  }, 900)
+}
+
 /* ---------- 数据时效 ---------- */
 const nowTs = ref(Date.now())
 const ageMin = computed(() => {
@@ -76,9 +120,13 @@ const ageMin = computed(() => {
 })
 const ageLabel = computed(() => {
   if (ageMin.value == null) return ''
+  /* 文案口径对齐 iOS RadarView.ageText：<1 分钟「刚刚更新」（杜绝「0 分钟前」），
+     分钟/小时一律向上取整——年龄宁可报老不报新（1.2 分钟报「2 分钟前」比报
+     「1 分钟前」诚实）；stale-tip 复用本函数（>240min 才出现，不会撞「刚刚更新」分支） */
+  if (ageMin.value < 1) return '刚刚更新'
   return ageMin.value < 60
-    ? `${Math.round(ageMin.value)} 分钟前`
-    : `${Math.round(ageMin.value / 60)} 小时前`
+    ? `${Math.ceil(ageMin.value)} 分钟前`
+    : `${Math.ceil(ageMin.value / 60)} 小时前`
 })
 const versionLabel = computed(() => formatVersionLabel(market.value?.version))
 /* 雷达节奏：monitor 默认 30min 一轮、榜单约每小时滚动 → 90min 变灰 / 4h 过期提示 */
@@ -94,6 +142,10 @@ const SIGNAL_META = {
   SELL: { label: '卖出', cls: 'sell' },
   WAIT: { label: '观望', cls: 'wait' },
 }
+/* 迷你走势末点语境色（Sparkline endColor，同子弹页口径）：末点=「现在在哪」，
+   与行内信号徽章同语义着色（BUY ok / SELL danger / WATCH info）；WAIT 走
+   faint——本榜单常态是观望，若默认 teal 会十行同色，强调色只在真强调处出现 */
+const SIG_COLOR = { BUY: 'var(--ok)', SELL: 'var(--danger)', WATCH: 'var(--info)', WAIT: 'var(--faint)' }
 const CATEGORY_LABEL = { props: '物资', protect: '护甲', gun: '枪械', acc: '配件', ammo: '子弹' }
 const categoryLabel = (c) => CATEGORY_LABEL[c] || c || '—'
 const gradeVar = (g) => (g >= 2 && g <= 6 ? `var(--lv${g})` : 'var(--faint)')
@@ -105,6 +157,14 @@ const crossLabel = (i) =>
   i.crossDev == null ? `重叠 ${i.crossOverlap ?? 0}h` : `${(i.crossDev * 100).toFixed(1)}%`
 
 /* ---------- 筛选与排序 ---------- */
+/* Popover API 能力检测（同步、一次性，setup 期即定）：支持时模板 :title 绑定
+   undefined → th 不渲染 title（hover 原生气泡与可点浮层并存是双提示）；不支持
+   则 title 原样渲染兜底（hover 说明不缺席）。原先在 onMounted 里摘 DOM 属性——
+   但表格在四态 Transition（out-in）的 ready 分支内，mounted 时是 loading 骨架、
+   th 不在 DOM，离场过渡 250ms 后才插入，摘除时机永远赶不上（该轮遗留 bug）；
+   响应式绑定让首次渲染即正确，不再做事后 DOM 修补 */
+const popSupported = typeof HTMLElement !== 'undefined' && HTMLElement.prototype.hasOwnProperty('popover')
+
 const SIGNALS = [
   { v: 'all', label: '全部' },
   { v: 'BUY', label: '买入', dot: 'var(--ok)' },
@@ -199,7 +259,7 @@ function connectLive() {
     events: ['radar'],
     isLocal: () => isLocalHttpHost(location),
     onState: (s) => { liveChannel.value = s },
-    onEvent: (t) => { if (t === 'radar') load({ silent: true }) },
+    onEvent: (t) => { if (t === 'radar') load({ silent: true, auto: true }) },
   })
   live.start()
 }
@@ -207,18 +267,20 @@ function connectLive() {
 function onVisibility() {
   if (document.hidden) return
   nowTs.value = Date.now() // 顺带校正数据年龄
-  load({ silent: true }) // 挂后台期间跳过的轮询在恢复可见时立即补一次
+  load({ silent: true, auto: true }) // 挂后台期间跳过的轮询在恢复可见时立即补一次
 }
 
 onMounted(() => {
   prevTitle = document.title
   document.title = '三角洲行动 · 全品类异动雷达'
+  /* th 口径说明的 title 兜底改由 popSupported 响应式绑定（见其定义处注释），
+     此处不再做事后 DOM 摘除——表格要等四态 out-in 过渡完才进 DOM，摘除赶不上 */
   load()
   connectLive()
   pollTimer = setInterval(() => {
     if (document.hidden) return // 后台标签不空耗请求，恢复可见时补拉
     nowTs.value = Date.now()
-    load({ silent: true })
+    load({ silent: true, auto: true })
   }, POLL_MS)
   document.addEventListener('visibilitychange', onVisibility)
 })
@@ -226,17 +288,25 @@ onBeforeUnmount(() => {
   document.removeEventListener('visibilitychange', onVisibility)
   document.title = prevTitle
   if (pollTimer) clearInterval(pollTimer)
+  if (tipTimer) clearTimeout(tipTimer) // 成功回声定时器：不摘会在卸载后空写 ref
+  if (flashTimer) clearTimeout(flashTimer) // 同上（闪变摘类定时器）
   if (live) live.stop()
 })
 </script>
 
 <template>
-  <div ref="pageRef" class="wrap page">
+  <div class="wrap page">
     <!-- 页头（紧凑单行，走 base.css .compact-head；数据过期提示在下方 stale-tip） -->
     <header class="compact-head">
       <h1>全品类异动雷达 <span class="live-dot" :class="{ stale: ageMin !== null && ageMin > STALE_DOT_MIN }" aria-hidden="true"></span></h1>
       <p v-if="market" class="meta" :title="`数据版本 ${versionLabel}${liveTip ? ' · ' + liveTip : ''}`">
-        全品类涨幅榜 + 双源曲线交叉
+        全品类涨幅榜 + 双源曲线交叉<!-- 推送断开从「仅 title 可查」升为常驻可见（触屏够不着
+             title）：断开意味着数据可能滞后、是用户需要知道的因果；on/connecting 为
+             瞬时好态，不值得常驻占位 --><!-- 数据年龄同理升常驻（对齐 iOS freshness 行的常驻
+             口径）：榜单约每小时滚动，「这是几时前的榜」直接决定要不要按它下单，是
+             决策信息而非装饰字；版本号仍留 title（快照 id 对决策价值低，不占常驻位） -->
+        <span v-if="ageLabel" class="meta-age">· 数据 {{ ageLabel }}</span>
+        <span v-if="liveChannel === 'down'" class="live-down">· 实时推送已断开，60s 轮询兜底</span>
       </p>
     </header>
 
@@ -257,13 +327,14 @@ onBeforeUnmount(() => {
         <div class="state-card">
           <p>还没有雷达数据。</p>
           <p class="dim">雷达快照正在准备中，稍后再来看看。</p>
-          <button class="retry" @click="load()">重试</button>
+          <!-- :disabled + 文案切换防连点空转（refreshing 由 load() 无条件置位） -->
+          <button class="retry" :disabled="refreshing" @click="load()">{{ refreshing ? '重试中…' : '重试' }}</button>
         </div>
       </div>
       <div v-else-if="loadState === 'error'" key="error" class="state-root">
         <div class="state-card">
           <p>雷达数据加载失败：{{ loadError }}</p>
-          <button class="retry" @click="load()">重试</button>
+          <button class="retry" :disabled="refreshing" @click="load()">{{ refreshing ? '重试中…' : '重试' }}</button>
         </div>
       </div>
       <div v-else key="ready" class="state-root">
@@ -272,7 +343,7 @@ onBeforeUnmount(() => {
           <div class="chips" role="group" aria-label="信号筛选">
             <button
               v-for="s in SIGNALS" :key="s.v"
-              class="chip" :class="{ on: state.signal === s.v }"
+              class="chip press" :class="{ on: state.signal === s.v }"
               :aria-pressed="state.signal === s.v"
               @click="state.signal = s.v"
             >
@@ -292,18 +363,21 @@ onBeforeUnmount(() => {
           <div class="chips" role="group" aria-label="排序">
             <button
               v-for="s in SORTS" :key="s.v"
-              class="chip" :class="{ on: state.sort === s.v }"
+              class="chip press" :class="{ on: state.sort === s.v }"
               :aria-pressed="state.sort === s.v"
               @click="onSort(s.v)"
-              >{{ s.label }}<svg v-if="state.sort === s.v" class="dir" viewBox="0 0 16 16" aria-hidden="true"><path v-if="state.dir === 'desc'" d="M8 3.5v9M4.5 9 8 12.5 11.5 9" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path v-else d="M8 12.5v-9M4.5 7 8 3.5 11.5 7" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+              >{{ s.label }}<!-- 方向箭头单路径 + .flip 旋转 180°（两条 path 是中心对称的，
+                   换 v-if 分支只能瞬跳）；再点同一 chip 切方向时箭头转向即为「换了方向」
+                   的可见回声，transform-only、RM 下瞬时 --><svg v-if="state.sort === s.v" class="dir" :class="{ flip: state.dir === 'asc' }" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3.5v9M4.5 9 8 12.5 11.5 9" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
           </div>
           <!-- 刷新中：绝不回骨架/遮罩（MOTION.md §3-F），chip 禁用 + 文案切换 + 内联小环；
                小环是「进行中」进度语义，RM 下按例外保留 -->
-          <button class="chip refresh" :disabled="refreshing" title="重新拉取最新快照" @click="load({ silent: true })">{{ refreshing ? '刷新中' : '刷新' }}<i v-if="refreshing" class="mini-spin" aria-hidden="true"></i></button>
+          <button class="chip press refresh" :disabled="refreshing" title="重新拉取最新快照" @click="load({ silent: true })">{{ refreshing ? '刷新中…' : '刷新' }}<i v-if="refreshing" class="mini-spin" aria-hidden="true"></i></button>
         </div>
-        <!-- 刷新失败提示条：淡入淡出（MOTION.md §3-F），成功拉取后条件消除同样淡出 -->
+        <!-- 刷新失败/成功提示条：淡入淡出（MOTION.md §3-F），条件消除同样淡出；
+             kind 由脚本侧给（warn=失败常驻 / ok=成功回声 4s 自动消失） -->
         <Transition name="swap">
-          <p v-if="refreshTip" class="refresh-tip warn" role="status">{{ refreshTip }}</p>
+          <p v-if="refreshTip" class="refresh-tip" :class="refreshTipKind" role="status">{{ refreshTip }}</p>
         </Transition>
 
         <!-- 榜单表 -->
@@ -316,11 +390,16 @@ onBeforeUnmount(() => {
                 <th class="num">现价</th>
                 <th>信号</th>
                 <th class="num">预赚 / 件</th>
-                <th class="num">7天分位</th>
+                <!-- 列头口径说明 popover 化（Popover API 渐进增强）：title 原生气泡触屏够不
+                     着、延迟大、样式不受控，改为可点开 / 可 Tab 聚焦回车打开的浮层（进出场
+                     @starting-style、锚定 anchor 定位，见样式区 .th-q/.th-pop）。:title 绑定
+                     popSupported——支持 popover 的新浏览器绑 undefined 不渲染（否则 hover 气
+                     泡与浮层构成双提示），不支持的老浏览器保留 title 兜底（见 script 注释）。
+                     分位/双源是本页口径最晦涩的两列，说明优先给它们 -->
+                <th class="num q-th" :title="popSupported ? undefined : '近 7 天收盘价分位：≤35% 标绿（贴近低位），≥80% 标红（贴近高位）'">7天分位<button class="th-q q-rank" type="button" popovertarget="radar-pop-rank" aria-label="7 天分位列口径说明">?</button><div popover="auto" id="radar-pop-rank" class="th-pop pop-rank">现价在近 7 天价格区间中的位置：≤35% 标绿（贴近 7 天低位、接近买入参考区），≥80% 标红（贴近高位）。条内两条刻度线为 25% / 80% 参考位，与信号口径的 P25 买入 / P80 卖出一致。</div></th>
                 <th class="num c-range">周区间</th>
                 <th>走势</th>
-                <!-- 双源列头带 title：列内「百分比 / 重叠 Nh」两种取值的含义，桌面 hover 可查 -->
-                <th class="num" title="两路独立曲线的中位偏差，越低越一致；无偏差数据时显示两路重叠小时数（不足 24h 不下双源结论）">双源</th>
+                <th class="num q-th" :title="popSupported ? undefined : '两路独立曲线的中位偏差，越低越一致；无偏差数据时显示两路重叠小时数（不足 24h 不下双源结论）'">双源<button class="th-q q-cross" type="button" popovertarget="radar-pop-cross" aria-label="双源列口径说明">?</button><div popover="auto" id="radar-pop-cross" class="th-pop pop-cross">两路独立数据源各自拟合价格曲线，取重叠时段的中位偏差：越低越一致、信号越可信；偏差过大时此格标警示色，行内信号已压制为观望。显示「重叠 Nh」表示两路重叠不足 24 小时、未下双源结论。</div></th>
               </tr>
             </thead>
             <tbody>
@@ -348,7 +427,8 @@ onBeforeUnmount(() => {
                     <span class="cat-tag">{{ categoryLabel(i.category) }}</span>
                     <i class="row-chev" aria-hidden="true"><svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 6 L8 10.5 L12.5 6"/></svg></i>
                   </td>
-                  <td class="mono strong num price-cell">{{ fmt(i.current) }}</td>
+                  <!-- price-cell 的动态类是价格闪变 up/down（diffPriceFlash 挂类、脉冲毕摘类） -->
+                  <td class="mono strong num price-cell" :class="priceFlash[i.name]">{{ fmt(i.current) }}</td>
                   <td>
                     <span v-if="i.rank == null" class="sig wait">数据不足</span>
                     <span v-else class="sig" :class="SIGNAL_META[i.signal].cls">{{ SIGNAL_META[i.signal].label }}</span>
@@ -374,10 +454,10 @@ onBeforeUnmount(() => {
                     </div>
                   </td>
                   <td class="mono dimtx num c-range">{{ fmt(i.weekLow) }} ~ {{ fmt(i.weekHigh) }}</td>
-                  <td><Sparkline :curve="i.curve" :width="130" :height="30" /></td>
+                  <td><Sparkline :curve="i.curve" :width="130" :height="30" :end-color="SIG_COLOR[i.signal] || 'var(--faint)'" /></td>
                   <td class="num">
                     <span
-                      class="cross" :class="{ anomaly: i.anomaly }"
+                      class="cross" :class="{ anomaly: i.anomaly, nodata: i.crossDev == null }"
                       :title="i.anomaly
                         ? `两路独立曲线在重叠 ${i.crossOverlap} 小时的中位偏差 ${crossLabel(i)}——口径分歧，信号已压制为观望`
                         : i.crossDev == null
@@ -399,7 +479,7 @@ onBeforeUnmount(() => {
                     <td colspan="9">
                       <div class="exp-clip">
                         <div class="exp-hold">
-                          <button class="exp-close" @click="expanded = null">收起</button>
+                          <button class="exp-close press" @click="expanded = null">收起</button>
                           <PriceChart :curve="i.curve" :p25="i.p25" :p75="i.p75" :current="i.current" />
                           <p class="exp-note">
                             口径：买入参考 {{ fmt(i.p25) }}（7 天 P25）/ 目标挂卖 {{ fmt(i.targetSell) }}（近 3 天 75 分位，税后到手 {{ fmt(i.netSell) }}）/
@@ -416,15 +496,21 @@ onBeforeUnmount(() => {
           </table>
           <!-- 空态提示放表外：表内 td 跟随 .tbl 的 min-width:980，文案会居中在横滚表格
                中央，移动端首屏只剩表头、按钮也点不到；改为表格兄弟 div，块级宽度取
-               滚动容器内容宽，天然锚在可视区内（表头保留，宽屏观感与原行式空态一致） -->
-          <div v-if="!filtered.length" class="empty-cell">
-            没有符合当前筛选的物品　<button class="retry" @click="clearFilters">清除全部筛选</button>
-          </div>
+               滚动容器内容宽，天然锚在可视区内（表头保留，宽屏观感与原行式空态一致）。
+               淡入淡出对齐其余提示条（MOTION.md §3-F「所有 v-if 提示行统一淡入」，
+               筛选清空成排行消失的瞬间它随之上移淡入，读作同一动作的结果而非另一次
+               跳变）；role=status 让读屏器在结果集清空时收到播报 -->
+          <Transition name="swap">
+            <div v-if="!filtered.length" class="empty-cell" role="status">
+              没有符合当前筛选的物品　<button class="retry" @click="clearFilters">清除全部筛选</button>
+            </div>
+          </Transition>
         </div>
 
         <p class="src-note">
           榜单为全品类涨幅榜 Top10（钥匙/护甲/配件/物资等，子弹走
           <router-link to="/ammo">子弹行情</router-link>页）；信号口径与子弹页一致：P25 买入 / P80 卖出 / 税后 ≥8% 才报买入。
+          「预赚」为税后口径——非子弹物品无税后字段，按兜底税率估算（对齐 iOS 页面级说明；逐物品税率见展开面板）。
           「双源」列为两路独立曲线的中位偏差（越低越一致）；显示「重叠 Nh」表示两路重叠不足 24 小时、未做双源结论。
           非子弹单笔金额大、流动性差，挂单深度游戏内自查。
         </p>
@@ -447,6 +533,13 @@ onBeforeUnmount(() => {
 @keyframes pulse { 50% { opacity: .35; } }
 @media (prefers-reduced-motion: reduce) { .live-dot { animation: none; } }
 .meta-stale { color: var(--warn); }
+/* 常驻数据年龄（见模板注释）：比 meta 基底的 faint 提一档到 dim——整行 meta 是
+   背景说明，年龄是其中唯一影响决策的数字（iOS freshness 同为独立可见行）；不升
+   到 tx/语义色：新鲜度异常的表达已有 live-dot 变灰 + stale-tip warn 两通道，此
+   处恒定 dim 不抢第三通道 */
+.meta-age { color: var(--dim); }
+/* 推送断开常驻标记（meta 内，见模板注释）：warn 色轻量嵌进 mono 小字行 */
+.live-down { color: var(--warn); margin-left: 6px; }
 
 .state-tip { color: var(--dim); font-size: var(--fs-md); padding: var(--sp-6) 0; }
 .state-tip code { font-family: var(--mono); color: var(--accent); }
@@ -486,8 +579,11 @@ onBeforeUnmount(() => {
   display: inline-flex; align-items: center; gap: 6px;
   background: var(--card); border: 1px solid var(--line); border-radius: var(--radius-pill);
   color: var(--dim); font-size: var(--fs-xs); padding: 4px 12px; cursor: pointer;
+  /* transition 列表补 transform 项：chips 已挂 motion.css 的 .press（:active
+     scale .98 全站按压语汇），该文件的约定是调用方自带 transition 且列表含
+     transform，否则挂类也瞬跳；RM 兜底由 motion.css 文件尾统一关停 */
   transition: color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease),
-    background-color var(--t-fast) var(--ease);
+    background-color var(--t-fast) var(--ease), transform var(--t-fast) var(--ease);
 }
 .chip:hover,
 .chip:active { color: var(--tx); border-color: var(--line-hover); }
@@ -496,11 +592,16 @@ onBeforeUnmount(() => {
 .chip-n { font-family: var(--mono); color: var(--faint); }
 .chip.refresh { margin-left: auto; }
 .chip.refresh:disabled { opacity: .6; cursor: default; }
-/* 方向标记 / 异常警示（inline SVG）：继承文字色 */
-.dir { width: 10px; height: 10px; margin-left: 2px; color: var(--accent); flex: none; }
+/* 方向标记 / 异常警示（inline SVG）：继承文字色。transition 含 transform——
+   .flip 换向旋转（180° 中心对称，见模板注释）；RM 兜底在文件尾 */
+.dir { width: 10px; height: 10px; margin-left: 2px; color: var(--accent); flex: none; transition: transform var(--t-fast) var(--ease); }
+.dir.flip { transform: rotate(180deg); }
 .warn-ic { width: 11px; height: 11px; margin-right: 3px; vertical-align: -1px; }
 .refresh-tip { font-family: var(--mono); font-size: var(--fs-xs); margin: 0 0 var(--sp-3); }
 .refresh-tip.warn { color: var(--warn); }
+/* 成功回声走 dim（同子弹页口径）：成功是常态、降权不打断；warn 留给失败——
+   两态同一条提示行，色档即语义档 */
+.refresh-tip.ok { color: var(--dim); }
 .search {
   background: var(--card); border: 1px solid var(--line); border-radius: var(--radius-pill);
   color: var(--tx); font-size: var(--fs-xs); padding: 5px 14px; width: 160px;
@@ -526,6 +627,73 @@ onBeforeUnmount(() => {
 }
 .search-clear:hover,
 .search-clear:active { color: var(--tx); background: var(--line); }
+/* 触控垫层：视觉 18px 不变，伪元素外扩命中区到 44px（18+13×2），不占布局位、
+   不挡输入（命中区只覆盖自身周边空白），与「可点目标≥44px」原则对齐 */
+.search-clear::after { content: ''; position: absolute; inset: -13px; }
+
+/* ---- 列头口径说明提示层（Popover API 渐进增强，配模板 .th-q/.th-pop）----
+   问号小钮视觉 14px，浮层进出场 @starting-style + allow-discrete（180ms 微交互档，
+   只动 opacity/transform）；锚定走 anchor positioning，@supports 守卫——不支持时
+   浮层回退 UA 默认视口居中（仍可读可关），不影响居中兜底的 inset/margin 残留；
+   不支持 Popover API 的浏览器该 div 恒 display:none，title 兜底说明仍在 */
+.th-q {
+  position: relative; /* 触屏伪元素外扩命中区的包含块 */
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 14px; height: 14px; margin-left: 5px; vertical-align: -2px;
+  border: 1px solid var(--line); border-radius: 50%;
+  background: none; color: var(--faint); cursor: pointer; padding: 0;
+  font-family: var(--mono); font-size: 10px; line-height: 1;
+  transition: color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
+}
+.th-q:hover,
+.th-q:active { color: var(--accent); border-color: var(--accent-dim); }
+.q-rank { anchor-name: --q-rank; }
+.q-cross { anchor-name: --q-cross; }
+/* 浮层开着时问号钮保持点亮（light dismiss 关闭即回落）：:has 相邻兄弟匹配其后的
+   popover；不支持 :has/:popover-open 的浏览器整条失效，安全降级为无开态高亮 */
+.th-q:has(+ .th-pop:popover-open) { color: var(--accent); border-color: var(--accent-dim); }
+.th-pop {
+  background: var(--panel-solid);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-md); /* top layer 浮层，按令牌约定可用阴影 */
+  color: var(--tx); font-size: var(--fs-xs); line-height: 1.8;
+  padding: 10px 14px; max-width: 300px;
+  /* 覆写继承的 nowrap（.tbl th 有 white-space:nowrap，浮层是 th 子孙会继承）：
+     口径说明是 80+ 字长句，nowrap 下行宽不受 max-width 约 300px 束、文字溢出
+     浮层画出界；normal 让长句在盒内正常折行 */
+  white-space: normal;
+  /* display/overlay 走 allow-discrete：让「关闭」（含 light dismiss）也有出场过渡，
+     否则浮层瞬失；不支持离散过渡的引擎这两项被忽略，退回瞬开瞬关=现状 title 行为 */
+  opacity: 0; transform: translateY(-4px);
+  transition: opacity var(--t-med) var(--ease), transform var(--t-med) var(--ease),
+    display var(--t-med) allow-discrete, overlay var(--t-med) allow-discrete;
+}
+.th-pop:popover-open { opacity: 1; transform: none; }
+@starting-style {
+  .th-pop:popover-open { opacity: 0; transform: translateY(-4px); }
+}
+/* 老浏览器防护（子弹页同款）：不识别 popover 属性的引擎（老 Safari/Firefox）会把
+   该 div 当普通块级元素常驻渲染——opacity:0 不可见但占位，80 字长句折行 ≈60px 高
+   直接撑破表头。显式 display:none 整个摘除，回退到「title 兜底说明仍在」的现状
+   （功能完整，非降级）；:popover-open 选择器与 popover 属性在同版本落地，互斥守卫
+   恒成立 */
+@supports not selector(:popover-open) {
+  .th-pop { display: none; }
+}
+@supports (anchor-name: --a) {
+  /* 问号钮正下方水平居中，越缘自动翻转；inset/margin 覆盖 UA popover 的居中残留
+     （inset:0 + margin auto）。整组守卫：不支持 anchor 时上面两条不生效，浮层仍
+     是 UA 默认居中——不会出现「定位在左上角」的坏兜底 */
+  .th-pop.pop-rank,
+  .th-pop.pop-cross {
+    inset: auto; margin: 0;
+    position-area: bottom;
+    position-try-fallbacks: flip-block flip-inline;
+  }
+  .th-pop.pop-rank { position-anchor: --q-rank; }
+  .th-pop.pop-cross { position-anchor: --q-cross; }
+}
 
 /* 榜单表：9 列低于 ~1000px 视口时会被 width:100% 的 auto 布局压列换行，
    给足 min-width 让 .tbl-scroll 横向滚动而不是把物品名压成竖排 */
@@ -555,9 +723,11 @@ onBeforeUnmount(() => {
    scoped [data-v]（0,3,0）高于 base 表级规则（0,2,2），hover/open 仍需在此重声明 */
 .row:hover,
 .row:focus-visible { background: var(--row-hover); }
-.row.open { background: var(--accent-bg); box-shadow: inset 2px 0 0 var(--accent-dim); }
+.row.open { background: var(--accent-bg); }
 .cat-tag {
-  font-family: var(--mono); font-size: var(--fs-micro); color: var(--faint);
+  /* fs-2xs 与行内 .sig 徽章同档：--fs-micro 白名单「不承载实义数据」，分类
+     （物资/护甲/配件…）是扫读时的过滤线索、是实义数据，10px 在触屏上已不可辨 */
+  font-family: var(--mono); font-size: var(--fs-2xs); color: var(--faint);
   border: 1px solid var(--line2); border-radius: var(--radius-pill);
   padding: 1px 8px; margin-left: 8px; vertical-align: 1px;
 }
@@ -626,11 +796,57 @@ onBeforeUnmount(() => {
   border-color: color-mix(in srgb, var(--info) 40%, transparent);
   background: color-mix(in srgb, var(--info) 10%, transparent);
 }
+/* 观望降噪（同子弹页 .sig.wait 口径）：本榜单实测常态是观望（6/10 行）——十行里
+   六行灰胶囊边框，BUY/SELL/WATCH 彩胶囊反而被淹没（「全员徽章等于没有徽章」，
+   与 .cross.anomaly 徽章只给异常态同一条纪律）；去胶囊描边与底、降为素文本，
+   彩色胶囊成为信号列唯一扫读锚点。「数据不足」（rank==null）同为 .wait 一并
+   降噪，缺失态本就不该有徽章实感；色保持 .sig 基底的 dim（≥6.1:1 不降对比） */
+.sig.wait { border-color: transparent; background: none; padding: 2px 0; }
 td.profit { color: var(--ok); font-weight: 600; }
-.tbl td.price-cell { font-size: var(--fs-md); color: var(--tx-strong); font-weight: 700; }
+/* 现价列：行内最重（主数字立权，预赚/区间均为次级档）+ 位宽钉住——列宽原本
+   由行集内容决定，筛选掉最贵行（1,083,727 = 9 字符）后列随收窄，榜单小时级
+   轮换换血时整列右对齐数字横跳。min-width 按 7 位数现价预留（10ch ≈ 8 位数
+   也容得下）+ 左右 padding，行集怎么变列宽恒定，闪变箭头也被同一余量吸收；
+   不支持表格单元 min-width 的老引擎整条丢弃，回到现状 */
+.tbl td.price-cell {
+  font-size: var(--fs-md); color: var(--tx-strong); font-weight: 700;
+  min-width: calc(10ch + 20px);
+}
+
+/* ---------- 价格闪变（配脚本 diffPriceFlash）：diff 出的涨/跌格一次性 0.8s 底色
+     脉冲（思路库口径；一次性读数脉冲非循环、不占 MOTION.md §5 循环档位），
+     动效毕 JS 摘类。箭头是静态等价物——RM 下脉冲关、箭头保留（「涨跌色标保留
+     静态等价物」）；keyframes 只声明 from 帧，to 落回单元格自然背景（斑马/hover
+     底在 tr 上不冲突）。不支持 color-mix 的引擎 from 帧失效即无脉冲，退回纯箭头 */
+@keyframes flash-up { from { background-color: color-mix(in srgb, var(--ok) 14%, transparent); } }
+@keyframes flash-down { from { background-color: color-mix(in srgb, var(--danger) 14%, transparent); } }
+.price-cell.up { animation: flash-up .8s var(--ease) 1; }
+.price-cell.down { animation: flash-down .8s var(--ease) 1; }
+.price-cell.up::after,
+.price-cell.down::after {
+  font-size: 8px; margin-left: 3px; vertical-align: 2px;
+}
+.price-cell.up::after { content: "▲"; color: var(--ok); }
+.price-cell.down::after { content: "▼"; color: var(--danger); }
 
 .cross { font-family: var(--mono); font-size: var(--fs-xs); color: var(--dim); cursor: help; }
-.cross.anomaly { color: var(--warn); font-weight: 600; }
+/* 双源「重叠不足 24h」行（crossDev == null，显示「重叠 Nh」）：降为 faint——
+   「没做双源结论」是数据缺席，与「偏差 0.9%」的实测值同权重渲染会让缺席
+   读作「一致」；异常是 warn 徽章、实测是 dim、缺席是 faint，三档一眼可辨 */
+.cross.nodata { color: var(--faint); }
+/* 双源异常从「变色文字」升格为 warn 微底色块（radius-sm 方角，区别于信号列的
+   pill 胶囊——两类标记形态可辨）：扫榜单时异常行不必读数字即可跳出；非异常保持
+   纯文字，徽章只给异常态——全员徽章等于没有徽章。rgba 为 color-mix 的引擎兜底
+   （同 .sig 家族双写法） */
+.cross.anomaly {
+  color: var(--warn); font-weight: 600;
+  display: inline-flex; align-items: center;
+  padding: 2px 8px; border-radius: var(--radius-sm);
+  border: 1px solid rgba(227, 178, 94, .4);
+  background: rgba(227, 178, 94, .1);
+  border-color: color-mix(in srgb, var(--warn) 40%, transparent);
+  background: color-mix(in srgb, var(--warn) 10%, transparent);
+}
 
 .expander td {
   position: relative; background: var(--card2); border-top: 1px solid var(--accent-dim);
@@ -654,7 +870,10 @@ td.profit { color: var(--ok); font-weight: 600; }
   font-family: var(--mono); font-size: var(--fs-xs); color: var(--dim);
   background: var(--card); border: 1px solid var(--line); border-radius: var(--radius-pill);
   padding: 3px 12px; cursor: pointer;
-  transition: color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
+  /* transition 列表含 transform：已挂 .press（:active scale .98 全站按压语汇），
+     motion.css 约定调用方自带含 transform 的 transition（同 .chip） */
+  transition: color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease),
+    transform var(--t-fast) var(--ease);
 }
 .exp-close:hover,
 .exp-close:active { color: var(--tx); border-color: var(--line-hover); }
@@ -665,6 +884,19 @@ td.profit { color: var(--ok); font-weight: 600; }
 .src-note a:hover,
 .src-note a:active { text-decoration: underline; text-underline-offset: 3px; }
 
+/* ---- 触屏命中区补足（hover:none = 粗指针环境）：可点目标 ≥44px 原则——视觉尺寸
+   可以小，命中区不能小。chips/重试/收起用 min-height 补垫层（inline-flex 天然垂直
+   居中，胶囊变饱满但不改字号与排布）；搜索框同排落单（真实高约 30px，同是可点
+   目标且要弹键盘，命中更该足额——子弹页同思路 chip+search 同块增高）；
+   问号钮视觉 14px、伪元素外扩到 44px。桌面（hover 环境）维持原紧凑密度，信息密度不损失 */
+@media (hover: none) {
+  .chip,
+  .retry,
+  .exp-close,
+  .search { min-height: 44px; }
+  .th-q::after { content: ''; position: absolute; inset: -15px; }
+}
+
 @media (max-width: 680px) {
   .c-range { display: none; }
   .chip-n { display: none; }
@@ -674,7 +906,10 @@ td.profit { color: var(--ok); font-weight: 600; }
    swap/sk/exp/mini-spin/.a-ic 淡入等全局类由 motion.css 文件尾统一兜底，
    此处只管本页 scoped 项 */
 @media (prefers-reduced-motion: reduce) {
-  .chip, .search, .search-clear, .retry, .exp-close, .row-chev { transition: none; }
+  .chip, .search, .search-clear, .retry, .exp-close, .row-chev, .dir,
+  .th-q, .th-pop { transition: none; } /* th-pop 瞬开瞬关：浮层内容（口径文字）本身是静态语义等价物 */
   .retry:active { transform: none; }
+  /* 价格闪变：脉冲关，▲▼ 箭头与涨跌色保留（语义反馈的静态等价物） */
+  .price-cell.up, .price-cell.down { animation: none; }
 }
 </style>

@@ -48,7 +48,7 @@ import {
   liveChannelUrl, isLocalHttpHost, staleTipText, picThumb,
 } from '@shared/js/marketMeta.js'
 import { createLiveChannel } from '@shared/js/liveChannel.js'
-import { predictSellEta, fmtHours, fmtPeak } from '@shared/js/sellEta.js'
+import { predictSellEta, fmtHours, fmtPeak, marketClock } from '@shared/js/sellEta.js'
 import { judgeSignals, sendNotifications } from '@shared/js/notify-policy.js'
 
 const route = useRoute()
@@ -83,6 +83,7 @@ async function load(opts = {}) {
   else loadState.value = 'loading'
   try {
     const prevVersion = market.value?.version
+    const prevItems = market.value?.items
     const res = await fetch(`${import.meta.env.BASE_URL}ammo/market.json?t=${Date.now()}`)
     if (seq !== loadSeq) return
     if (res.status === 404) {
@@ -96,6 +97,7 @@ async function load(opts = {}) {
     if (!json || !Array.isArray(json.items)) throw new Error('数据格式异常')
     market.value = json
     loadState.value = 'ready'
+    diffPriceFlash(prevItems, json.items)
     // 信号去抖 judge 挂在每次成功刷新上（含首次整页与静默轮询/SSE）：首轮只
     // 建基线不弹，之后 diff 出的新 BUY/SELL 才投递浏览器通知（见通知块注释）
     runNotifyJudge(json, { silent })
@@ -311,6 +313,31 @@ function runNotifyJudge(json, { silent }) {
 const notifyBtnTitle = computed(() =>
   NOTIFY_SUPPORTED ? `BUY/SELL 新信号弹浏览器通知（与服务端通知同款文案与去抖口径）。${NOTIFY_SCOPE_TIP}` : '浏览器通知需 HTTPS 部署后可用')
 
+/* ---------- 价格闪变反馈（思路库·价格闪变）：静默刷新落地后 diff 新旧现价，
+   变化格挂 up/down 类——td 一次性 0.8s 底色脉冲 + 涨跌箭头，900ms 后摘类。
+   MOTION.md §3-E 禁的是数字滚动（整表翻牌 = 噪声），这里不动数字本身；
+   底色脉冲属 §6-1 允许的状态过渡（color/background 无布局成本），只给
+   真变了的格、一次性、低幅度（≤14%）。纯静态环境快照版本不变 → diff
+   天然为空，不会整表乱闪 ---------- */
+const priceFlash = reactive({})
+let flashTimer = null
+function diffPriceFlash(prevItems, nextItems) {
+  if (!prevItems?.length) return // 首载无旧值可比，不闪
+  const prev = new Map(prevItems.map((i) => [i.name, i.current]))
+  let hit = false
+  for (const it of nextItems) {
+    const p = prev.get(it.name)
+    if (p == null || it.current == null || it.current === p) continue
+    priceFlash[it.name] = it.current > p ? 'up' : 'down'
+    hit = true
+  }
+  if (!hit) return
+  clearTimeout(flashTimer)
+  flashTimer = setTimeout(() => {
+    for (const k of Object.keys(priceFlash)) delete priceFlash[k]
+  }, 900)
+}
+
 /* ---------- 展示工具 ---------- */
 const fmt = (n) => (Number.isFinite(n) ? Math.round(n).toLocaleString('zh-CN') : '—')
 const pct = (n) => (Number.isFinite(n) ? `${n >= 0 ? '+' : ''}${(n * 100).toFixed(1)}%` : '—')
@@ -326,6 +353,19 @@ const SIGNAL_META = {
    SELL danger / WATCH info / WAIT（含数据不足行）faint */
 const SIG_COLOR = { BUY: 'var(--ok)', SELL: 'var(--danger)', WATCH: 'var(--info)', WAIT: 'var(--faint)' }
 const gradeVar = (g) => (g >= 2 && g <= 6 ? `var(--lv${g})` : 'var(--faint)')
+
+/* ---------- 信号门槛（快照顶层 rules 下发，analyze.mjs RULES 展示子集） ----------
+   页面文案 / 刻度线一律从 rules 渲染，杜绝 UI 与规则参数漂移（曾出现页面写
+   8% / 25% 而规则已是 10% / 20% 的三处失同步）。rules 缺失（旧快照）时退
+   v2 定稿值兜底显示 */
+const rules = computed(() => market.value?.rules || {})
+const ruleNum = (k, dflt) => (Number.isFinite(rules.value[k]) ? rules.value[k] : dflt)
+const buyRankPct = computed(() => Math.round(ruleNum('BUY_RANK_MAX', 0.2) * 100)) // 买入分位门槛 %
+const watchRankPct = computed(() => Math.round(ruleNum('WATCH_RANK_MAX', 0.35) * 100)) // 关注分位门槛 %
+const sellRankPct = computed(() => Math.round(ruleNum('SELL_RANK_MIN', 0.8) * 100)) // 卖出分位门槛 %
+const buyNetPct = computed(() => Math.round(ruleNum('BUY_MIN_NET_PCT', 0.1) * 100)) // 买入税后净利下限 %
+/* 官方均价偏离告警阈值（服务端同款 0.15，非 rules 成员） */
+const OFFICIAL_DEV_WARN = 0.15
 const reduceMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches
 // 表内行图标加载失败（CDN 抖动等）就地隐藏，不占位不报错——事件处理三页共享
 //（composables/imgReady.js；占位底与淡入样式见 motion.css「图片占位」段）
@@ -349,13 +389,18 @@ const { stars, toggleStar } = useStars()
 const { positions, save: savePositions } = usePositions()
 const { user: accountUser } = useAccount() // 仅用于台账区块的云同步状态标（同步逻辑全在 useAccount 单例内）
 
-/* 台账行 join 行情快照：弹名已不在当前快照（下架 / 改名）时 item=null，只展示记录本体 */
+/* 台账行 join 行情快照：弹名已不在当前快照（下架 / 改名）时 item=null，只展示记录本体。
+   holdDays / overHold：持有时长与超期（> maxHoldH=168h=7 天建议持有上限）提醒，
+   依据快照 rules.MAX_HOLD_H 下发值；breakEven：回本挂卖价 = 成本 ÷ (1−税率)，
+   15% 税下成本之上要挂 +17.6% 才不亏（analyze.mjs 头注税负数学），用户最易漏算 */
 const positionRows = computed(() =>
   positions.value.map((p) => {
     const item = items.value.find((i) => i.name === p.name) || null
     const netSell = item?.netSell ?? null // 挂目标价税后到手 / 发
     const netNow = item && item.current != null && Number.isFinite(item.taxRate)
       ? item.current * (1 - item.taxRate) : null // 现价直出税后 / 发
+    const maxHoldH = ruleNum('MAX_HOLD_H', 168)
+    const holdDays = Number.isFinite(p.at) && p.at > 0 ? Math.floor((Date.now() - p.at) / 86400000) : null
     return {
       ...p,
       item,
@@ -365,6 +410,9 @@ const positionRows = computed(() =>
       gainNet: netSell != null ? (netSell - p.cost) * p.qty : null,
       gainNow: netNow != null ? (netNow - p.cost) * p.qty : null,
       atTarget: !!(item && item.current != null && item.targetSell != null && item.current >= item.targetSell),
+      holdDays,
+      overHold: holdDays != null && holdDays * 24 > maxHoldH,
+      breakEven: item && Number.isFinite(item.taxRate) && item.taxRate < 1 ? p.cost / (1 - item.taxRate) : null,
     }
   })
 )
@@ -381,10 +429,14 @@ const posTotals = computed(() => {
 })
 function upsertPosition(p) {
   const first = positions.value.length === 0
-  // 只入账本事实三字段：调用方可能传台账行 join 行情后的展示对象（含 item/curve），
-  // 整体入库会污染 localStorage 与云端 ledger.ammo（多次编辑即超 64KB 上限）
-  const clean = { name: p.name, qty: p.qty, cost: p.cost }
-  const i = positions.value.findIndex((x) => x.name === clean.name)
+  const i = positions.value.findIndex((x) => x.name === p.name)
+  // 只入账本事实字段：调用方可能传台账行 join 行情后的展示对象（含 item/curve），
+  // 整体入库会污染 localStorage 与云端 ledger.ammo（多次编辑即超 64KB 上限）。
+  // at（记账时刻 epoch ms）：显式传入优先；更新已有行不改记账时刻；新行取当下
+  const at = Number.isFinite(p.at) && p.at > 0
+    ? p.at
+    : (i >= 0 ? positions.value[i].at : Date.now())
+  const clean = { name: p.name, qty: p.qty, cost: p.cost, ...(at != null ? { at } : {}) }
   if (i >= 0) positions.value[i] = clean
   else positions.value.push(clean)
   savePositions()
@@ -466,12 +518,13 @@ const SIGNALS = [
 const SORTS = [
   { v: 'signal', label: '信号优先' },
   { v: 'profit', label: '预期利润' },
+  { v: 'chg', label: '24h涨跌' },
   { v: 'rank', label: '价格分位' },
   { v: 'price', label: '当前价格' },
   { v: 'pct', label: '收益率' },
 ]
 /* 各排序键的默认方向；signal 为复合排序不参与方向切换 */
-const SORT_DIR = { profit: 'desc', rank: 'asc', price: 'desc', pct: 'desc', signal: null }
+const SORT_DIR = { profit: 'desc', chg: 'desc', rank: 'asc', price: 'desc', pct: 'desc', signal: null }
 const state = reactive({ signal: 'all', grade: 0, q: '', sort: 'signal', dir: null })
 
 /* 品级选项按数据实际出现的品级生成（实测仅 3/4/5，写死 2/6 是永空死选项） */
@@ -516,6 +569,7 @@ const filtered = computed(() => {
     signal: (a, b) =>
       SIGNAL_ORDER[a.signal] - SIGNAL_ORDER[b.signal] || num(b.profitPct) - num(a.profitPct),
     profit: (a, b) => num(b.profitPerRound) - num(a.profitPerRound),
+    chg: (a, b) => num(b.chg24h) - num(a.chg24h),
     rank: (a, b) => num(b.rank) - num(a.rank),
     price: (a, b) => num(b.current) - num(a.current),
     pct: (a, b) => num(b.profitPct) - num(a.profitPct),
@@ -587,6 +641,16 @@ function showAllSell() {
 const buyList = computed(() => items.value.filter((i) => i.signal === 'BUY').sort((a, b) => b.profitPct - a.profitPct))
 const sellList = computed(() => items.value.filter((i) => i.signal === 'SELL').sort((a, b) => b.rank - a.rank))
 
+/* 数据时刻（快照曲线末点的墙钟小时，不用设备本地时间——口径同 MarketClock）：
+   传给页尾 Playbook 点亮「当前所处时段窗」。与 MarketClock 各算一次同源纯函数
+   （162 弹 × 小时曲线，computed 缓存、随快照 60s 一算），换取兄弟组件间
+   零事件耦合——数据流单向，Playbook 仍不接触行情数据本体 */
+const clock = computed(() => marketClock(items.value))
+const clockHour = computed(() => clock.value?.dataHour ?? null)
+/* 市场时钟判读（buy=日内低位扫货窗 / sell=高位出货窗 / wait=中段）：
+   BUY 信号区在「出货窗」给出等待提示（纯展示层，不改 analyze 的信号判定） */
+const clockVerdict = computed(() => clock.value?.verdict ?? null)
+
 /* ---------- 预计卖出时间（展开行脚注；数据不足返回 null 不渲染） ----------
    买入/关注：历史到达历时（中位/最快）+ 日内高位时段；卖出：已在挂卖区，
    只给「今天几点出」的日内高位建议。口径见 ./ammo/sellEta.js 与 METHOD。 */
@@ -606,6 +670,33 @@ function etaLine(i) {
     `按近 7 天 ${e.episodes} 次同类上涨，从现价涨到 ${fmt(i.targetSell)}（近 3 天 75 分位）` +
     `中位约 ${fmtHours(e.medianH)}、最快 ${fmtHours(e.fastestH)}${clock}`
   return peak ? `${base}；该弹种日内高位通常在 ${peak}。` : `${base}。`
+}
+
+/* ---------- 表头口径 popover 定位（G 项）：popover API 打开时默认在视口居中，
+   读触发按钮 rect 就地落到按钮下方（popover 元素渲染进 top layer，不受
+   .tbl-scroll 的 overflow / mask 裁剪）。toggle 事件不冒泡，捕获阶段在
+   document 上统一接，一个监听管两个列提示层 ---------- */
+/* 触发钮追踪：同 id 的触发钮有多个（每行偏离 ⚠ 共用 thpop-official），toggle
+   事件本身拿不到 invoker，querySelector 恒命中 DOM 第一个——点第 N 行的 ⚠
+   浮层会落到第 1 行旁。捕获 click 先记下真正的触发钮（invoker 的 show 是
+   click 派发完成后的默认行为，时序保证 toggle 前必有一次触发钮 click）；
+   触发钮已被静默刷新重建（isConnected 为 false）时退回 querySelector 兜底 */
+let popInvoker = null
+function onPopInvokerClick(e) {
+  const btn = e.target.closest?.('[popovertarget]')
+  if (btn) popInvoker = btn
+}
+function onThPopToggle(e) {
+  const pop = e.target
+  if (!e.newValue || !pop?.classList?.contains('th-pop')) return
+  const btn = popInvoker?.isConnected && popInvoker.getAttribute('popovertarget') === pop.id
+    ? popInvoker
+    : tblRef.value?.querySelector(`[popovertarget="${pop.id}"]`)
+  if (!btn) return
+  const r = btn.getBoundingClientRect()
+  /* 左缘贴按钮、越界内收；向下展开、近底时上提——固定落位不跟指针 */
+  pop.style.left = `${Math.max(8, Math.min(r.left, window.innerWidth - 312))}px`
+  pop.style.top = `${Math.min(r.bottom + 6, window.innerHeight - 160)}px`
 }
 
 /* ---------- 生命周期：SSE + 静默轮询 + 分钟钟 + 全局监听（统一在此挂/卸） ---------- */
@@ -650,6 +741,8 @@ onMounted(() => {
   schedulePoll()
   clockTimer = setInterval(() => { nowTs.value = Date.now() }, 60 * 1000)
   document.addEventListener('visibilitychange', onVisibility)
+  document.addEventListener('toggle', onThPopToggle, true) // 捕获：toggle 不冒泡
+  document.addEventListener('click', onPopInvokerClick, true) // 捕获：popover 触发钮追踪（见 onThPopToggle 注释）
   window.addEventListener('resize', syncTblFade)
   window.addEventListener('keydown', onGlobalKeydown)
 })
@@ -660,9 +753,12 @@ onUnmounted(() => {
   if (tipTimer) clearTimeout(tipTimer)
   if (notifyTipTimer) clearTimeout(notifyTipTimer)
   if (posDelTimer) clearTimeout(posDelTimer)
+  if (flashTimer) clearTimeout(flashTimer)
   if (ctlRO) ctlRO.disconnect()
   if (live) live.stop()
   document.removeEventListener('visibilitychange', onVisibility)
+  document.removeEventListener('toggle', onThPopToggle, true)
+  document.removeEventListener('click', onPopInvokerClick, true)
   window.removeEventListener('resize', syncTblFade)
   window.removeEventListener('keydown', onGlobalKeydown)
 })
@@ -693,7 +789,7 @@ onUnmounted(() => {
     <Transition name="swap">
       <p v-if="ageMin !== null && ageMin > thresholds.staleTipMin" class="state-tip stale-tip" role="status">
         {{ staleTipMsg }}
-        <button class="retry" :disabled="refreshing" @click="load({ silent: true })">{{ refreshing ? '刷新中…' : '立即刷新' }}</button>
+        <button class="retry" :disabled="refreshing" @click="load({ silent: true })">{{ refreshing ? '刷新中…' : '立即刷新' }}<!-- 内联小环与控制条刷新 chip 同款：进行中进度语义（MOTION.md §3-F，RM 下保留） --><i v-if="refreshing" class="mini-spin" aria-hidden="true"></i></button>
       </p>
     </Transition>
 
@@ -720,26 +816,36 @@ onUnmounted(() => {
         </div>
       </div>
       <div v-else key="ready" class="state-root">
-        <!-- 行情脉搏：全市场信号分布一览 -->
+        <!-- 行情脉搏：全市场信号分布一览。四个大数字是「单点关键数字」（MOTION.md
+             §3-E 与详情页 hero 现价同族，非表格多行噪声族）：静默刷新信号数变化时
+             out-in 只动 opacity 的淡切换挡（.nv 见样式段），瞬跳变有回声 -->
         <section class="pulse reveal" aria-label="行情总览">
           <div class="stat">
             <span class="st-k"><i class="st-dot ok"></i>买入信号</span>
-            <span class="st-v ok">{{ stats.BUY }}</span>
+            <Transition name="nv" mode="out-in">
+              <span :key="stats.BUY" class="st-v ok">{{ stats.BUY }}</span>
+            </Transition>
             <span class="st-s">贴近 7 天低位 · 税后利润达标</span>
           </div>
           <div class="stat">
             <span class="st-k"><i class="st-dot danger"></i>卖出信号</span>
-            <span class="st-v danger">{{ stats.SELL }}</span>
+            <Transition name="nv" mode="out-in">
+              <span :key="stats.SELL" class="st-v danger">{{ stats.SELL }}</span>
+            </Transition>
             <span class="st-s">贴近 7 天高位 · 建议出货</span>
           </div>
           <div class="stat">
             <span class="st-k"><i class="st-dot info"></i>低位关注</span>
-            <span class="st-v info">{{ stats.WATCH }}</span>
+            <Transition name="nv" mode="out-in">
+              <span :key="stats.WATCH" class="st-v info">{{ stats.WATCH }}</span>
+            </Transition>
             <span class="st-s">处低位但利润未达线</span>
           </div>
           <div class="stat">
             <span class="st-k"><i class="st-dot mute"></i>覆盖弹种</span>
-            <span class="st-v">{{ items.length }}</span>
+            <Transition name="nv" mode="out-in">
+              <span :key="items.length" class="st-v">{{ items.length }}</span>
+            </Transition>
             <span class="st-s">交易行全部子弹 · 7 天曲线</span>
           </div>
         </section>
@@ -771,6 +877,8 @@ onUnmounted(() => {
                 </span>
                 <span class="pos-title">{{ r.name }}</span>
                 <span v-if="r.atTarget" class="pos-badge">已到挂卖价</span>
+                <span v-else-if="r.overHold" class="pos-badge over" :title="`已持有 ${r.holdDays} 天，超过建议上限 ${Math.round(ruleNum('MAX_HOLD_H', 168) / 24)} 天（超时未达目标价，纪律是离场）`">超期 {{ r.holdDays }} 天</span>
+                <span v-else-if="r.holdDays != null" class="pos-badge hold" :title="`记账于 ${new Date(r.at).toLocaleDateString('zh-CN')}，持有 ${r.holdDays} 天（建议 ≤ ${Math.round(ruleNum('MAX_HOLD_H', 168) / 24)} 天）`">持 {{ r.holdDays }} 天</span>
                 <span v-else-if="!r.item" class="pos-badge gone">不在当前行情</span>
               </span>
               <label class="pos-field" :title="`数量（${r.qty} 发）`">
@@ -784,6 +892,10 @@ onUnmounted(() => {
               <span class="pos-cell">
                 <span class="pos-k">现价</span>
                 <span class="mono pos-v">{{ r.item ? fmt(r.item.current) : '—' }}</span>
+              </span>
+              <span class="pos-cell" :title="r.breakEven != null ? `挂卖 ≥ 此价，税后到手才不亏：成本 ${fmt(r.cost)} ÷ (1−税率 ${(r.item?.taxRate * 100).toFixed(0)}%)` : ''">
+                <span class="pos-k">回本挂卖</span>
+                <span class="mono pos-v">{{ r.breakEven != null ? fmt(r.breakEven) : '—' }}</span>
               </span>
               <span class="pos-cell">
                 <span class="pos-k">到价浮盈</span>
@@ -822,13 +934,18 @@ onUnmounted(() => {
             <span class="bht">BUY SIGNALS</span><span class="bhline"></span>
             <span class="bhc">{{ buyList.length }} 种 · 按预期收益率排序</span>
           </div>
+          <!-- 市场时钟判读为「出货窗」（日内高位）时提示等回落：展示层提示，
+               不改 analyze 信号（信号本身已含企稳/趋势门槛，见 METHOD） -->
+          <p v-if="clockVerdict === 'sell'" class="more-tip buy-clock-tip">
+            市场时钟判读：当前处日内高位窗，追高扫货易买在时段顶部——不急可等低位窗（通常 02:00–05:00）再进场。
+          </p>
           <div class="sig-grid">
-            <SignalCard v-for="i in buyList.slice(0, 6)" :key="i.name" :item="i" />
+            <SignalCard v-for="i in buyList.slice(0, 6)" :key="i.name" :item="i" :rules="rules" />
           </div>
           <p v-if="buyList.length > 6" class="more-tip">其余 {{ buyList.length - 6 }} 种买入信号见下方全表（筛选「买入」）。</p>
         </section>
         <p v-else class="no-buy-tip">
-          当前没有触发买入条件的弹种（7 天低位 + 税后利润 ≥ 8%）。低位「关注」中的弹种见全表。
+          当前没有触发买入条件的弹种（7 天 ≤{{ buyRankPct }}% 分位企稳 + 挂卖税后利润 ≥ {{ buyNetPct }}%）。低位「关注」（≤{{ watchRankPct }}%）中的弹种见全表。
         </p>
 
         <!-- 卖出信号（迷你卡，点击直达全表走势） -->
@@ -925,9 +1042,22 @@ onUnmounted(() => {
                     <th>弹种</th>
                     <th class="c-pen">穿透</th>
                     <th class="num">当前价</th>
+                    <th class="num" title="现价相对 24 小时前的涨跌幅（快照曲线末点倒数第 25 个点）">24h</th>
                     <th>信号</th>
-                    <th class="num">税后预赚·发</th>
-                    <th class="num">7天分位</th>
+                    <!-- 口径提示层（思路库·Popover）：两个最需要口径的列头可点开
+                         浮层（popover API 进 top layer，不被表容器的 overflow/mask
+                         裁剪；触屏可点开——title 只活在鼠标下）；定位与进出场见
+                         .th-pop / onThPopToggle -->
+                    <th class="num">
+                      <button class="th-help" type="button" popovertarget="thpop-profit">税后预赚·发</button>
+                      <div id="thpop-profit" class="th-pop" popover>按近 3 天 75 分位挂卖、扣除交易税（约 15%，逐弹实测反推）后每发的预期到手利润，括号内为对应收益率；触发买入信号要求税后收益率 ≥ 10%。</div>
+                    </th>
+                    <th class="num">
+                      <button class="th-help" type="button" popovertarget="thpop-rank">7天分位</button>
+                      <div id="thpop-rank" class="th-pop" popover>现价处于近 7 天价格区间的位置：≤{{ watchRankPct }}% 贴近低位（绿，关注区；其中 ≤{{ buyRankPct }}% 且满足利差/企稳门槛才触发买入）、≥{{ sellRankPct }}% 贴近高位（红，考虑出货）；分位条上的刻度线就是这几条门槛。</div>
+                      <!-- 官方均价口径浮层：⚠ 角标（现价偏离 ≥15% 的行）popovertarget 指到这里 -->
+                      <div id="thpop-official" class="th-pop" popover>⚠ = 现价偏离官方均价 ≥15%。官方均价来自腾讯官方对账接口（约 24 小时一轮的「近期平均成交价」，无分钟曲线），只作旁路参照、不进信号；偏离大通常意味着现价刚剧烈波动或上游口径暂漂，操作前先看 7 天走势确认。</div>
+                    </th>
                     <th class="num c-range">7天区间</th>
                     <th>走势（7天）</th>
                   </tr>
@@ -960,6 +1090,11 @@ onUnmounted(() => {
                           <i class="a-gd" :style="{ background: gradeVar(i.grade) }" :title="`品级 ${i.grade}`"></i>
                         </span>
                         <span class="a-name">{{ i.name }}</span>
+                        <!-- 军需处可兑换弹（旁路参照）：chip 悬浮给折算摘要，详情在展开行 -->
+                        <i
+                          v-if="i.trade" class="qm-chip"
+                          :title="`军需处可兑换：材料折算 ${fmt(i.trade.costPerRound)}/发（${i.trade.materials.map((m) => `${m.count}×${m.name}`).join(' + ')} → ${i.trade.perCount} 发），现价 ${fmt(i.current)}`"
+                        >军</i>
                         <i class="row-chev" aria-hidden="true"><svg viewBox="0 0 16 16"><path d="M4 6.2 8 10.2 12 6.2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></i>
                       </td>
                       <!-- 穿透（TTK 联动）：无映射显「—」，等级语义与判定矩阵见 TTK 页 -->
@@ -967,7 +1102,18 @@ onUnmounted(() => {
                         <PenBadge v-if="penOf(i.name) != null" :p="penOf(i.name)" />
                         <template v-else>—</template>
                       </td>
-                      <td class="mono strong num price-cell">{{ fmt(i.current) }}</td>
+                      <td class="mono strong num price-cell" :class="priceFlash[i.name]">
+                        {{ fmt(i.current) }}<!-- 官方均价旁路参照（§7.5）：偏离 ≥15% 打 ⚠ 提示数据可疑；不进信号 -->
+                        <button
+                          v-if="i.official && Math.abs(i.official.dev) > OFFICIAL_DEV_WARN"
+                          class="off-warn" popovertarget="thpop-official"
+                          :aria-label="`${i.name} 现价偏离官方均价 ${(i.official.dev * 100).toFixed(1)}%，点击看口径`"
+                          @click.stop
+                        >⚠</button>
+                      </td>
+                      <td class="mono num" :class="i.chg24h == null ? 'dimtx' : i.chg24h >= 0 ? 'up-tx' : 'down-tx'">
+                        {{ i.chg24h == null ? '—' : pct(i.chg24h) }}
+                      </td>
                       <td>
                         <span v-if="i.rank == null" class="sig wait">数据不足</span>
                         <span v-else class="sig" :class="SIGNAL_META[i.signal].cls">{{ SIGNAL_META[i.signal].label }}</span>
@@ -979,15 +1125,16 @@ onUnmounted(() => {
                         <div class="rank-cell">
                           <span
                             class="rb-num"
-                            :class="{ low: i.rank != null && i.rank <= 0.35, high: i.rank != null && i.rank >= 0.8 }"
+                            :class="{ low: i.rank != null && i.rank <= watchRankPct / 100, high: i.rank != null && i.rank >= sellRankPct / 100 }"
                           >{{ i.rank == null ? '—' : `${Math.round(i.rank * 100)}%` }}</span>
                           <div v-if="i.rank != null" class="rank-bar">
-                            <i class="rb-tick" style="left: 25%"></i>
-                            <i class="rb-tick" style="left: 80%"></i>
+                            <i class="rb-tick buy" :style="{ left: `${buyRankPct}%` }" :title="`买入分位门槛 ≤${buyRankPct}%`"></i>
+                            <i class="rb-tick watch" :style="{ left: `${watchRankPct}%` }" :title="`关注分位门槛 ≤${watchRankPct}%`"></i>
+                            <i class="rb-tick" :style="{ left: `${sellRankPct}%` }" :title="`卖出分位门槛 ≥${sellRankPct}%`"></i>
                             <i
                               class="rb-fill"
                               :style="{ width: `${Math.round(i.rank * 100)}%` }"
-                              :class="{ low: i.rank <= 0.35, high: i.rank >= 0.8 }"
+                              :class="{ low: i.rank <= watchRankPct / 100, high: i.rank >= sellRankPct / 100 }"
                             ></i>
                           </div>
                         </div>
@@ -1002,7 +1149,7 @@ onUnmounted(() => {
                          随 0fr 裁剪同步铺开 -->
                     <Transition name="exp">
                       <tr v-if="expanded === i.name" class="expander">
-                        <td colspan="8">
+                        <td colspan="9">
                           <div class="exp-clip">
                             <div class="exp-inner">
                               <div class="exp-pad">
@@ -1019,10 +1166,19 @@ onUnmounted(() => {
                                   >{{ positions.some((p) => p.name === i.name) ? '已记入囤货 ✓' : '记入囤货' }}</button>
                                   <button class="exp-close" @click="expanded = null">收起</button>
                                 </div>
-                                <PriceChart :curve="i.curve" :p25="i.p25" :p75="i.p75" :current="i.current" />
+                                <PriceChart :curve="i.curve" :p25="i.p25" :p75="i.p75" :current="i.current" :official="i.official?.avg ?? null" />
                                 <p class="exp-note">
                                   口径：买入参考 {{ fmt(i.p25) }}（7 天 P25）/ 目标挂卖 {{ fmt(i.targetSell) }}（近 3 天 75 分位，税后到手 {{ fmt(i.netSell) }}）/
                                   税率 {{ (i.taxRate * 100).toFixed(0) }}%。价格回到目标价即可挂卖<template v-if="i.stopLoss">，破 {{ fmt(i.stopLoss) }} 止损离场</template>；急用钱可按现价直接出。
+                                </p>
+                                <p v-if="i.official" class="exp-note">
+                                  官方均价 {{ fmt(i.official.avg) }}（腾讯官方约 24h 一轮的对账口径，旁路参照不进信号）：现价偏离
+                                  <b :class="Math.abs(i.official.dev) > OFFICIAL_DEV_WARN ? 'off-bad' : ''">{{ pct(i.official.dev) }}</b>；偏离大 = 刚剧烈波动或上游口径暂漂，动手前先看曲线确认。
+                                </p>
+                                <!-- 军需处兑换折算：弹价地板参照（Playbook 01「军需处倒挂」的数据面） -->
+                                <p v-if="i.trade" class="exp-note">
+                                  军需处兑换折算 <b>{{ fmt(i.trade.costPerRound) }}</b>/发（{{ i.trade.materials.map((m) => `${m.count}×${m.name}`).join(' + ') }} → {{ i.trade.perCount }} 发）：
+                                  现价 {{ fmt(i.current) }}<template v-if="i.trade.costPerRound > 0"> 高出折算价 <b>{{ pct(i.current / i.trade.costPerRound - 1) }}</b></template><template v-if="i.current / i.trade.costPerRound - 1 > 0.3">——倒挂明显，先扫军需处再倒，别直接扫交易行</template>。
                                 </p>
                                 <p v-if="etaLine(i)" class="exp-note eta-note">
                                   <b>预计卖出</b>：{{ etaLine(i) }}（历史统计，不代表未来）。
@@ -1035,7 +1191,7 @@ onUnmounted(() => {
                     </Transition>
                   </template>
                   <tr v-if="!filtered.length">
-                    <td colspan="8" class="empty-cell">
+                    <td colspan="9" class="empty-cell">
                       没有符合当前筛选的弹种　<button class="empty-clear" @click="clearFilters">清除全部筛选</button>
                     </td>
                   </tr>
@@ -1048,12 +1204,12 @@ onUnmounted(() => {
           <section class="block reveal">
             <div class="block-h"><span class="bht">METHOD</span><span class="bhline"></span></div>
             <ul class="method">
-              <li><b>买入条件</b>（五重门槛，缺一不报）：现价处近 7 天曲线下 1/5 分位；已止跌企稳（高于 7 天低点 ≥3%、近 12 小时无新低、近 48 小时趋势斜率 ≥ 0）；按近 3 天 75 分位挂卖、扣除交易税后收益率 ≥ 10%；曲线 ≥ 2 天。随信号给止损位（破 7 天低点 3% 或单笔 −5% 风险上限）。</li>
-              <li><b>卖出条件</b>：现价处 ≥ 80% 分位且动能转弱（48 小时斜率不陡增）；强势上冲不催卖。</li>
+              <li><b>买入条件</b>（多重门槛，缺一不报）：现价处近 7 天曲线 ≤ {{ buyRankPct }}% 分位（≤ {{ watchRankPct }}% 先列「关注」）；已止跌企稳（高于 7 天低点 ≥3%、近 12 小时无新低、近 48 小时趋势斜率 ≥ +0.02%/h）；按近 3 天 75 分位挂卖、扣除交易税后收益率 ≥ {{ buyNetPct }}%；曲线 ≥ 2 天。随信号给止损位（破 7 天低点 3% 或单笔 −5% 风险上限）与建议持有上限（{{ Math.round(ruleNum('MAX_HOLD_H', 168) / 24) }} 天）。门槛数字随快照 <code>rules</code> 字段下发，与服务端 analyze.mjs 同源。</li>
+              <li><b>卖出条件</b>：现价处 ≥ {{ sellRankPct }}% 分位且动能转弱（48 小时斜率不陡增）；强势上冲不催卖。</li>
               <li><b>预计卖出</b>：统计近 7 天小时曲线——「从当前价位档涨到目标挂卖价」的完整上涨段给出中位/最快历时；同小时均价聚合给出日内高位时段。历史统计不代表未来。</li>
-              <li><b>能赚多少</b>：每发利润 = 目标挂卖价 × (1−税率) − 当前买入价；税率按税后价实测反推（约 15%，逐弹计算）。</li>
+              <li><b>能赚多少</b>：每发利润 = 目标挂卖价 × (1−税率) − 当前买入价；税率按税后价实测反推（约 15%，逐弹计算）。「回本挂卖价」= 成本 ÷ (1−税率)：15% 税下要在成本之上挂 +17.6% 才不亏，卡上它就不会「看着赚、到手亏」。</li>
+              <li><b>官方均价</b>：来自腾讯官方对账接口（约 24 小时一轮的「近期平均成交价」，无分钟曲线），旁路参照、不进信号；现价偏离 ≥15% 的行在当前价列打 ⚠，展开行可看偏离数值。数据：{{ dataLine }}</li>
               <li><b>穿透</b>：来自 TTK 弹药数据（穿透等级决定对各级护甲的伤害通过率，判定矩阵见 TTK 页）。「—」= 无穿透数据（弓弩用弹 / 国服与通用命名差异 / 一名多弹无法确定对应），宁缺勿错。</li>
-              <li><b>数据</b>：{{ dataLine }}</li>
               <li><b>提醒</b>：交易行价格受版本、活动与大盘供需影响，历史分位不代表未来走势；利润测算未计挂单时间成本。</li>
             </ul>
           </section>
@@ -1064,8 +1220,9 @@ onUnmounted(() => {
         <MarketClock :items="items" />
 
         <!-- 倒卖手册：社区攻略整理的实操动线（买/卖/版本窗口/卡邮件 + 风险红线）。
-             放在 .tbl-zone 之外：不影响表容器 sticky 的包含块余量 -->
-        <Playbook />
+             放在 .tbl-zone 之外：不影响表容器 sticky 的包含块余量；
+             now-hour 点亮时段条里「当前所处窗」（数据时刻口径，见 clockHour 注释） -->
+        <Playbook :now-hour="clockHour" :season="market?.season ?? null" />
       </div>
     </Transition>
   </div>
@@ -1101,12 +1258,23 @@ onUnmounted(() => {
 .nt-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); }
 .notify-btn.on .nt-dot { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
 .notify-btn:disabled { opacity: .45; cursor: default; }
-.notify-hint { color: var(--faint); font-size: var(--fs-2xs); margin: 6px 0 0; }
+/* 触屏命中垫层（通用原则 ≥44px）：按钮视觉高仅 ~26px，伪元素四周扩垫补足命中；
+   页头该角四周空旷（左侧 meta 文本不承接点击），扩垫不与相邻命中区重叠 */
+@media (pointer: coarse) {
+  .notify-btn { position: relative; }
+  .notify-btn::before { content: ""; position: absolute; inset: -10px; }
+}
+/* 整句辅助说明按字阶下限 fs-xs（base.css 阶梯注释：fs-2xs 只承载标签类）；
+   这也是通知被拒后的补救指引（去哪改权限），是反馈闭环里的可操作信息，
+   11px 读不清操作路径 */
+.notify-hint { color: var(--faint); font-size: var(--fs-xs); margin: 6px 0 0; }
 
 .state-tip { color: var(--dim); font-size: var(--fs-md); padding: var(--sp-6) 0; }
 .stale-tip { color: var(--warn); }
 /* 过期提示内嵌的「立即刷新」：主按钮 .retry 的小一号内联变体 */
 .stale-tip .retry { font-size: var(--fs-xs); padding: 3px 14px; margin-left: 10px; vertical-align: 1px; }
+/* 内联小环在行内文字旁的基线对齐（chip 是 inline-flex 自带 gap，这里是行内 p） */
+.stale-tip .retry .mini-spin { margin-left: 5px; vertical-align: -2px; }
 .state-card {
   background: var(--card); border: 1px dashed var(--line2); border-radius: var(--radius);
   padding: var(--sp-6); color: var(--tx); margin: var(--sp-4) 0;
@@ -1171,6 +1339,13 @@ onUnmounted(() => {
   font-size: var(--fs-2xs); color: var(--faint);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
+/* 行情脉搏数字换挡（§3-E 单点关键数字的网页等价物）：out-in 只动 opacity——
+   新旧数字不同帧叠影、也无 6px 位移（fs-display 大数位移显跳）；档位取微交互
+   上限 --t-med，比面板档轻。out-in 下 leave 元素仍占位，格宽稳定无布局跳动 */
+.nv-enter-active,
+.nv-leave-active { transition: opacity var(--t-med) var(--ease); }
+.nv-enter-from,
+.nv-leave-to { opacity: 0; }
 @media (max-width: 680px) {
   .pulse { grid-template-columns: repeat(2, 1fr); }
   .stat { padding: var(--sp-3) var(--sp-4); }
@@ -1186,7 +1361,7 @@ onUnmounted(() => {
   padding: 10px 14px; margin-bottom: var(--sp-3);
   background: linear-gradient(90deg, rgba(45, 212, 191, .08), rgba(45, 212, 191, .01) 70%);
   background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 8%, transparent), color-mix(in srgb, var(--accent) 1%, transparent) 70%);
-  border-left: 2px solid var(--accent-dim); border-radius: var(--radius-sm);
+  border-radius: var(--radius-sm);
   font-size: var(--fs-xs); color: var(--dim);
 }
 .pos-sum b {
@@ -1206,11 +1381,10 @@ onUnmounted(() => {
   background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
   padding: 8px 12px;
 }
-/* 现价已达挂卖价（targetSell）：accent 边条 + 微底，提示可出 */
+/* 现价已达挂卖价（targetSell）：accent 边框 + 微底，提示可出 */
 .pos-list li.hit {
   border-color: var(--accent-dim);
   background: var(--accent-bg);
-  box-shadow: inset 2px 0 0 var(--accent);
 }
 .pos-name { display: inline-flex; align-items: center; gap: 8px; min-width: 0; flex: 1 1 150px; }
 .pos-title { color: var(--tx-strong); font-size: var(--fs-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1226,6 +1400,16 @@ onUnmounted(() => {
 .pos-badge.gone {
   color: var(--faint); border-color: var(--line2); background: none;
 }
+/* 持有时长徽章：常态中性（dim），超期（> 建议持有上限 7 天）转 danger 实感 */
+.pos-badge.hold {
+  color: var(--dim); border-color: var(--line2); background: none;
+}
+.pos-badge.over {
+  color: var(--danger);
+  border-color: rgba(217, 106, 89, .45); background: rgba(217, 106, 89, .12);
+  border-color: color-mix(in srgb, var(--danger) 45%, transparent);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+}
 .pos-k {
   display: block;
   font-family: var(--mono); font-size: var(--fs-2xs); color: var(--faint); letter-spacing: .08em;
@@ -1238,6 +1422,12 @@ onUnmounted(() => {
 }
 /* 键盘可达走全局 :focus-visible 外框；:focus 只做边框提亮 */
 .pos-in:focus { border-color: var(--accent-dim); }
+/* 囤货录入即时校验（F 项，思路库·:has 表单校验 → 取 :user-invalid 落地：
+   语义更准——只对「用户改过且非法」的字段给反馈，不打扰未动过的初值）：
+   红边提前于提交给反馈、零 JS；老浏览器回退现有提交时 JS 校验文案，功能完整 */
+@supports selector(:user-invalid) {
+  .pos-add .pos-in:user-invalid { border-color: var(--danger); }
+}
 /* number 输入的步进箭头占宽且挤不进窄列：隐藏（键盘直输 / 滚轮仍可调） */
 .pos-in::-webkit-outer-spin-button, .pos-in::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
 .pos-in[type="number"] { -moz-appearance: textfield; appearance: textfield; }
@@ -1277,6 +1467,10 @@ onUnmounted(() => {
   display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: var(--sp-4);
 }
 .more-tip { color: var(--faint); font-size: var(--fs-xs); margin-top: var(--sp-3); }
+/* BUY 区市场时钟提示（出货窗等回落）：语义由文本承担 */
+.buy-clock-tip {
+  color: var(--dim);
+}
 .no-buy-tip {
   margin-top: var(--sp-6);
   border: 1px dashed var(--line2); border-radius: var(--radius);
@@ -1304,6 +1498,25 @@ onUnmounted(() => {
 /* ---------- 吸顶控制条（复用 base.css .sticky-bar；高度经 RO 写入 --ctl-h，
    供 .tbl-scroll 的 max-height 按视口净高封顶） ---------- */
 .ctl-sticky { padding: var(--sp-2) 0; margin-bottom: var(--sp-4); }
+/* 吸顶投影滚动驱动（C 项，思路库·滚动驱动动效）：控制条未滚离页头时还在常规
+   文档流位、不是「浮在内容之上」，.sticky-bar 常驻的 --shadow-md 是失真的浮空感。
+   scroll() 时间线纯 CSS 驱动投影与底边线随页滚渐入（0→96px 段），无 JS 监听。
+   @supports 守卫：不支持的时间线退回现状常驻投影；限 ≥681px——移动端控制条
+   已还原为 static 常规块（见下方媒体查询），不该在滚动时凭空获得投影。
+   animation 声明优先级高于 .sticky-bar 的静态 box-shadow/border，from 帧生效 */
+@supports (animation-timeline: scroll()) {
+  @media (min-width: 681px) {
+    .ctl-sticky {
+      animation: ctl-shadow linear both;
+      animation-timeline: scroll(root);
+      animation-range: 0 96px;
+    }
+    @keyframes ctl-shadow {
+      from { box-shadow: none; border-bottom-color: transparent; }
+      to { box-shadow: var(--shadow-md); border-bottom-color: var(--line); }
+    }
+  }
+}
 .ctl-bar {
   display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-4);
 }
@@ -1322,6 +1535,21 @@ onUnmounted(() => {
 .chip-star { width: 12px; height: 12px; fill: currentColor; flex: none; }
 .chip.refresh { margin-left: auto; }
 .chip.refresh:disabled { opacity: .6; cursor: default; }
+/* 触屏筛选/排序 chip 与搜索框增高（真实 padding 而伪元素垫层——chips 间 gap
+   仅 6px，负 inset 垫层会互相叠命中区，点 A 边缘误触 B）：26px → ~34px，
+   视觉与命中同步抬升，代价只是控制条多两行像素；仅粗指针生效，桌面密度不变 */
+@media (pointer: coarse) {
+  .chip { padding: 8px 14px; }
+  .search { padding: 8px 14px; }
+}
+/* 触屏窄屏搜索框独占一行满宽：16px 防聚焦缩放字号下，placeholder「搜索弹种，
+   如 5.56 / M995」约需 ~230px，180px 定宽（净内容区仅 ~152px）必截断，截掉的
+   恰是示例词「M995」——新手引导失效。控制条本就 flex-wrap，独占行零结构成本，
+   输入命中区同时放大（同 .chip 增高的触屏密度取舍） */
+@media (pointer: coarse) and (max-width: 680px) {
+  .search-wrap { flex: 1 1 100%; }
+  .search { width: 100%; }
+}
 /* 方向标记（inline SVG）：继承 chip 的 --accent 文字色 */
 .dir { width: 10px; height: 10px; margin-left: 2px; color: var(--accent); flex: none; }
 .refresh-tip { font-family: var(--mono); font-size: var(--fs-xs); margin-top: 6px; }
@@ -1372,6 +1600,59 @@ onUnmounted(() => {
   border-bottom: 0;
   box-shadow: 0 1px 0 var(--line);
 }
+/* 吸顶表头浮空投影（滚动驱动，同 .ctl-sticky 手法）：容器内滚动 >0 后表头
+   浮在数据行上，恒定 1px 底线不足以分层——投影随滚动 0→32px 渐入。
+   scroll(nearest block) 即 th 的最近滚动祖先 .tbl-scroll，纯 CSS 无监听；
+   @supports 守卫：不支持的时间线回落上面的静态底线（功能完整）；
+   box-shadow 映射无布局成本，投影叠底线复用 --shadow-sm 档 */
+@supports (animation-timeline: scroll()) {
+  .tbl-scroll .tbl th {
+    animation: th-float linear both;
+    animation-timeline: scroll(nearest block);
+    animation-range: 0 32px;
+  }
+  @keyframes th-float {
+    from { box-shadow: 0 1px 0 var(--line); }
+    to { box-shadow: var(--shadow-sm), 0 1px 0 var(--line); }
+  }
+}
+
+/* ---------- 表头口径提示层（G 项，思路库·Popover）：th-help 承接 th 的全部排版
+   （mono 小字属白名单标签类），支持 popover 的浏览器才给虚线下划暗示可点
+   （不支持时点击无效，不给暗示误导）；键盘可达走全局 :focus-visible ---------- */
+.th-help {
+  background: none; border: 0; padding: 0; cursor: default;
+  font-family: inherit; font-size: inherit; font-weight: inherit;
+  letter-spacing: inherit; color: inherit;
+}
+@supports selector(:popover-open) {
+  .th-help { cursor: help; border-bottom: 1px dotted var(--faint); }
+}
+/* 提示层本体：popover 渲染进 top layer（不被表容器 overflow/mask 裁剪、触屏可
+   点开）；UA 默认居中显示，inset 归零改由 onThPopToggle 读按钮 rect 落位。
+   进出场走 @starting-style + allow-discrete（display/overlay 保住离场帧）。
+   老浏览器防护：不识别 popover 属性时元素是普通 div 会常显撑爆表头——
+   显式 display:none，回退到「无提示」现状（功能完整，非降级） */
+.th-pop {
+  position: fixed; inset: auto; margin: 0;
+  width: min(300px, calc(100vw - 24px));
+  background: var(--panel-solid);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-md);
+  padding: 10px 12px;
+  font-family: var(--sans);
+  font-size: var(--fs-xs);
+  line-height: 1.7;
+  color: var(--dim);
+  transition: opacity var(--t-med) var(--ease), transform var(--t-med) var(--ease),
+    display var(--t-med) allow-discrete, overlay var(--t-med) allow-discrete;
+}
+.th-pop:not(:popover-open) { opacity: 0; transform: translateY(4px); }
+@starting-style { .th-pop:popover-open { opacity: 0; transform: translateY(4px); } }
+@supports not selector(:popover-open) {
+  .th-pop { display: none; }
+}
 /* 右缘渐隐：仅容器真溢出且未滑到底时出现（桌面无溢出永不显示）。
    mask 直接挂在滚动容器上（相对视口右缘、不随内容横滑）——绝对定位的
    ::after 属于滚动内容，横滑 300px 后会漂进表格中部，形同渲染 bug */
@@ -1398,7 +1679,7 @@ onUnmounted(() => {
 
 .row { cursor: pointer; }
 .row:focus-visible { background: var(--row-hover); }
-.row.open { background: var(--accent-bg); box-shadow: inset 2px 0 0 var(--accent-dim); }
+.row.open { background: var(--accent-bg); }
 /* 自选星标（aria-pressed 开关）：关 = --faint 星 + opacity .42，开 = --lv5 金；
    hover（含关态）opacity .8 + 边 --line-hover，按下同 hover */
 .star {
@@ -1440,13 +1721,18 @@ onUnmounted(() => {
 .rb-num { font-family: var(--mono); font-size: var(--fs-xs); color: var(--dim); }
 .rb-num.low { color: var(--ok); }
 .rb-num.high { color: var(--danger); }
-/* 分位条：两端阈值刻度（25% 买入线 / 80% 卖出线，与 METHOD 口径一致），
+/* 分位条阈值刻度：买入线（rules.BUY_RANK_MAX，默认 20%）/ 关注线（35%）/
+   卖出线（80%）三分动态，与 METHOD/浮层同源自 rules 下发（不得写死数字）；
    填充按所在区间染渐变绿/红，中性段用暗灰 */
 .rank-bar { position: relative; width: 110px; height: 7px; background: var(--line2); border-radius: 4px; }
 .rb-tick {
   position: absolute; top: -2px; bottom: -2px; width: 1px;
   background: var(--line-hover);
 }
+/* 买入/关注两根低位刻度点亮语义色：同 7px 高的条上三根线，卖出线保持中性
+   （右侧填充本身已染红，再上色会糊） */
+.rb-tick.buy { background: rgba(133, 181, 120, .55); background: color-mix(in srgb, var(--ok) 55%, transparent); }
+.rb-tick.watch { background: rgba(133, 152, 181, .5); background: color-mix(in srgb, var(--info) 50%, transparent); }
 .rb-fill { position: absolute; top: 0; bottom: 0; left: 0; border-radius: 4px; background: var(--faint); }
 .rb-fill.low {
   background: linear-gradient(90deg, rgba(133, 181, 120, .45), var(--ok));
@@ -1494,9 +1780,52 @@ onUnmounted(() => {
   border-color: color-mix(in srgb, var(--info) 40%, transparent);
   background: color-mix(in srgb, var(--info) 10%, transparent);
 }
-td.profit { color: var(--ok); font-weight: 600; }
-/* 当前价是表格主列：字号升一档并加粗（压过 .mono 的 fs-xs） */
-.tbl td.price-cell { font-size: var(--fs-md); color: var(--tx-strong); font-weight: 700; }
+/* 观望是全表默认态（约六成行）：去胶囊描边与底、降为素文本，让 BUY/SELL/WATCH
+   彩色胶囊成为信号列唯一扫读锚点（与 .profit 主数字立权同构——默认态不抢戏）；
+   「数据不足」同为 .wait 一并降噪，缺失态本就不该有徽章实感 */
+.sig.wait { border-color: transparent; background: none; padding: 2px 0; }
+/* 主数字立权：预赚（含收益率）才是本表的决策数字——升为行内最重（fs-md + 700，
+   .tbl 前缀压过 .tbl .mono 的 fs-xs 特异性）；profit 行有绿底色块成组，扫读锚点唯一 */
+.tbl td.profit { color: var(--ok); font-weight: 700; font-size: var(--fs-md); }
+/* 当前价降半档为行内第二重（tx-strong 色保持醒目）：与预赚并重会让行内
+   出现两个「最重」，扫读失去主锚；无信号的行（预赚为 —）当前价自然主导 */
+.tbl td.price-cell { position: relative; font-size: var(--fs-sm); color: var(--tx-strong); font-weight: 600; }
+/* 官方均价偏离 ⚠ 角标（td 内随文小按钮）：warn 色裸样式，点开 thpop-official 浮层 */
+.off-warn {
+  border: 0; background: none; padding: 0 0 0 2px;
+  color: var(--warn); font-size: var(--fs-2xs); cursor: pointer; vertical-align: 2px;
+}
+/* 24h 涨跌列：涨绿跌红（涨跌色恒定语义，同 SignalCard 闪变口径），缺失弱化 */
+.tbl td.up-tx { color: var(--ok); }
+.tbl td.down-tx { color: var(--danger); }
+/* 军需处可兑换 chip：弹名旁 mini 徽标（品级菱形同位语言），warn 色衬「倒挂套利」语义 */
+.qm-chip {
+  font-style: normal; flex: none;
+  font-family: var(--mono); font-size: var(--fs-micro);
+  color: var(--warn); border: 1px solid color-mix(in srgb, var(--warn) 45%, transparent);
+  border-radius: 3px; padding: 0 3px; margin-left: 4px; cursor: help;
+}
+
+/* ---------- 价格闪变（B 项）：diff 出的涨/跌格一次性 0.8s 底色脉冲（思路库口径；
+     一次性读数脉冲非循环、不占 MOTION.md §5 循环档位），动效毕 JS 摘类。
+     箭头绝对定位进 td 右 padding 区（padding 10px，8px 箭头 @right:1px 占 1–9px、
+     文字右缘在 10px，零重叠）——不参与列宽计算：行内箭头会给该列临时加 ~10px
+     宽、摘类后回缩，被闪格恰为列最宽格时右侧各列整体横跳（通用原则：数字列
+     动效杜绝列宽跳动）。
+     箭头是静态等价物——RM 下脉冲关、箭头保留（「涨跌色标保留静态等价物」）；
+     keyframes 只声明 from 帧，to 落回单元格自然背景（斑马/hover 底在 tr 上不冲突） */
+@keyframes flash-up { from { background-color: color-mix(in srgb, var(--ok) 14%, transparent); } }
+@keyframes flash-down { from { background-color: color-mix(in srgb, var(--danger) 14%, transparent); } }
+.price-cell.up { animation: flash-up .8s var(--ease) 1; }
+.price-cell.down { animation: flash-down .8s var(--ease) 1; }
+.price-cell.up::after,
+.price-cell.down::after {
+  position: absolute; right: 1px; top: 50%;
+  transform: translateY(-50%);
+  font-size: 8px; line-height: 1;
+}
+.price-cell.up::after { content: "▲"; color: var(--ok); }
+.price-cell.down::after { content: "▼"; color: var(--danger); }
 
 /* 展开面板（MOTION.md §3-C〔改〕，G3）：三层结构（.exp-clip/.exp-inner/.exp-pad）与
    .exp-* 过渡类已提升 motion.css（三页开合双向对齐，含 RM 兜底）。本页只留页级取值：
@@ -1527,10 +1856,10 @@ td.profit { color: var(--ok); font-weight: 600; }
 }
 .exp-note { color: var(--faint); font-size: var(--fs-xs); margin: 10px 2px 2px; line-height: 1.8; }
 .exp-note b { color: var(--dim); }
-/* 预计卖出脚注：--accent 预测语义左边条（真值 rgba 兜底，accent = rgb(45,212,191)） */
+/* 官方均价偏离超阈值的数值：danger 实感（数据可疑语义，同 ⚠ 角标） */
+.exp-note b.off-bad { color: var(--danger); }
+/* 预计卖出脚注：--accent 预测语义由 b 着色承担 */
 .eta-note {
-  border-left: 2px solid var(--accent-dim);
-  padding-left: 10px;
   color: var(--dim);
 }
 .eta-note b { color: var(--accent); }
@@ -1555,11 +1884,49 @@ td.profit { color: var(--ok); font-weight: 600; }
 .method li::before { content: "◆"; position: absolute; left: 0; color: var(--accent-dim); font-size: 8px; top: 7px; }
 .method b { color: var(--tx); }
 
+/* ---------- 触控垫层（D 项，通用原则·命中区 ≥44px）：视觉尺寸可以小，但触控
+   命中区要补足。仅粗指针设备生效（桌面鼠标的视觉密度不变）；伪元素扩垫只扩
+   命中区、不改视觉几何。star 上下相邻行中心距 ≈40px+，各扩 13px 不叠命中区；
+   search-clear 自身 absolute 定位（不能改 position 破坏落位），垫层直接相对其
+   铺开、左右少扩——避免吃掉输入框尾部的聚焦点击误触「清除」 ---------- */
+@media (pointer: coarse) {
+  .star, .pos-del { position: relative; }
+  .star::before, .pos-del::before { content: ""; position: absolute; inset: -13px; }
+  .search-clear::before { content: ""; position: absolute; inset: -13px -8px; }
+  /* 表头口径按钮视觉是 11px 文字、命中过小：padding 扩垫 + 负 margin 抵消布局
+     （hit-area 手法，命中高 11→35px、左右各 +8px）。刻意不再多扩——上下方向
+     贴着滚动容器顶与第一行可点数据行，再扩就是劫持邻区点击（star/pos-del
+     四周空旷才敢 -13px 全向扩；相邻两个口径列间隙 20px，各扩 8px 不叠） */
+  .th-help { padding: 12px 8px; margin: -12px -8px; }
+  /* ⚠ 口径角标（行内随文小按钮，视觉仅 ~11px）：同 th-help 的 padding 扩垫 +
+     负 margin 抵消手法（inline 元素 padding 不影响行盒几何，视觉零变化）；
+     左右只扩 8px——右侧紧贴 td 数字右缘，扩多了劫持相邻列点击 */
+  .off-warn { padding: 14px 8px; margin: -14px -8px; }
+  /* 展开面板动作钮（视觉高 ~25px）：伪元素垫层保视觉尺寸，上下扩 10px 补到 ~45px。
+     刻意不用 padding 法——胶囊钮的 padding 就是视觉本体，改了钮就胖一圈；
+     左右只扩 3px——两钮 gap 8px，各扩 3px 不互相叠命中区（3+3<8），宽度本就富余 */
+  .exp-close { position: relative; }
+  .exp-close::before { content: ""; position: absolute; inset: -10px -3px; }
+  /* 错误态重试 / 空筛清除（视觉高 ~27px）：同法补到 ~47px；两键相距远，无叠区 */
+  .retry, .empty-clear { position: relative; }
+  .retry::before, .empty-clear::before { content: ""; position: absolute; inset: -10px -8px; }
+}
+
 /* 本页全部微交互过渡的 reduced-motion 关闭（live-dot 脉冲另有独立规则；
    .swap .flip .exp 与 .a-ic 淡入、.mini-spin 等全局类由 motion.css 文件尾统一兜底） */
 @media (prefers-reduced-motion: reduce) {
   .chip, .search, .search-clear, .sell-more, .exp-close, .star, .row-chev,
   .retry, .empty-clear, .pos-add-btn, .pos-in, .pos-del { transition: none; }
+  /* 行情脉搏数字换挡：瞬时（信号色与数字本身即静态等价物） */
+  .nv-enter-active, .nv-leave-active { transition: none; }
   .retry:active, .empty-clear:active, .pos-add-btn:active { transform: none; }
+  /* C 项滚动驱动投影降级为常驻投影（现状）：吸顶「浮在内容上」的语义不随 RM 丢失 */
+  .ctl-sticky { animation: none; }
+  /* 表头浮空投影同理降级：恒定 1px 底线（from 帧即现状） */
+  .tbl-scroll .tbl th { animation: none; }
+  /* B 项价格闪变：脉冲关、箭头保留——涨跌色标的静态等价物 */
+  .price-cell.up, .price-cell.down { animation: none; }
+  /* G 项提示层：瞬开瞬关 */
+  .th-pop { transition: none; }
 }
 </style>

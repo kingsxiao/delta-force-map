@@ -88,16 +88,31 @@ struct CraftView: View {
                     // 时利最佳（跟随制造台筛选；页面唯一主角数字 §1.1）
                     if let best {
                         Section {
-                            CraftBestCard(item: best, placeLabel: placeLabel(of: best.place))
-                                // 换制造台 = 换主角配方：整卡换身份，挡掉 hero 数字跨配方滚动——
-                                // 数字滚动（.numericChange）只留给同一配方刷新时的数值变化（§3-E）
-                                .id(best.id)
-                                .swapTransition() // 首载骨架→内容：淡入 + 6pt 轻上移（§3-H）
+                            // 主卡可点进配方详情（与行内 NavigationLink 同轨，destination 见下）：
+                            // 页面唯一主角卡原先没有入口，想看它的材料清单 / 参照区间得去下方
+                            // 列表找同名行——主角反而比次级行难到达。按压走共享 PressableButtonStyle
+                            // 的 lift 面（§3-D），替换系统灰高亮，与全站可点卡片同一手感
+                            NavigationLink(value: best) {
+                                CraftBestCard(item: best, placeLabel: placeLabel(of: best.place))
+                            }
+                            .buttonStyle(PressableButtonStyle())
+                            // 换制造台 = 换主角配方：整卡换身份，挡掉 hero 数字跨配方滚动——
+                            // 数字滚动（.numericChange）只留给同一配方刷新时的数值变化（§3-E）
+                            .id(best.id)
+                            .swapTransition() // 首载骨架→内容：淡入 + 6pt 轻上移（§3-H）
                         }
                         .listRowBackground(Theme.card)
-                    } else if feed.snapshot == nil {
+                        // 换台 / 静默刷新换最佳时 best.id 变 → 整卡换身份：本事务让 .swapTransition
+                        // 真正淡入淡出（原先没有动画驱动，换台瞬现瞬隐）。刻意挂在 Section 局部而非
+                        // List 层：挂 List 层会让换台的同一事务给配方行增删带上默认动画，违背
+                        // MOTION.md §3-B「大表重排无动画」的既定取舍（重排感知只靠回顶承担）
+                        .motion(Theme.animSwap, value: best.id)
+                    } else if tableState == .skeleton {
                         // 首载骨架的主卡位（web /craft 首载 variant="hero" 的 iOS 对应，MOTION.md
-                        // §4.1 / 原则 4 双端同语义）：结构对齐 CraftBestCard，快照落地随整页事务退场
+                        // §4.1 / 原则 4 双端同语义）：结构对齐 CraftBestCard，快照落地随整页事务退场。
+                        // 判据对齐四态机而非裸看 snapshot == nil：首拉失败时下方配方区已切
+                        // RetryErrorRow，主卡骨架却仍在扫光——「系统工作中」与「加载失败」同屏
+                        // 矛盾；错误优先（§4.2），错误态主卡位随之退场，重试成功回到骨架再进内容
                         Section {
                             CraftBestSkeleton()
                                 .transition(.opacity) // 骨架只淡出不位移（§4.2，防布局跳动）
@@ -184,6 +199,10 @@ struct CraftView: View {
                 .sensoryFeedback(.selection, trigger: toggleTick)
                 .onChange(of: place) { _, _ in scopeChanged(proxy) }
                 .onChange(of: priceScope) { _, _ in scopeChanged(proxy) }
+                // 排序切换与筛选同口径（行情页 filter/sort 双挂先例 AmmoView.swift:347-348）：
+                // 换排序 = 换榜单（缺此行时排序切换既无 selection 触感也不回顶，长列表深处
+                // 切「成本」后停在原位，新榜首不可见）
+                .onChange(of: sort) { _, _ in scopeChanged(proxy) }
                 // UI 巡检钩子（同 RootView -startTab 模式，生产无此参数）：-openCraftFirst
                 // 等首个快照落地后 push 首个配方详情、-wfScrollEnd 滚到列表末尾补拍折叠区
                 .task { await shotHook(proxy) }
@@ -265,18 +284,31 @@ struct CraftView: View {
             Text(c.label)
                 .font(Theme.font(.sm, weight: .semibold))
                 .foregroundStyle(on ? Theme.accent : Theme.dim)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 7)
+                // 内边距对齐同卡紧邻下一行的 FilterChipLabel（Components.swift h13/v8）：两行 chip 同为
+                // .sm semibold 字阶、同处一个 VStack，原 14/7 让本行比价格 / 排序 chip 矮 2pt、
+                // 左右各宽 1pt——同层级同字号却不同高，叠在一起肉眼可辨；web 两组本就共用同一个
+                // .chip 类（CraftView.vue:741）。触控垫层 / 选中态 / 按压面不受影响
+                .padding(.horizontal, 13)
+                .padding(.vertical, 8)
                 .background(on ? Theme.accentBg : Theme.card2, in: Capsule())
-                .overlay(Capsule().strokeBorder(on ? Theme.accent.opacity(0.45) : Theme.line, lineWidth: 1))
-                .contentShape(Capsule())
+                // 激活描边走 accentDim 令牌（T4）：FilterChipLabel 收编时已把「accent.opacity(0.45) 裸值」
+                // 点名为第三种激活长相（Components.swift 注释），本 chip 与价格 / 排序 chip 同屏上下并置
+                // 却是全仓最后一处漏网——0.45 与 0.38 两档描边相邻两行肉眼可辨，同页激活态必须同配方
+                .overlay(Capsule().strokeBorder(on ? Theme.accentDim : Theme.line, lineWidth: 1))
+                // 触控垫层（HIG 44pt 下限）：chip 视觉仅 ~34pt，垫高命中区到 44——视觉尺寸不变、
+                // 只扩大 hit test；命中形状随垫层由胶囊换矩形（垫层上下空白同样可点）
+                .frame(minHeight: 44)
+                .contentShape(Rectangle())
                 // 选中三态（文字 / 底 / 描边）animFast 渐变、无位移（§3-B chip 选中档）：
                 // 切台时旧 chip 褪色、新 chip 点亮同步交叉，原先硬切；RM 门内建于 .motion
                 .motion(Theme.animFast, value: on)
         }
-        // 按压态由系统 .plain 整体变暗换为全站统一 lift 面（MOTION.md §3-D）；chip 是胶囊，
-        // 共享 PressableButtonStyle 只收 RoundedRectangle 圆角值贴不上轮廓，形状本地实现见下
-        .buttonStyle(CapsulePressStyle())
+        // 按压态由系统 .plain 整体变暗换为全站统一 lift 面（MOTION.md §3-D）：共享 PressableButtonStyle
+        // 已开放 radius 参数，传 .infinity（RoundedRectangle 钳到宽高一半）即胶囊取形——收编原本地
+        // CapsulePressStyle 副本（与 ItemDetailView CalcChip / PlaybookView 时段 chip 同款先例），
+        // lift 面 / animFast / RM 门三项配方回归共享层单点维护。
+        // 按压光面覆盖 44pt 命中区（=触控垫层）而非仅视觉胶囊——反馈区与命中区一致，按压感知诚实
+        .buttonStyle(PressableButtonStyle(radius: .infinity))
         .accessibilityAddTraits(on ? .isSelected : [])
     }
 
@@ -355,8 +387,10 @@ struct CraftBestCard: View {
                 Image(systemName: "trophy")
                     .font(Theme.font(.micro, weight: .bold))
                     .foregroundStyle(Theme.accent)
+                // 含中文眉题：默认 design（Theme.swift monoFont 注释「仅限纯 ASCII」；全仓唯一把
+                // monoFont 套在中文字面量上的位置——与 MethodNote「口径」/ TTK 眉题同口径收编）
                 Text("时利最佳")
-                    .font(Theme.monoFont(.micro, weight: .bold))
+                    .font(Theme.font(.micro, weight: .bold))
                     .foregroundStyle(Theme.accent)
             }
             .accessibilityHidden(true)
@@ -375,18 +409,31 @@ struct CraftBestCard: View {
                                 .foregroundStyle(Theme.dim)
                         }
                     }
-                    HStack(spacing: 6) {
-                        CategoryChip(text: placeLabel)
-                        GradeBadge(grade: item.output.grade)
-                        if let lv = item.requiredLevel {
-                            StatusChip(text: "Lv.\(lv)", tint: Theme.dim)
+                    // 徽标行 ViewThatFits 降级（§4.2-2 / §7-6，对齐 ItemDetailView 头部与本文件 CraftRow）：
+                    // 三枚徽标皆 fixedSize 恒保理想宽，而本列与右侧 hero 数字列同行分宽——字阶放大一两档
+                    // 徽标行就先于名称溢出、挤进 hero 列。降级顺序：先省「Lv.N」（详情页仍有）再省台名
+                    // （筛「全部」时它是「最佳出自哪台」的唯一标识，故晚于 Lv 退场），等级徽标恒留
+                    ViewThatFits(in: .horizontal) {
+                        HStack(spacing: 6) {
+                            CategoryChip(text: placeLabel)
+                            GradeBadge(grade: item.output.grade)
+                            if let lv = item.requiredLevel {
+                                StatusChip(text: "Lv.\(lv)", tint: Theme.dim)
+                            }
                         }
+                        HStack(spacing: 6) {
+                            CategoryChip(text: placeLabel)
+                            GradeBadge(grade: item.output.grade)
+                        }
+                        GradeBadge(grade: item.output.grade)
                     }
                 }
                 Spacer(minLength: Theme.Space.sm)
                 // 主角数字：时利（hero 档 + 语义色，§1.3 同层级同档）；数字滚动（§3-E 单点
-                // 关键数字，SSE 快照替换后自动跟随；跨配方切换由调用处 .id(best.id) 换身份挡掉）
-                VStack(alignment: .trailing, spacing: 2) {
+                // 关键数字，SSE 快照替换后自动跟随；跨配方切换由调用处 .id(best.id) 换身份挡掉）。
+                // 列内垂直间距 Space.xs（T8 收编字面量 2；ItemDetailView 头部 hero 列同位同值，
+                // 骨架 CraftBestSkeleton 同槽早已是 xs——真实卡反而与自己的骨架不同构）
+                VStack(alignment: .trailing, spacing: Theme.Space.xs) {
                     Mono(hourlyText, step: .hero, color: profitColor, minScale: 0.7)
                         .numericChange(value: item.profitPerHour)
                     Text("每小时")
@@ -396,9 +443,14 @@ struct CraftBestCard: View {
             }
 
             StatQuadRow(
-                StatCell(label: "单次利润", value: Fmt.price(item.profit), color: profitColor, emphasis: .hero),
-                StatCell(label: "材料成本", value: Fmt.price(item.cost), color: Theme.txStrong),
-                StatCell(label: "制造耗时", value: item.periodLabel ?? "—", color: Theme.txStrong),
+                // 标签对齐 web hero-stats「单次净利润」与详情拆解「净利润」：同一数字此前在卡片 / 拆解 /
+                // web 端三个名字（单次利润 / 净利润 / 单次净利润），点卡进详情后同值换名有对不上账的观感；
+                // 「净」字点明已扣手续费口径，与右邻「材料成本」并置时语义闭环
+                StatCell(label: "单次净利润", value: Fmt.price(item.profit), color: profitColor, emphasis: .hero),
+                // 输入类数据（成本 / 耗时）降 dim 让位主角（§1.1），与详情页利润拆解同格同色——
+                // 原先两格 txStrong 与 hero 利润近似平权，主数字立权被稀释
+                StatCell(label: "材料成本", value: Fmt.price(item.cost), color: Theme.dim),
+                StatCell(label: "制造耗时", value: item.periodLabel ?? "—", color: Theme.dim),
                 StatCell(label: "成本回报", value: roiText, color: roiColor)
             )
         }
@@ -417,7 +469,9 @@ struct CraftBestCard: View {
     }
     private var roiColor: Color {
         if let roi = item.roi { return roi >= 0 ? Theme.ok : Theme.danger }
-        return Theme.dim
+        // 占位「—」faint 而非 dim：与「成本回报」格真实数值的 ok/danger 拉开，
+        // 「没数据」不冒充分级数据（全站缺价口径，详见 CraftDetailView 参照区）
+        return Theme.faint
     }
     private var profitColor: Color {
         if let p = item.profit { return p >= 0 ? Theme.ok : Theme.danger }
@@ -426,7 +480,13 @@ struct CraftBestCard: View {
     private var bestA11y: String {
         var parts = ["时利最佳", placeLabel, item.output.name]
         if let p = item.profitPerHour { parts.append("每小时利润 \(Fmt.price(p))") }
-        if let profit = item.profit { parts.append("单次利润 \(Fmt.price(profit))") }
+        if let profit = item.profit { parts.append("单次净利润 \(Fmt.price(profit))") }
+        // 四格里成本 / 耗时 / 回报三格此前不进朗读：整卡 .combine 后只读显式 label，可见信息对
+        // VoiceOver 缺席（§7-1 成句纪律；CraftRow.a11yLabel 已转述耗时，主卡反而少读）。语序对齐视觉：
+        // 四格自左向右
+        if let cost = item.cost { parts.append("材料成本 \(Fmt.price(cost))") }
+        if let period = item.periodLabel { parts.append("制造耗时 \(period)") }
+        if item.roi != nil { parts.append("成本回报 \(roiText)") }
         return parts.joined(separator: "，")
     }
 }
@@ -477,12 +537,21 @@ struct CraftRow: View {
             if item.hasEstimate, let p = item.profitPerHour {
                 Mono(p >= 0 ? "+\(Fmt.price(p))" : Fmt.price(p), step: .lead, color: p >= 0 ? Theme.ok : Theme.danger, minScale: 0.75)
             } else {
-                Mono("—", step: .lead, color: Theme.faint)
+                // 缺价占位「—」= faint + 常规字重（web .na 同口径，CraftView.vue「不覆盖会出现一枚
+                // 加粗的『—』」）：lead 档默认 semibold 会把占位符画成一道粗杠，与真实数字同重——
+                // 「没数据」不该和「有数据」一样有分量；色（faint）与重（regular）两层一起降
+                Mono("—", step: .lead, weight: .regular, color: Theme.faint)
             }
             HStack(alignment: .firstTextBaseline, spacing: Theme.Space.xs) {
                 Text("利润").font(Theme.font(.micro)).foregroundStyle(Theme.faint)
                     .fixedSize(horizontal: true, vertical: false)
-                Mono(item.hasEstimate ? Fmt.price(item.profit) : "—", step: .sub, color: Theme.dim)
+                // 缺价占位「—」faint + regular 与次级数值 dim + semibold 分色分重：同色同重时
+                // 「没数据」会被读成一条次级数据（与同列主数字「—」、web 端 .na 口径一致）
+                if item.hasEstimate {
+                    Mono(Fmt.price(item.profit), step: .sub, color: Theme.dim)
+                } else {
+                    Mono("—", step: .sub, weight: .regular, color: Theme.faint)
+                }
             }
         }
         .lineLimit(1)
@@ -583,13 +652,6 @@ private struct CraftBestSkeleton: View {
     }
 }
 
-/// 胶囊按压面：与共享 PressableButtonStyle 同配方（按压叠 Theme.lift 白 6%、animFast 档、
-/// RM 下动画置 nil 但色面态仍生效，MOTION.md §3-D），仅把按压面形状换成 Capsule——
-/// 待共享层开放形状参数后与 ItemDetailView.CapsulePressStyle 一并收编
-private struct CapsulePressStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .overlay(Capsule().fill(Theme.lift).opacity(configuration.isPressed ? 1 : 0))
-            .motion(Theme.animFast, value: configuration.isPressed)
-    }
-}
+// 制造台 chip 的按压态已收编为共享 PressableButtonStyle(radius: .infinity)（Components.swift，
+// MOTION.md §3-D）：行为逐项等价（lift 面 + animFast 档 + RM 置 nil 但色面态仍生效），
+// 本页不再保留私有 CapsulePressStyle 副本（与 AmmoView 信号卡 / ItemDetailView CalcChip 同一收口）

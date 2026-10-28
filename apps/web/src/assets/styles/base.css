@@ -153,11 +153,52 @@ body {
   background-repeat: no-repeat, repeat;
 }
 ::selection { background: rgba(45, 212, 191, .28); }
+/* 选区色收编主色令牌：字面值与 color-mix(28%) 逐位相同（透明通道预乘等效），
+   只是让 --accent 改值时选区跟随；不支持 color-mix 的环境走上方字面值回退 */
+@supports (color: color-mix(in srgb, red 50%, transparent)) {
+  ::selection { background: color-mix(in srgb, var(--accent) 28%, transparent); }
+}
 a { color: inherit; }
 button { font-family: inherit; }
 input { font-family: inherit; } /* 表单控件默认不吃 body 字阶，兜底继承（显式声明者覆盖：.search --sans / .qty-in --mono） */
 :focus { outline: none; }
-:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--radius-sm); }
+/* 焦点环只声明描边：outline 在现代浏览器本就跟随元素自身 border-radius 的形状，
+   再给 :focus-visible 挂 border-radius 会把无圆角元素自己的盒子在聚焦瞬间裁圆
+   （背景/边框被裁剪，形状跳变），删掉后焦点环形状与元素形状恒一致 */
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* ---- 跳过导航链接（App.vue 首个可聚焦元素）：默认 transform 移出视口上缘 + 透明，
+   不用 display:none / visibility:hidden（二者都会把它踢出 Tab 序与读屏器）；也不用
+   left:-9999px（fixed 元素左移到负区在部分引擎仍会撑出可滚动区）。仅 :focus-visible
+   时现身于顶栏左上——鼠标点不到移出视口的元素，它只对键盘/读屏器用户存在。
+   面板语汇同 ⌘K 面板：实底面板色 + 浮层阴影；文字用 --accent（链接文字色白名单） ---- */
+.skip-link {
+  position: fixed;
+  top: var(--sp-2);
+  left: var(--sp-2);
+  z-index: calc(var(--z-header) + 1); /* 压过吸顶面板一档（--z-header 50），低于 BackTop/灯箱 */
+  padding: 10px var(--sp-4);
+  background: var(--panel-solid);
+  border: 1px solid var(--accent-dim);
+  border-radius: var(--radius);
+  color: var(--accent);
+  font-size: var(--fs-sm);
+  text-decoration: none;
+  box-shadow: var(--shadow-md);
+  opacity: 0;
+  transform: translateY(calc(-100% - var(--sp-3)));
+  transition: transform var(--t-fast) var(--ease), opacity var(--t-fast) var(--ease);
+}
+.skip-link:focus-visible { opacity: 1; transform: none; }
+/* skip 目标容器被编程聚焦时不画焦点环：它是整页内容区，2px 主色大框只会糊住首屏 */
+#main:focus { outline: none; }
+
+/* 标题换行渐进增强：多行标题两侧行宽均衡（页面 hero / 卡片长标题折行时不再
+   出现「第二行只剩一两个字」的孤字尾行）；单行与 nowrap 标题零影响。
+   @supports 守卫——不支持的环境保持默认贪心换行，功能完整、仅排版细节差异 */
+@supports (text-wrap: balance) {
+  h1, h2, h3 { text-wrap: balance; }
+}
 
 /* 细滚动条（深色，避免系统亮色滚动条破坏基调） */
 * { scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
@@ -242,6 +283,7 @@ input { font-family: inherit; } /* 表单控件默认不吃 body 字阶，兜底
   html { scroll-behavior: auto; } /* 锚点/scrollIntoView 的 CSS 平滑滚动同样让位于减动效偏好 */
   .reveal { opacity: 1; transform: none; transition: none; }
   .reveal-group > * { animation: none; }
+  .skip-link { transition: none; } /* 聚焦现身降级为瞬现（位移/淡入全停） */
 }
 
 /* ---- 小节标题（地图页 / TTK 页共用）：等宽字 + 拉线 + 右注 ---- */
@@ -291,7 +333,7 @@ input { font-family: inherit; } /* 表单控件默认不吃 body 字阶，兜底
   vertical-align: middle;
   line-height: 1.65;
 }
-.tbl tbody tr { transition: background var(--t-fast); }
+.tbl tbody tr { transition: background var(--t-fast) var(--ease); }
 /* 斑马纹契约：只数挂了 .data-row 的数据行的奇偶（Selectors 4 :nth-child(of S)），
    展开行 / 空筛占位行插进 tbody 不再打断下方整片翻色。of 参数套 :where() 刻意
    压平其特异性，整条规则与旧 nth-child(even) 同为 (0,2,2)：仍被下方 hover 的
@@ -306,13 +348,4 @@ input { font-family: inherit; } /* 表单控件默认不吃 body 字阶，兜底
 .tbl th.num, .tbl td.num { text-align: right; font-variant-numeric: tabular-nums; }
 @media (prefers-reduced-motion: reduce) {
   .tbl tbody tr { transition: none; }
-}
-
-/* ---- 占位视图（迁移期遗留，新视图自带样式） ---- */
-.view-ph { padding: var(--sp-8) 0 var(--sp-7); }
-.view-ph-title {
-  font-size: var(--fs-2xl);
-  font-weight: 600;
-  color: var(--tx);
-  letter-spacing: .02em;
 }

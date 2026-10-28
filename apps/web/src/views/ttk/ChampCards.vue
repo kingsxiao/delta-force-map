@@ -5,10 +5,19 @@ import { CAL } from '../../data/ttk/calibers.js'
 import { fmtMs } from './format.js'
 import PenBadge from './PenBadge.vue'
 
-defineProps({
+const props = defineProps({
   picks: { type: Array, required: true },
   delay: { type: Number, default: 0 }, // 展示层扳机延迟（ms）：与排行行同口径等量平移
 })
+
+/* 毫秒主数字分层：fmtMs 输出 "342 ms"（0 值特例 "首发"，无单位），整串同渲染成 30px 时
+   单位与数值同权、稀释读数。按首个空格拆成 [数值, 单位]——数值留 display 字阶，单位降档
+   弱化（每卡唯一主数字立权）。不改 format.js（口径与 legacy 逐字符一致，展示层自行拆） */
+function msParts(p) {
+  const s = fmtMs(p.c.ttk + props.delay)
+  const i = s.indexOf(' ')
+  return i < 0 ? [s, ''] : [s.slice(0, i), s.slice(i + 1)]
+}
 </script>
 
 <template>
@@ -24,7 +33,17 @@ defineProps({
         <PenBadge :p="p.c.am.pen" solid />
         <span>{{ CAL[p.c.gun.cal].label }} · {{ p.c.am.n }} · {{ p.c.btk }} 发<template v-if="p.scen"> · {{ p.scen }}</template></span>
       </div>
-      <div class="champ-ttk">{{ fmtMs(p.c.ttk + delay) }}<small>TTK · {{ p.c.gun.rpm }} RPM</small></div>
+      <!-- 主数字 / 单位 / 副注三层：msParts 为纯函数，v-for 内双调用开销可忽略（≤4 卡）。
+           主数字变化反馈（MOTION §3-E 单点关键数字，对齐 iOS hero 现价 numericText）：
+           修正/筛选改变 TTK 时以数值+单位为 key 重建内层 span，Transition 只配 enter
+           （旧值瞬时退场）单段 250ms 淡入上移——out-in 双段共 500ms 对「读数换了」太拖沓；
+           appear 默认 false，首次挂载不播，避免与冠军卡 reveal-group 级联入场同向叠加 -->
+      <div class="champ-ttk">
+        <Transition name="num">
+          <span :key="msParts(p)[0] + (msParts(p)[1] || '')" class="champ-num">{{ msParts(p)[0] }}<small v-if="msParts(p)[1]" class="champ-ms">{{ msParts(p)[1] }}</small></span>
+        </Transition>
+        <small>TTK · {{ p.c.gun.rpm }} RPM</small>
+      </div>
     </div>
   </div>
 </template>
@@ -56,7 +75,9 @@ defineProps({
 .champ-label {
   font-family: var(--mono);
   font-size: var(--fs-xs);
-  letter-spacing: .2em;
+  /* .26em 对齐 mono kicker 族（base.css .bht / TierBoard .tb-title 同为 xs 档 mono 标签），
+     卡内 kicker 与区块 kicker 跨区块同字距 */
+  letter-spacing: .26em;
   color: var(--faint);
   margin-bottom: 9px;
 }
@@ -84,6 +105,9 @@ defineProps({
   margin-top: 9px;
   letter-spacing: .02em;
   font-variant-numeric: tabular-nums;
+  /* 数据大数走紧凑行高档（base.css 行高两档契约）：继承 body 1.7 会让 30px 主数字
+    撑出 ~51px 行盒、数字上下空隙过大，主数字反而失焦 */
+  line-height: var(--lh-tight);
 }
 .champ-ttk small {
   font-size: var(--fs-2xs);
@@ -92,11 +116,48 @@ defineProps({
   margin-left: 5px;
   letter-spacing: .08em;
 }
+/* 副注独立成行：原与 30px 主数字同基线横排成「342 ms TTK · 706 RPM」——大数旁挂
+   11px 小注稀释主数字（第一眼决策数字应只剩 数值+单位），且 4 位数 TTK 叠加长副注时
+   inline 流折行位置不稳。子选择器只命中直接子副注：champ-ms 在 Transition 渲染的
+   span 内（孙代），仍是 inline、继续与数值同基线 */
+.champ-ttk > small {
+  display: block;
+  margin-left: 0;
+  margin-top: 3px; /* 与 .champ-sub 的卡内微距同值 */
+}
+/* 单位层（介于主数字与副注之间）：sm 字阶 + --dim，比 "TTK · RPM" 副注（2xs/faint）高半档——
+   读序 数值 → 单位 → 口径注；特异性 (0,2,0) 压过上方 .champ-ttk small 的通用副注样式 */
+.champ-ttk .champ-ms {
+  font-size: var(--fs-sm);
+  color: var(--dim);
+  margin-left: 4px;
+  margin-right: 2px;
+  letter-spacing: .04em;
+}
+/* 主数字变化淡入（250ms 状态切换档，全局 swap 同取值但这里只要单段进场）：
+   inline-block 让 translateY 生效（inline 元素 transform 无效）；无 leave 类 =
+   旧值瞬时退场。位移 6px 与全局 .swap-enter-from 同值，语汇一致 */
+.champ-num { display: inline-block; }
+.num-enter-active {
+  transition: opacity var(--t-panel) var(--ease), transform var(--t-panel) var(--ease);
+}
+.num-enter-from { opacity: 0; transform: translateY(6px); }
 @media (max-width: 820px) {
   .champs { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  /* 奇数末卡满宽（§6.3 末行参差在断点下的复发）：681-820 两列区 picks=3（选 2 类别）
+     时末行只剩一张半宽孤卡；末卡跨两列与上行齐边。>820 由 --champ-n 列数自适应无
+     孤卡（本块不命中）；≤680 单列须恢复 auto——单列 grid 里 span 2 会撑出隐式第二列 */
+  .champ:last-child:nth-child(odd) { grid-column: span 2; }
   .champ { padding: 13px 15px 11px; }
 }
 @media (max-width: 680px) {
   .champs { grid-template-columns: 1fr; }
+  /* 与 820 块同选择器同特异性，靠源序在其后覆盖（见上块注释） */
+  .champ:last-child:nth-child(odd) { grid-column: auto; }
+}
+/* RM 兜底：数字变化降级为瞬时替换（读数语义不依赖动效） */
+@media (prefers-reduced-motion: reduce) {
+  .num-enter-active { transition: none; }
+  .num-enter-from { transform: none; }
 }
 </style>

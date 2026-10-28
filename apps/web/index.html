@@ -3,6 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- 关闭 iOS Safari 数据探测器：数据站表格/榜单里 7 位以上裸数字（如价格 7623998）
+     会被识别成电话号码、渲染成蓝色下划线链接，点击拉起拨号——读数被污染且不可控 -->
+<meta name="format-detection" content="telephone=no">
 <meta name="color-scheme" content="dark">
 <meta name="theme-color" content="#0d1013">
 <meta name="description" content="三角洲行动 · 数据工具：子弹行情监控与买卖信号、全品类异动雷达、全枪械 TTK 排行与弹药穿透矩阵。">
@@ -11,6 +14,16 @@
 </head>
 <body>
 <div id="app"></div>
+<!-- 无 JS 兜底：SPA 的样式也走 JS import（main.js），脚本被禁时页面纯白、
+     无任何解释。noscript 自带内联样式与配色（对齐 base.css 底色/文字色），
+     至少告知发生了什么、给出一条出路（启用脚本）。#app 内渲染不受影响 -->
+<noscript>
+  <div style="max-width:640px;margin:18vh auto 0;padding:0 16px;font-family:system-ui,'PingFang SC','Microsoft YaHei',sans-serif;color:#d9dee3;text-align:center;">
+    <p style="font-size:16px;font-weight:600;color:#f0f4f7;">本站需要启用 JavaScript 才能运行</p>
+    <p style="font-size:13px;color:#9aa4ad;line-height:1.7;">这里是一个纯前端的数据工具（行情 / 雷达 / TTK 排行），所有页面都由脚本渲染。
+    请在浏览器设置中允许本站运行脚本后刷新。</p>
+  </div>
+</noscript>
 <script type="module" src="/src/main.js"></script>
 </body>
 </html>

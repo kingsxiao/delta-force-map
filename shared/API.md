@@ -35,9 +35,12 @@ Schema：[schema/market-snapshot.schema.json](schema/market-snapshot.schema.json
 | `generatedAt` | ISO-8601 | 分析产物生成时刻 |
 | `source` | `"moligod" \| "kkrb"` | 实际服务源，页面来源标签如实切换 |
 | `fingerprint` | hex-64 | 价格向量 sha256（内容门槛用，客户端可忽略） |
+| `rules` | object | 信号门槛展示子集（`BUY_RANK_MAX` / `BUY_MIN_NET_PCT` / `WATCH_RANK_MAX` / `SELL_RANK_MIN` / `BUY_MKT_SLOPE_MIN` / `MAX_HOLD_H` / `TARGET_WINDOW_H`，来自 `analyze.mjs` RULES）。页面文案与分位刻度线**从这里渲染**，不得写死数字；null = 该门槛关闭（如市场体制门槛） |
+| `officialAnchor` | `{fetchedAt, joined} \| null` | 官方均价锚元信息（§7.5 产物，fetch-once join 时带上）；null = 未跑过锚 |
+| `season` | `{name, start, end, fetchedAt, events}` | 当前赛季日历（kkrb 活动日历接口，fetch-once 6h TTL 拉取）。`start`/`end` 为 ISO-8601 带时区；阶段判定用 `js/marketMeta.js seasonPhase`（囤货窗 T−7~T−3 / 赛季末 T−3 / 开更出货窗 +3 天）。上游失败时字段缺省 |
 | `items` | Item[] | 全量弹药（当前 67 种），含 WAIT |
 | `signals` | `{buy, sell, watch}` | `items` 的过滤副本（BUY / SELL / WATCH），仅为方便，客户端可自行过滤 |
-| `stats` | `{total, buy, sell, watch}` | 计数 |
+| `stats` | `{total, buy, sell, watch, mktSlope48}` | 计数；`mktSlope48` = 全市场 48h 斜率中位（%/h，市场体制读数；null = 无法计算） |
 
 Item 字段：
 
@@ -63,6 +66,10 @@ Item 字段：
 | `bounceOffLow` | number | 现价相对 7 天低点的离底幅度 |
 | `stopLoss` | number | 止损位 = max(7天低点×0.97, 现价×0.95) |
 | `maxHoldH` | number | 建议最长持有小时数（168） |
+| `chg24h` | number \| null | 现价相对 24h 前的涨跌幅（展示特征，不进判定）；null = 曲线不足 25 点 |
+| `chg7d` | number | 现价相对窗口首点（约 7 天前）的涨跌幅（展示特征，不进判定） |
+| `official` | `{avg, dev, at}` | 官方均价参照（§7.5 锚 join；`dev` = (current − avg)/avg 按本快照现价现算）。**旁路参照：不进任何信号**；无锚 / 锚无该弹时字段不出现 |
+| `trade` | `{costPerRound, perCount, marketPrice, materials, version}` | 军需处兑换折算（kkrb 军需处兑换接口，fetch-once 10min TTL 拉取）：材料市价折算 `costPerRound`/发 → 兑 `perCount` 发，交易行现价 `marketPrice` 为上游同刻读数。**旁路参照：不进任何信号**；仅约 7 种可兑换弹有此字段（按弹名精确 join，命名差异宁缺毋滥） |
 | `signal` | `"BUY" \| "WATCH" \| "SELL" \| "WAIT"` | 见下方信号口径 |
 | `reason` | string | 仅数据不足时出现（"数据不足"） |
 
@@ -215,7 +222,7 @@ Item 字段：
 ### 6.3 账号数据口径（`js/accountData.js`，三端同构）
 
 - 文档 = 不透明 K/V：键名 `^[A-Za-z0-9._-]{1,64}$`（点分命名空间），整体序列化 ≤ 64KB（**按 UTF-8 字节计**：JS 端 TextEncoder、iOS 端 JSONEncoder 输出字节数，两端同口径——中文按每字 3 字节计，不再按 UTF-16 code unit 低估；`normalizeAccountDoc` 校验，PUT 两侧共用）。台账条目的 qty / cost 只认 JSON number（字符串数字剔除，两端清洗一致）。
-- 已约定键：`stars.ammo` = string[]（子弹自选弹名）；`ledger.ammo` = `[{name, qty, cost}]`（囤货台账：弹名 / 数量 / 成本单价）；`mycost.ammo` = `{弹名: 成本单价}`（网页端信号卡自录买入价，iOS 暂只透传保留不消费）。后续键按需增补，先改本节再改端。
+- 已约定键：`stars.ammo` = string[]（子弹自选弹名）；`ledger.ammo` = `[{name, qty, cost, at?}]`（囤货台账：弹名 / 数量 / 成本单价 / 记账时刻 epoch ms 可选——两端清洗一致：缺省或非法剔除，iOS 同构透传）；`mycost.ammo` = `{弹名: 成本单价}`（网页端信号卡自录买入价，iOS 暂只透传保留不消费）。后续键按需增补，先改本节再改端。
 - 首次登录 / 拉取合并口径：星标取**并集**（`mergeStars`，去重排序后回写两端与云端）；台账按弹名并集、**同名冲突本地优先**（`mergePositions`）；mycost 同为按键并集、本地优先（`mergeLocalWins`）——避免任何一端被覆盖丢数据。
 - **云端只存「用户创作内容」**（自选、台账这类丢了会心疼的），不存「设备偏好」（通知开关、服务器地址、UI 状态——每台设备自己的，同步它们反而会互相踩）。
 - iOS 同构实现：`DeltaForceCore/AccountData.swift`（`normalizeAccountDoc` / `mergeStars` / `mergePositions`），单测与 JS 口径逐项对账。
@@ -269,12 +276,12 @@ Item 字段：
 
 CLI 末行：`SUMMARY {"guns":{"checked":N,"matched":N,"diff":N},"ammo":{…},"armor":{…},"unmatched":N,"top":["枪名 字段 本地X→官方Y",…]}`（前缀 `SUMMARY ` 后为单行合法 JSON；`top` 取枪→弹→甲 diff 顺序前 10 条；armor 的官方值格式为 `min-max`）。
 
-### 7.5 `data/ammo/official-anchor.json` — 子弹官方均价锚（仅服务端 sidecar，不对外）
+### 7.5 `data/ammo/official-anchor.json` — 子弹官方均价锚（服务端 sidecar）
 
-> 不经 HTTP / SSE 外发、不进 `apps/web/public`、不在任何快照契约里；随 `/data/` 整体 gitignore。网页端 / iOS 端**不消费**本文件。
+> 锚文件本身不经 HTTP / SSE 外发、不进 `apps/web/public`、随 `/data/` 整体 gitignore；但 `server/ammo/fetch-once.mjs` 会把锚的官方均价 **join 进 `market.json`**（`items[].official`，按弹名精确匹配、`dev` 按本快照现价现算）随 §1 契约对外。网页端 / iOS 端消费的是 `market.json` 里的 `official` 字段，仍不直接读锚文件；锚缺失 / 坏档时 join 静默跳过，`officialAnchor` 与 `items[].official` 如实缺省。
 > 由 `server/official/ammo-anchor.mjs` 产出：`npm run anchor:fetch` 单跑，或 `server.mjs` 每 24h 一轮（启动 2 分钟后首跑；`--anchor-interval-hours N` / `ANCHOR_INTERVAL_HOURS` 可调，`--no-anchor` 关闭）。
 
-用途：拿腾讯官方 AMS 352246 的 `avg_buyprice`（「近期平均交易价格」口径，按 objectID 给值、无小时曲线）给 moligod 主源的 67 弹现价做外部参照——**只校验、不替代、不改口径**，绝不写 `market.json`。
+用途：拿腾讯官方 AMS 352246 的 `avg_buyprice`（「近期平均交易价格」口径，按 objectID 给值、无小时曲线）给 moligod 主源的 67 弹现价做外部参照——**只校验、不替代、不改口径**，不进任何信号计算。
 
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |

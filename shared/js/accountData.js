@@ -55,28 +55,31 @@ export function mergeStars(local, remote) {
 
 /**
  * 清洗单条囤货台账记录（口径对齐 AmmoMarketView.loadPositions / PositionsStore：
- * name 非空字符串、qty ≥1 取整、cost ≥0 有限数）。非法返回 null。
- * qty / cost 只认 JSON number：字符串数字（'3'）不隐式转换——与 iOS
- * AccountData.swift ledgerEntry 的解码口径一致（JSONDecoder 只认 number），
- * 否则同一云文档两端清洗后条目数不同。
+ * name 非空字符串、qty ≥1 取整、cost ≥0 有限数、at 记账时刻 epoch ms 可选）。
+ * 非法返回 null。qty / cost 只认 JSON number：字符串数字（'3'）不隐式转换——
+ * 与 iOS AccountData.swift ledgerEntry 的解码口径一致（JSONDecoder 只认
+ * number），否则同一云文档两端清洗后条目数不同。
  * @param {unknown} p
- * @returns {{name:string, qty:number, cost:number}|null}
+ * @returns {{name:string, qty:number, cost:number, at?:number}|null}
  */
 export function normalizePosition(p) {
   if (p === null || typeof p !== 'object' || Array.isArray(p)) return null
   if (typeof p.name !== 'string' || !p.name) return null
   if (typeof p.qty !== 'number' || typeof p.cost !== 'number') return null
   if (!Number.isFinite(p.qty) || !Number.isFinite(p.cost)) return null
-  return { name: p.name, qty: Math.max(1, Math.round(p.qty)), cost: Math.max(0, p.cost) }
+  const base = { name: p.name, qty: Math.max(1, Math.round(p.qty)), cost: Math.max(0, p.cost) }
+  // at（记账时刻 epoch ms，可选）：缺省 / 非法剔除，两端清洗一致
+  if (typeof p.at === 'number' && Number.isFinite(p.at) && p.at > 0) base.at = p.at
+  return base
 }
 
 /**
  * 合并两端的囤货台账（键 ledger.ammo 的合并口径）：按弹名并集；
  * 同名条目冲突时**本地优先**（登录合并发生在用户正在用的设备上，
  * 本地刚改过的数字更可信；远端同名条目丢弃）。结果按弹名排序。
- * @param {unknown} local 本地台账（[{name, qty, cost}]；非法按空处理）
+ * @param {unknown} local 本地台账（[{name, qty, cost, at?}]；非法按空处理）
  * @param {unknown} remote 云端台账（同上）
- * @returns {{name:string, qty:number, cost:number}[]}
+ * @returns {{name:string, qty:number, cost:number, at?:number}[]}
  */
 export function mergePositions(local, remote) {
   const byName = new Map()

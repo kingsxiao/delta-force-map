@@ -3,7 +3,9 @@
    ------------------------------------------------------------
    产物：
      apps/web/public/ammo/market.json  前端唯一数据源（原始快照 + 分析字段合并，
-                                       顶层含 source / fingerprint）
+                                       顶层含 source / fingerprint / rules /
+                                       officialAnchor；items 带 chg24h / chg7d /
+                                       official 官方均价参照）
      apps/web/dist/ammo/market.json    构建产物存在时联动（vite preview 同样吃
                                        新数据；--no-dist 可关）
      data/ammo/history/<version>.json  原始快照留档（.gitignore；仅内容指纹变化
@@ -26,10 +28,17 @@ import { fileURLToPath } from 'node:url'
 import { fetchAmmoMarket } from './kkrb-client.mjs'
 import { getSnapshot } from './moligod-client.mjs'
 import { analyzeMarket } from './analyze.mjs'
+import { fetchQuartermaster } from './quartermaster.mjs'
+import { fetchSeason } from './season.mjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 /** 网页端目录（多端 monorepo：public/ 与 dist/ 都在 apps/web 下；selftest 注入临时 rootDir 时 webDir 跟随 rootDir） */
 const WEB_DIR = path.join(ROOT, 'apps', 'web')
+
+/** 官方均价锚产物相对路径（server/official/ammo-anchor.mjs 每 24h 一轮写入；
+ *  fetch-once 挂在 rootDir 下读——selftest 注入临时 rootDir 时自然无锚即跳过。
+ *  不反向 import 该模块：它已 import 本文件的 writeJsonAtomic，再反向会成环） */
+const ANCHOR_REL = path.join('data', 'ammo', 'official-anchor.json')
 
 /** 同指纹最长静默：超过则重写一次盘（心跳，刷新 fetchedAt） */
 export const HEARTBEAT_MS = 5 * 60 * 1000
@@ -64,6 +73,65 @@ export async function writeJsonAtomic(filePath, text) {
     await unlink(tmp).catch(() => {}) // rename 失败（如目录被删）不留孤儿 tmp
     throw e
   }
+}
+
+/**
+ * join 官方均价锚（读取 data/ammo/official-anchor.json，缺档/坏档静默跳过——
+ * 官方锚是旁路参照，永不因它阻塞主链路）：逐弹挂 official = { avg, dev, at }，
+ * dev 按本快照现价现算（锚文件里的 dev 是锚抓取时刻对 moligod 的，口径过期）。
+ * 官方 avg 与服务源无关（官方是官方），moligod / kkrb 快照都 join；按弹名精确
+ * 匹配，锚里没有的弹不造字段。返回新数组，不改动入参。
+ * @param {Array<{name:string, current:number}>} items 分析产物 items
+ * @returns {{items: Array, officialAnchor: {fetchedAt:string, joined:number}|null}}
+ */
+export async function joinOfficialAnchor(items, anchorPath = path.join(ROOT, ANCHOR_REL)) {
+  let anchor = null
+  try {
+    anchor = JSON.parse(await readFile(anchorPath, 'utf8'))
+  } catch {
+    return { items, officialAnchor: null } // 未跑过 anchor:fetch / 文件损坏：如实无参照
+  }
+  const byName = new Map()
+  for (const it of anchor.items || []) {
+    if (it && typeof it.name === 'string' && Number.isFinite(Number(it.official)) && Number(it.official) > 0)
+      byName.set(it.name, Number(it.official))
+  }
+  if (!byName.size) return { items, officialAnchor: null }
+  const at = typeof anchor.fetchedAt === 'string' ? anchor.fetchedAt : null
+  const merged = items.map((i) => {
+    const avg = byName.get(i.name)
+    if (avg == null || !(i.current > 0)) return i
+    return { ...i, official: { avg, dev: Math.round(((i.current - avg) / avg) * 1e4) / 1e4, at } }
+  })
+  return { items: merged, officialAnchor: { fetchedAt: at, joined: byName.size } }
+}
+
+/**
+ * join 军需处兑换折算（fetchQuartermaster 的产物按弹名精确合并）：
+ * items[].trade = { costPerRound, perCount, marketPrice, materials, version }。
+ * 军需处是弹价地板之一（Playbook 01「军需处倒挂」），折算价/发给用户
+ * 「先扫军需处还是直接扫交易行」的判断依据。按名精确匹配（实测 6/7 命中，
+ * 命名差异宁缺毋滥），交易行现价在快照里另有 current，trade 不重复存。
+ * @param {Array<{name:string}>} items 分析产物 items
+ * @param {{version:string, items:Array}|null} trade fetchQuartermaster 产物（null 跳过）
+ * @returns {Array} 新数组，不改动入参
+ */
+export function joinQuartermaster(items, trade) {
+  if (!trade || !Array.isArray(trade.items) || !trade.items.length) return items
+  const byName = new Map(trade.items.map((t) => [t.name, t]))
+  return items.map((i) => {
+    const t = byName.get(i.name)
+    return t ? { ...i, trade: { costPerRound: t.costPerRound, perCount: t.perCount, marketPrice: t.marketPrice, materials: t.materials, version: t.version } } : i
+  })
+}
+
+/**
+ * join 赛季日历到快照顶层（season = {name, start, end, fetchedAt, events}）。
+ * Playbook「版本与赛季窗口」的倒计时与阶段判定数据源；null 跳过。
+ */
+export function joinSeason(analysis, season) {
+  if (!season) return analysis
+  return { ...analysis, season }
 }
 
 /**
@@ -109,7 +177,19 @@ export async function fetchOnce({
   }
   if (!snapshot) snapshot = await fetchAmmoMarket() // kkrb：直选或回落
 
-  const analysis = { ...analyzeMarket(snapshot), source: usedSource }
+  // 旁路参照三件套 join（口径同 official-anchor：失败静默跳过、不进指纹、
+  // 不阻塞主链路）：官方均价 / 军需处兑换折算 / 赛季日历
+  let analysis = { ...analyzeMarket(snapshot), source: usedSource }
+  const joined = await joinOfficialAnchor(analysis.items, path.join(rootDir, ANCHOR_REL))
+  analysis.items = joined.items
+  analysis.officialAnchor = joined.officialAnchor
+  try {
+    analysis = { ...analysis, items: joinQuartermaster(analysis.items, await fetchQuartermaster()) }
+  } catch { /* 军需处上游失败：无参照地照常出快照 */ }
+  try {
+    const season = await fetchSeason()
+    if (season) analysis = joinSeason(analysis, season)
+  } catch { /* 赛季日历上游失败：同上 */ }
   const outPath = path.join(webDir, 'public', 'ammo', 'market.json')
 
   // —— 写盘门槛：无上次快照 / 指纹变化 / 距上次写盘超 5 分钟心跳 / force ——

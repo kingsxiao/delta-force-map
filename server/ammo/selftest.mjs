@@ -902,6 +902,82 @@ check('页面纯逻辑：预计卖出（历史到达历时 / 日内节律 / 时�
 })
 
 /* ============================================================
+   ⑫b 旁路参照：军需处兑换清洗/join + 赛季日历阶段（quartermaster / season /
+   marketMeta.seasonPhase）——纯函数离线断言，不打外网
+   ============================================================ */
+check('旁路参照：军需处清洗/join 与赛季阶段 seasonPhase', async () => {
+  const { normalizeTradeRow, fetchQuartermaster, resetQuartermasterCacheForTest, QUARTERMASTER_TTL_MS } = await import('./quartermaster.mjs')
+  const { fetchSeason, resetSeasonCacheForTest } = await import('./season.mjs')
+  const { seasonPhase } = await import('../../shared/js/marketMeta.js')
+  const { joinQuartermaster, joinSeason } = await import('./fetch-once.mjs')
+
+  // normalizeTradeRow：合法行保留关键字段、折算 = 材料总值/发数；非法行剔除
+  const row = normalizeTradeRow({
+    itemName: '5.45x39mm BT', perCount: 180, singlePrice: 1666, totalMaterialValue: 215184,
+    totalMaterialLists: [
+      { itemName: '水壶', count: 3, perPrice: 34712 },
+      { itemName: '坏材料', count: 1, perPrice: 'x' }, // 非数剔除
+    ],
+  }, '202610271630')
+  assert(row && row.name === '5.45x39mm BT', '合法行应保留')
+  assert(Math.abs(row.costPerRound - 215184 / 180) < 0.01, `折算价应为总值/发数，实际 ${row.costPerRound}`)
+  assert(row.materials.length === 1 && row.marketPrice === 1666, '非法材料应剔除、现价保留')
+  assert(normalizeTradeRow({ itemName: '', perCount: 1 }) === null, '空名剔除')
+  assert(normalizeTradeRow({ itemName: 'x', perCount: 0, singlePrice: 1, totalMaterialValue: 1 }) === null, 'perCount<1 剔除')
+
+  // fetchQuartermaster：code!==1 抛出；TTL 生效（窗口内第二次调用不打桩）
+  resetQuartermasterCacheForTest()
+  let calls = 0
+  const stubOk = async () => { calls++; return { code: 1, version: '202610271630', data: { cn: [{ itemName: '弹A', perCount: 100, singlePrice: 10, totalMaterialValue: 500, totalMaterialLists: [] }] } } }
+  const t1 = await fetchQuartermaster({ now: 1000, request: stubOk })
+  const t2 = await fetchQuartermaster({ now: 1000 + QUARTERMASTER_TTL_MS - 1, request: stubOk })
+  assert(calls === 1 && t1.items.length === 1 && t2 === t1, 'TTL 内应命中缓存不再打桩')
+  await fetchQuartermaster({ now: 1000 + QUARTERMASTER_TTL_MS, request: stubOk })
+  assert(calls === 2, '过期后应重新拉取')
+  resetQuartermasterCacheForTest()
+  let threw = false
+  try { await fetchQuartermaster({ now: 0, request: async () => ({ code: -101, msg: '繁忙' }) }) } catch { threw = true }
+  assert(threw, '业务失败应抛出（调用方静默跳过 join）')
+
+  // joinQuartermaster：按名精确合并 trade；无数据原样返回
+  const items = [{ name: '弹A', current: 12 }, { name: '弹B', current: 5 }]
+  const merged = joinQuartermaster(items, t1)
+  assert(merged[0].trade && merged[0].trade.costPerRound === 5 && merged[1].trade === undefined, 'trade 应按名精确合并')
+  assert(joinQuartermaster(items, null) === items, '无军需处数据应原样返回')
+
+  // fetchSeason：起止倒挂 → null；正常 → 形状收敛（坏事件剔除）
+  resetSeasonCacheForTest()
+  const badSeason = await fetchSeason({ now: 0, request: async () => ({ code: 1, data: { seasonName: 'X', seasonStartTime: '2026-11-05T01:59:59+08:00', seasonEndTime: '2026-09-04T02:00:00+08:00', seasonEvent: [] } }) })
+  assert(badSeason === null, '起止倒挂应返回 null')
+  resetSeasonCacheForTest()
+  const season = await fetchSeason({
+    now: 0,
+    request: async () => ({
+      code: 1,
+      data: {
+        seasonName: 'S11赛季', seasonStartTime: '2026-09-04T02:00:00+08:00', seasonEndTime: '2026-11-05T01:59:59+08:00',
+        seasonEvent: [{ name: '群星 赛季', start: '2026-09-04T02:00:00+08:00', end: '2026-11-05T01:59:59+08:00', type: 'ingame' }, { name: '坏事件', start: 'x', end: 'y' }],
+      },
+    }),
+  })
+  assert(season && season.name === 'S11赛季' && season.events.length === 1, '赛季形状收敛：坏事件剔除')
+
+  // seasonPhase：四阶段边界（囤货窗 T−7~T−3 / 赛季末 T−3 / 开更 +3 / 常规）
+  const S = { name: 'S11', start: '2026-09-04T02:00:00+08:00', end: '2026-11-05T01:59:59+08:00' }
+  assert(seasonPhase(S, Date.parse('2026-09-05T00:00:00+08:00')).phase === 'fresh', '开更 ≤3 天 = 出货窗')
+  assert(seasonPhase(S, Date.parse('2026-10-27T16:00:00+08:00')).phase === 'mid', '剩 8.4 天 = 常规期')
+  assert(seasonPhase(S, Date.parse('2026-10-30T00:00:00+08:00')).phase === 'hoard', '剩 6.1 天 = 囤货窗')
+  assert(seasonPhase(S, Date.parse('2026-11-02T00:00:00+08:00')).phase === 'hoard', '剩 3.08 天 = 囤货窗上界（T−7~T−3 含刚过 3 天）')
+  assert(seasonPhase(S, Date.parse('2026-11-03T00:00:00+08:00')).phase === 'late', '剩 2.08 天 = 赛季末')
+  assert(seasonPhase(null) === null && seasonPhase({ name: 'x', start: 'bad', end: 'bad' }) === null, '无效赛季返回 null')
+
+  // joinSeason：顶层带上赛季；null 原样返回
+  const analysis = { items: [], stats: {} }
+  assert(joinSeason(analysis, season).season.name === 'S11赛季', 'season 应挂到顶层')
+  assert(joinSeason(analysis, null) === analysis, '无赛季原样返回')
+})
+
+/* ============================================================
    ⑬ server.mjs 同源部署服务：静态托管 / 缓存头 / SSE·health 复用 / 防穿越
    ============================================================ */
 check('server.mjs 同源部署服务：静态托管 / 缓存头 / SSE·health 复用 / 防穿越 / 雷达广播', async () => {

@@ -109,3 +109,31 @@ import Testing
     #expect(list?[0].name == "弹A" && list?[0].qty == Int.max) // 溢出退哨兵而非 trap
     #expect(list?[1].name == "弹B" && list?[1].qty == 1) // max(1, …) 钳位兜住负向哨兵
 }
+
+@Test func 台账条目_at记账时刻_清洗与编码() {
+    // at 只认 JSON number 且 > 0：缺键 / 字符串 / 非正数一律 nil（与 JS
+    // normalizePosition 同一清洗口径，同一云文档两端清洗后形状一致）
+    let value = AccountValue.array([
+        .object(["name": .string("弹A"), "qty": .number(1), "cost": .number(10), "at": .number(1_793_085_760_000)]),
+        .object(["name": .string("弹B"), "qty": .number(1), "cost": .number(10)]), // 旧条目无 at
+        .object(["name": .string("弹C"), "qty": .number(1), "cost": .number(10), "at": .string("x")]), // 非数剔除
+        .object(["name": .string("弹D"), "qty": .number(1), "cost": .number(10), "at": .number(0)]), // 非正剔除
+    ])
+    let list = value.ledgerArray
+    #expect(list?.count == 4)
+    #expect(list?[0].at == 1_793_085_760_000)
+    #expect(list?[1].at == nil)
+    #expect(list?[2].at == nil)
+    #expect(list?[3].at == nil)
+
+    // Codable 往返：合成实现 decodeIfPresent / encodeIfPresent，旧存档与旧云文档双向兼容——
+    // at 缺省编码不带键（本地 UserDefaults 与 AuthStore.accountValue 两条编码路径同款语义）
+    let entry = try! JSONDecoder().decode(LedgerEntry.self, from: Data(#"{"name":"弹A","qty":1,"cost":10.0}"#.utf8))
+    #expect(entry.at == nil)
+    let noAtJson = String(data: try! JSONEncoder().encode(entry), encoding: .utf8)!
+    #expect(!noAtJson.contains("at"))
+    let withTs = try! JSONDecoder().decode(LedgerEntry.self, from: Data(#"{"name":"弹A","qty":1,"cost":10.0,"at":1793085760000}"#.utf8))
+    #expect(withTs.at == 1_793_085_760_000)
+    let withTsJson = String(data: try! JSONEncoder().encode(withTs), encoding: .utf8)!
+    #expect(withTsJson.contains("1793085760000"))
+}

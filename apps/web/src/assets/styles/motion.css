@@ -27,7 +27,7 @@
    leave 态脱流（absolute）让补位动画成立，容器必须 position: relative 作定位锚点 ---- */
 .flip-move { transition: transform var(--t-slow) var(--ease); }
 .flip-enter-active,
-.flip-leave-active { transition: opacity var(--t-med); }
+.flip-leave-active { transition: opacity var(--t-med) var(--ease); }
 .flip-enter-from,
 .flip-leave-to { opacity: 0; }
 .flip-leave-active { position: absolute; }
@@ -90,35 +90,50 @@
   background: var(--card);
   overflow: hidden;
 }
-.sk-head {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-5);
-  padding: 10px;
-  background: var(--card2);       /* 对齐 .tbl th 的表头面 */
-  border-bottom: 1px solid var(--line);
-}
-/* 表头是 mono 小字，条比正文更矮；宽度按真实表头列宽给梯度（首列物品名最宽、
-   信号/分位列窄），预告列布局而不是一排等宽条 */
-.sk-head .sk-line { --w: 64px; height: 10px; flex: none; }
-.sk-head .sk-line:nth-child(1) { --w: 104px; }
-.sk-head .sk-line:nth-child(4) { --w: 44px; }
-.sk-head .sk-line:nth-child(6) { --w: 52px; }
-.sk-head .sk-line:nth-child(8) { --w: 88px; }
+/* 表头条与行列同模板对轨：骨架是「结构预告」，预告要准——旧实现表头 flex 随手排
+   8 条、gap 24px，而行是 8 轨 grid、gap 12px，条位与下方行列不垂直对齐，预告的只是
+   「有表头」而非「列在哪」，ready 切换时表头字落点与骨架条错位。模板列与 .sk-head /
+   .sk-row 共用同一份：首条横跨图标位 + 名字位两轨（真实表头首列「物品」就横跨
+   图标与名称），5 条数字头条 justify-self:end 对齐 .tbl th.num 右对齐语义（与行内
+   .sk-num 同向），走势头条落最后一轨 */
+.sk-head,
 .sk-row {
   display: grid;
   align-items: center;
   gap: var(--sp-3);
-  padding: 9px 10px;
-  border-bottom: 1px solid var(--line2);
   grid-template-columns: 28px minmax(88px, 1.1fr) repeat(5, minmax(44px, 52px)) 130px;
 }
+.sk-head {
+  padding: 10px;
+  background: var(--card2);       /* 对齐 .tbl th 的表头面 */
+  border-bottom: 1px solid var(--line);
+}
+/* 表头是 mono 小字，条比正文更矮（10px）；数字列头条默认右对齐 */
+.sk-head .sk-line { --w: 48px; height: 10px; justify-self: end; }
+.sk-head .sk-line:first-child { grid-column: 1 / 3; --w: 104px; justify-self: start; }
+.sk-head .sk-line:nth-child(7) { --w: 88px; justify-self: start; } /* 走势列（130px 轨）表头左对齐 */
+.sk-row {
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--line2);
+}
 .sk-row:last-child { border-bottom: 0; }
-/* 窄屏（--bp-mobile 680px）藏走势位：列 min 总宽 ≈520px 再挤会碎条；
-   真实表在窄屏走横向滚动，骨架是预告不是复刻，砍最右列即可成立 */
+/* 窄屏（--bp-mobile 680px）：真实表在窄屏走横向滚动，骨架是预告不是复刻，但
+   预告也不能缺角——按最小目标 320px 机型内容宽（=288px）预算：8 轨模板 min 总宽
+   364px，375px 屏（343px 可用）起右缘就被 .sk-tbl 裁掉一截，手机首载第一画面是
+   残缺骨架。表头/行同步收 6 轨（砍第 5 条数字位与走势位）、gap 12→8，min 总宽
+   272px 成立；表头条宽改按轨宽百分比（尾轨 44px 装得下），第 5 条落尾轨、6/7 条
+   无轨可落则藏 */
 @media (max-width: 680px) {
-  .sk-row { grid-template-columns: 28px minmax(72px, 1fr) repeat(4, minmax(36px, 44px)) 48px; }
-  .sk-row .sk-chart { display: none; }
+  .sk-head,
+  .sk-row {
+    grid-template-columns: 28px minmax(64px, 1fr) repeat(3, minmax(32px, 44px)) 44px;
+    gap: var(--sp-2);
+  }
+  .sk-head .sk-line { --w: 80%; }
+  .sk-head .sk-line:first-child { --w: 72px; }
+  .sk-head .sk-line:nth-child(n + 6) { display: none; }
+  .sk-row .sk-chart,
+  .sk-row > :nth-child(7) { display: none; }
 }
 
 /* ---- 骨架组合件：卡片网格（列宽对齐 .sig-grid），卡体不自带扫光（单条纪律），

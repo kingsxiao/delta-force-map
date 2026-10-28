@@ -8,13 +8,22 @@
 defineProps({
   variant: { type: String, default: 'table' }, // 'table' | 'stats' | 'cards' | 'hero'
   rows: { type: Number, default: 8 }, // table 变体行数（弹药 8 / 雷达 10）
-  cols: { type: Number, default: 8 }, // table 变体表头占位格数
+  // table 变体表头条数：与 .sk-row 同模板对轨（motion.css .sk-head），首条横跨
+  // 图标位 + 名字位两轨，故 8 轨对应 7 条；多于 7 条会被 grid 自动换行到第二行
+  cols: { type: Number, default: 7 },
 })
 
 // 行内数字条宽度按 (行, 列) 固定种子错开：避免 N 行完全同宽显得机械，
 // 纯函数保证重渲染宽度稳定（骨架不闪变）
 function numW(r, i) {
   return `${62 + ((r * 7 + i * 11) % 34)}%`
+}
+// 名字条模拟的是「文字宽」不是「列宽」：名字轨是 1.1fr 弹性轨，宽屏下吞掉全部剩余
+// 空间（1240 容器约 680px），条若写 100% 会铺成横跨半屏的长条，而真实物品名只有
+// 4~8 字（≈96~150px）。按行种子在 96~151px 间错开；窄屏名字轨可能窄于条宽，
+// min(100%) 兜住不溢轨
+function nameW(r) {
+  return `min(100%, ${96 + ((r * 37) % 56)}px)`
 }
 </script>
 
@@ -28,7 +37,7 @@ function numW(r, i) {
       </div>
       <div v-for="r in rows" :key="r" class="sk-row">
         <i class="sk sk-thumb"></i>
-        <i class="sk sk-line" style="--w: 100%"></i>
+        <i class="sk sk-line" :style="{ '--w': nameW(r) }"></i>
         <i class="sk sk-num" :style="{ '--w': numW(r, 0) }"></i>
         <i class="sk sk-num" :style="{ '--w': numW(r, 1) }"></i>
         <i class="sk sk-num" :style="{ '--w': numW(r, 2) }"></i>

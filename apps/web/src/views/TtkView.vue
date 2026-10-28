@@ -278,8 +278,11 @@ const tiers = computed(() => {
     label: g.label,
     color: g.color,
     count: g.guns.length,
-    from: g.guns.length ? fmtMs(g.guns[0].ttk) : '—',
-    to: g.guns.length ? fmtMs(g.guns[g.guns.length - 1].ttk) : '—',
+    /* 区间两端拆掉 fmtMs 自带的 " ms"（展示层去重）：两端各带单位会渲染成
+       「331 ms – 350 ms」，单位只在 TierBoard 区间末尾出现一次，与冠军卡
+       msParts「数值 + 降档单位」同语汇；split 首段对 0 值特例「首发」同样安全 */
+    from: g.guns.length ? fmtMs(g.guns[0].ttk).split(' ')[0] : '—',
+    to: g.guns.length ? fmtMs(g.guns[g.guns.length - 1].ttk).split(' ')[0] : '—',
     names: g.guns.map((x) => x.gun.zh),
   }))
 })
@@ -288,10 +291,17 @@ function pickGun(name) {
   requestAnimationFrame(() => {
     const el = document.getElementById('rank')
     if (!el) return
-    // RM 让位：scrollIntoView 显式传 smooth 会越过 CSS scroll-behavior 的 RM 兜底
+    // RM 让位：scrollTo 显式传 smooth 会越过 CSS scroll-behavior 的 RM 兜底
     // （base.css reduce 下 scroll-behavior:auto 只约束未指定 behavior 的调用）
     const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    el.scrollIntoView({ behavior: reduced ? 'auto' : 'smooth', block: 'start' })
+    // 吸顶让位：scrollIntoView(block:'start') 把排行表顶贴视口顶，会被 sticky 控制
+    // 面板（z-index:30，桌面高约 140-190px 随换行/提示条浮动）盖住表头与首行——
+    // 改按面板实时高度下移落点；≤680 面板 static（随文档流滚出视口）只留小顶隙
+    const ctrl = document.querySelector('.ctrl')
+    const sticky = window.matchMedia('(min-width: 681px)').matches
+    const gap = sticky && ctrl ? ctrl.getBoundingClientRect().height + 16 : 8
+    const top = el.getBoundingClientRect().top + window.scrollY - gap
+    window.scrollTo({ top: Math.max(top, 0), behavior: reduced ? 'auto' : 'smooth' })
   })
 }
 
@@ -371,6 +381,15 @@ const hintText = computed(() => {
       bits.push('以下 ' + miss.length + ' 把枪没有所选等级的弹药，未进入排行：' + show + '。')
     }
   }
+  /* 分段钮 title 的触屏等价物（每个 hover 独享的信息都要有触屏可见版）：原生 title 只在
+     鼠标悬停下露面，手机用户切到「全部枪弹组合」只见行数暴涨、不知口径变了；7 级弹
+     几乎没人知道只有两把枪能用。两句都放进本提示条——它是本页既有的说明通道
+     （高度动画 + 淡入），桌面触屏通吃。full + 已限定穿透时上方 pens 分支已说「每行
+     一条枪弹组合」，此处避开重复 */
+  if (state.ammoMode === 'full' && !state.pens.length)
+    bits.push('全部枪弹组合：每把枪的每种可用弹药各占一行。')
+  if (state.pens.includes(7))
+    bits.push('7 级穿透弹全游戏仅 AWM / M82 可用。')
   if (state.delay > 0)
     bits.push('已叠加 ' + state.delay + 'ms 扳机延迟（展示口径）：等量平移不改变名次，展开详情仍为纯理论值。')
   if (state.parts.length === 1 && state.parts[0] === 'chest' && state.armors.length === 1 && state.armors[0] > 0)
@@ -501,11 +520,14 @@ onBeforeUnmount(() => {
             </div>
           </div>
           <!-- 提示条进出（MOTION §3-F）：外壳 grid-rows 0fr→1fr 承接吸顶面板高度变化
-               （红线允许的折叠技法，同 CollapseCol）；内文走全局 swap 淡入淡出 -->
+               （红线允许的折叠技法，同 CollapseCol）；内文走全局 swap 淡入淡出。
+               :key 绑定 hintText——筛选切换时文案整段替换（v-if 恒真）若不换 key，
+               Vue 只 patch textContent、Transition 不触发，提示瞬变无反馈；
+               换 key 走 leave+enter，离场由下方 .swap-leave-active 局部规则瞬时完成 -->
           <div class="ctrl-hint-slot" :class="{ on: !!hintText }">
             <div class="ctrl-hint-clip">
               <Transition name="swap">
-                <p v-if="hintText" class="ctrl-hint">{{ hintText }}</p>
+                <p v-if="hintText" :key="hintText" class="ctrl-hint">{{ hintText }}</p>
               </Transition>
             </div>
           </div>
@@ -561,11 +583,20 @@ onBeforeUnmount(() => {
             </button>
           </template>
           <!-- 空态淡入淡出（MOTION §3-H）：Transition 常驻挂载、内层 v-if 切换，
-               enter/leave 都能播放；与行区互斥（rankRows.length），两分支各自独立渲染 -->
+               enter/leave 都能播放；与行区互斥（rankRows.length），两分支各自独立渲染。
+               每个分支给一条出路（空态不只指路）：穿透限定致空 → 一键清除穿透筛选；
+               搜索致空 → 一键清空搜索——手机端控制面板不吸顶、搜索框多半已滚出视口，
+               文案「清空搜索框恢复全表」要用户自己翻回去 -->
           <Transition name="swap">
             <div v-if="!rankRows.length" class="rk-empty">
-              <template v-if="filteredGuns.length">当前筛选下没有可用枪弹：该类别没有所选穿透等级（{{ state.pens.length ? state.pens.join('/') : '0-7' }}）的弹药，换一个等级或类别再试。</template>
-              <template v-else>没有匹配「{{ state.q.trim() }}」的枪械：搜索按中文名 / 英文名不区分大小写匹配（如 腾龙 / m4 / m7），清空搜索框恢复全表。</template>
+              <template v-if="filteredGuns.length">
+                当前筛选下没有可用枪弹：该类别没有所选穿透等级（{{ state.pens.length ? state.pens.join('/') : '0-7' }}）的弹药，换一个等级或类别再试。
+                <button v-if="state.pens.length" type="button" class="rk-clear" @click="state.pens = []">清除穿透筛选</button>
+              </template>
+              <template v-else>
+                没有匹配「{{ state.q.trim() }}」的枪械：搜索按中文名 / 英文名不区分大小写匹配（如 腾龙 / m4 / m7），清空搜索框恢复全表。
+                <button type="button" class="rk-clear" @click="state.q = ''">清空搜索</button>
+              </template>
             </div>
           </Transition>
         </div>
@@ -795,6 +826,13 @@ onBeforeUnmount(() => {
 }
 .ctrl-hint-slot.on { grid-template-rows: 1fr; }
 .ctrl-hint-clip { overflow: hidden; min-height: 0; }
+/* 提示文案换 key 的进出场局部规则（同 .rk-empty 手法）：
+   ① 离场瞬时——swap 默认并行模式下新旧两个 p 会在 clip 内同屏 250ms，
+     双行高度把吸顶面板撑高再弹回（slot 的 1fr 轨道随内容伸缩）；
+   ② 进场去位移——clip 是 0fr 折叠的裁剪层，enter 的 translateY(6px) 会让
+     多行文案底缘被裁 6px，且长段落位移感本就微弱，纯淡入更稳 */
+.ctrl-hint.swap-leave-active { transition: none; }
+.ctrl-hint.swap-enter-from { transform: none; }
 
 /* ---------- 枪械搜索框（规格同 AmmoMarket / MarketRadar 的 .search：胶囊输入、只改边框） ---------- */
 .search {
@@ -815,7 +853,11 @@ onBeforeUnmount(() => {
 .ammo-toggle {
   border: 0;
   background: none;
-  padding: 0;
+  /* 命中区垫层（≥44px 原则）：裸文本链仅约 20px 高，垂直内距 8px 提到约 36px；
+     负 margin 等量补偿——视觉位置与 .ammo-tools 布局高不变（负 margin 只缩布局
+     占位，垫出的盒面仍接收点击）。水平不加：右缘外扩会破坏与区块右缘对齐 */
+  padding: var(--sp-2) 0;
+  margin: calc(-1 * var(--sp-2)) 0;
   font-family: var(--mono);
   font-size: var(--fs-xs);
   letter-spacing: .08em;
@@ -825,6 +867,19 @@ onBeforeUnmount(() => {
 /* 按下同 hover（文本链按钮规格，与 .src-note a / .pb-src a 统一） */
 .ammo-toggle:hover,
 .ammo-toggle:active { text-decoration: underline; }
+/* 触屏垫层再外延（与 ControlSeg .seg-btn 同手法）：36 → 约 44px 达标；
+   上下 -4px 不越容器下距（.ammo-tools margin-bottom 8px），左右只承接点击不绘制 */
+@media (hover: none) {
+  .ammo-toggle { position: relative; }
+  .ammo-toggle::before {
+    content: "";
+    position: absolute;
+    left: -10px;
+    right: -10px;
+    top: -4px;
+    bottom: -4px;
+  }
+}
 /* 弹药库现价列口径说明（数据龄 / 「—」语义），规格同 .rank-footnote */
 .ammo-market-note {
   margin: var(--sp-3) 0 0;
@@ -894,6 +949,23 @@ onBeforeUnmount(() => {
    出现「有结果却显示无结果」的矛盾画面——进场保留 swap 淡入，离场即时消失；
    本条 scoped（0,2,0）压过全局 .swap-leave-active（0,1,0） */
 .rk-empty.swap-leave-active { transition: none; }
+/* 空态出路按钮（文本链规格同 .rk-more / .ammo-toggle，§5.3 无底无边框）：独占一行居中
+   （button 的 display:block 为 shrink-to-fit 宽，margin auto 即居中）；内距取 .rk-more 同值
+   补足触屏命中区（约 40px 高）——它是空态里唯一的操作，不能是 12px 高的裸文字 */
+.rk-clear {
+  display: block;
+  margin: var(--sp-1) auto 0;
+  border: 0;
+  background: none;
+  padding: var(--sp-3) var(--sp-4);
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  letter-spacing: .08em;
+  color: var(--accent);
+  cursor: pointer;
+}
+.rk-clear:hover,
+.rk-clear:active { text-decoration: underline; }
 /* 「显示更多」（文本链按钮规格同 .ammo-toggle，§5.3：无底无边框）；列表内整行居中收尾 */
 .rk-more {
   display: block;
