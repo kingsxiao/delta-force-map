@@ -3,8 +3,8 @@
 // 前置：本脚本只 spawn headless Chrome，不拉起 preview server——先另开终端运行：
 //   npm run preview -- --port 4173 --strictPort
 // 用法:
-//   node scripts/smoke.mjs                     # 默认 http://localhost:4173/，截图到 shots/vue-smoke/
-//   node scripts/smoke.mjs <baseUrl> <shotsDir>
+//   node server/smoke.mjs                     # 默认 http://localhost:4173/，截图到 shots/vue-smoke/
+//   node server/smoke.mjs <baseUrl> <shotsDir>
 // 注意：src/router.js 用 createWebHashHistory（hash 路由，静态托管免 SPA fallback），
 //       当前五个入口：/#/ammo、/#/radar、/#/craft、/#/ttk、/#/account（'/' 重定向到 /#/ammo）。
 import { spawn } from 'node:child_process';
@@ -15,7 +15,7 @@ import { fileURLToPath } from 'node:url';
 const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const argv = process.argv.slice(2);
 const BASE = (argv[0] || 'http://localhost:4173').replace(/\/+$/, '');
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'); // 仓库根（scripts/ 上溯）
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'); // 仓库根（server/ 上溯）
 const SHOTS = argv[1] || path.join(ROOT, 'shots', 'vue-smoke'); // 仓库相对默认，脱离本机绝对路径
 fs.mkdirSync(SHOTS, { recursive: true });
 

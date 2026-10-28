@@ -21,7 +21,7 @@ struct AmmoView: View {
     }
 
     enum Sort: String, CaseIterable, Identifiable {
-        case profit = "收益率", rank = "分位（低→高）", price = "现价", grade = "等级", name = "名称"
+        case profit = "收益率", rank = "分位（低→高）", price = "现价", grade = "等级", name = "名称", dayTradeEta = "日抛耗时"
         var id: String { rawValue }
     }
 
@@ -30,6 +30,10 @@ struct AmmoView: View {
     @State private var filter: Filter = .all
     @State private var sort: Sort = .profit
     @State private var query = ""
+    // 日抛 toggle（对齐 web 全表控制条 toggle chip，AmmoMarketView.vue 同名开关）：
+    // 与信号筛选正交的约束维度——现价买入 ≤24h 能涨到税后净利 ≥5% 卖价的弹
+    // （口径单一源 SellEtaEngine.isDayTrade，见 DeltaForceCore SellEta.swift 日抛块）
+    @State private var dayTradeOnly = false
     @State private var showPlaybook = false
     // 显式导航栈：通知深链（app.pendingDetailName）需要从视图外 programmatically
     // push 详情；NavigationPath 装 MarketItem（Hashable，与行内 NavigationLink 同轨）
@@ -41,16 +45,13 @@ struct AmmoView: View {
     @State private var refreshErrTick = 0 // 刷新失败
     @State private var menuTick = 0
     @State private var sheetTick = 0
-    @State private var showBackTop = false // 回顶浮动钮显隐（离顶探测见 TopAwayProbe，长表专用）
+    @State private var showBackTop = false // 回顶浮动钮显隐（离顶探测见共享 ListTopAwayProbe，长表专用）
 
     /// 筛选/排序切换后滚回榜首的锚点 id（§4.1-4，对齐 TTK topAnchor 方案）
     private static let topAnchor = "ammo-top"
 
-    /// 回顶钮探测用的列表命名坐标系（挂在 List 上 = 列表可视口，TopAwayProbe 的 frame 参照）
+    /// 回顶钮探测用的列表命名坐标系（挂在 List 上 = 列表可视口，ListTopAwayProbe 的 frame 参照）
     private static let listSpace = "ammo-list"
-
-    /// 离顶阈值：锚点行 minY 低于 -300（≈ 滚过表头 + 数行）才浮出回顶钮，浅滚不动声色
-    private static let topAwayThreshold: CGFloat = 300
 
     /// 买入信号卡数据源（卖出简表同源过滤）：从 body 局部 let 提为计算属性，
     /// 供 Section 渲染与 anchorHost 宿主判定共用同一份数据，避免两处口径漂移。
@@ -80,7 +81,8 @@ struct AmmoView: View {
     /// 为什么要有这一态：v2 严选口径下（analyze.mjs 头注：21 天回测仅 14 笔）零买点是行情常态而非异常，
     /// 区块整体消失会让用户分不清「今天没买点」与「功能没了」——web 端同位有 .no-buy-tip 常驻文案
     /// （AmmoMarketView.vue:891）。快照无条目由全表区「暂无行情数据」空态承担，不在此重复
-    private var showNoBuyHint: Bool {
+    /// （buys 由调用方传入：body 单次求值收编口径，见 body 内注释）
+    private func showNoBuyHint(_ buys: [MarketItem]) -> Bool {
         app.market.snapshot != nil && !app.market.items.isEmpty && buys.isEmpty
     }
 
@@ -110,10 +112,23 @@ struct AmmoView: View {
             .listRowBackground(Theme.card)
     }
 
+    /// 日抛开启中的口径提示行（对齐 web .dt-tip，AmmoMarketView.vue 同文案族）：
+    /// 门槛一句话 + 「建议叠加关注 / 买入」的组合指引。历史统计不代表未来——
+    /// 展示层必须带这句（sellEta.swift 头注约定）
+    private var dayTradeTip: some View {
+        Text("日抛口径：现价买入 ≤24 小时能涨到税后净利 ≥5% 的卖价（近 7 天上涨段中位，样本 ≥2），建议叠加「关注 / 买入」信号使用。历史统计不代表未来。")
+            .font(Theme.font(.xs))
+            .monospacedDigit()
+            .foregroundStyle(Theme.dim)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .listRowSeparator(.hidden)
+            .listRowBackground(Theme.card)
+    }
+
     /// 全表区四态：共享 FeedTableState 单一定义（Components.swift，MOTION.md §4.2——一致性评审
     /// 收口：三页逐字重复的私有 TableState 收编，防判据漂移；判据口径注释见共享定义处）；
-    /// 也是 .contentSwap 的切换键
-    private var tableState: FeedTableState {
+    /// 也是 .contentSwap 的切换键（rows 由调用方传入：body 单次求值收编口径）
+    private func tableState(_ rows: [MarketItem]) -> FeedTableState {
         FeedTableState(
             hasSnapshot: app.market.snapshot != nil,
             lastError: app.market.lastError,
@@ -126,46 +141,28 @@ struct AmmoView: View {
     /// （囤货 > 买入信号 > 卖出信号 > 全表）——省去原先独占一节的空 banner 行
     private enum AnchorHost { case banner, positions, buys, sells, table }
 
-    private var anchorHost: AnchorHost {
+    private func anchorHost(_ buys: [MarketItem]) -> AnchorHost {
         if bannerMessage != nil { return .banner }
         if !app.positions.positions.isEmpty { return .positions }
         if filter == .all, query.isEmpty {
             // 买入区块两态恒在（有卡 / 无买点提示行），任一态渲染即为宿主
-            if !buys.isEmpty || showNoBuyHint { return .buys }
+            if !buys.isEmpty || showNoBuyHint(buys) { return .buys }
             if !sells.isEmpty { return .sells }
         }
         return .table
     }
 
     /// 筛选回顶锚点：零高度隐形行（同一时刻仅 anchorHost 命中的一处渲染，id 不冲突），
-    /// 保证 scrollTo(ammo-top) 永远有目标；背景挂离顶探测（回顶浮动钮的数据源，见 TopAwayProbe）
+    /// 保证 scrollTo(ammo-top) 永远有目标；背景挂离顶探测（回顶浮动钮的数据源，见共享 ListTopAwayProbe）
     private var topAnchorRow: some View {
         Color.clear
             .frame(height: 0)
-            .background(TopAwayProbe(away: $showBackTop))
+            .background(ListTopAwayProbe(space: Self.listSpace, away: $showBackTop))
             .accessibilityHidden(true)
             .listRowInsets(EdgeInsets())
             .listRowSeparator(.hidden)
             .listRowBackground(Color.clear)
             .id(Self.topAnchor)
-    }
-
-    /// 回顶浮动钮离顶探测（思路库「回顶浮动钮」）：锚点行背景 GeometryReader 读自身在
-    /// 列表命名坐标系的 minY，离顶超过阈值置 away。onChange 带 initial（iOS 17）：
-    /// List 行懒回收后探测随行销毁、状态保留最后值（深处 = 钮常显）；行回到布局
-    /// （滚回顶 / 回顶动画 / 换筛选换宿主）时 initial 立即按当前位汇报，
-    /// 杜绝「人已回顶、钮还亮着」的滞留
-    private struct TopAwayProbe: View {
-        @Binding var away: Bool
-
-        var body: some View {
-            GeometryReader { geo in
-                Color.clear
-                    .onChange(of: geo.frame(in: .named(AmmoView.listSpace)).minY, initial: true) { _, minY in
-                        away = minY < -AmmoView.topAwayThreshold
-                    }
-            }
-        }
     }
 
     /// 信号卡入口（§4.1-7）：可点卡片按压态——lift 按压面由共享 PressableButtonStyle 承担
@@ -200,6 +197,11 @@ struct AmmoView: View {
     }
 
     var body: some View {
+        // buys / rows 单次求值收编：两者是无缓存计算属性，此前一次 body 求值内被
+        // anchorHost / Section 条件 / ForEach / 表头计数各自重算一遍 filter+sort；
+        // body 顶部各取一次局部值向下传，纯收编不改行为
+        let buys = self.buys
+        let rows = self.rows
         NavigationStack(path: $path) {
             ScrollViewReader { proxy in
                 List {
@@ -211,7 +213,7 @@ struct AmmoView: View {
                     if bannerMessage != nil {
                         Section {
                             FeedErrorBanner(message: bannerMessage)
-                            if anchorHost == .banner { topAnchorRow }
+                            if anchorHost(buys) == .banner { topAnchorRow }
                         }
                         .listRowBackground(Theme.card)
                     }
@@ -220,7 +222,7 @@ struct AmmoView: View {
                     // 不新增筛选档位；浮盈 / 到价状态随行情快照实时 join，左滑移出
                     if !app.positions.positions.isEmpty {
                         Section("我的囤货 · \(app.positions.positions.count)") {
-                            if anchorHost == .positions { topAnchorRow }
+                            if anchorHost(buys) == .positions { topAnchorRow }
                             ForEach(app.positions.positions) { pos in
                                 positionRow(pos)
                                     .swipeActions(edge: .trailing) {
@@ -246,7 +248,7 @@ struct AmmoView: View {
                     if filter == .all, query.isEmpty {
                         if !buys.isEmpty {
                             Section("买入信号 · \(buys.count)") {
-                                if anchorHost == .buys { topAnchorRow }
+                                if anchorHost(buys) == .buys { topAnchorRow }
                                 // 出货窗提示（web .buy-clock-tip 对齐，见 clockTip 注释）：
                                 // 放卡片轨上方。插拔刻意不加动画（原则 3）——判读翻转与新快照
                                 // 同帧到达，List 层动画事务会把全表行重排一并动起来（banner 的
@@ -274,13 +276,13 @@ struct AmmoView: View {
                                 .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12))
                             }
                             .listRowBackground(Color.clear)
-                        } else if showNoBuyHint {
+                        } else if showNoBuyHint(buys) {
                             // 无买点提示态（对齐 web .no-buy-tip，AmmoMarketView.vue:891）：节头同构「名 · 数」
                             // 恒在、内容换一行成因文案并给出路（低位「关注」见全表）。门槛数字取服务端真值
                             // （analyze.mjs RULES.BUY_MIN_NET_PCT 0.10）；字阶与口径页脚正文同档（xs dim +
                             // 等宽数字）——它是「无内容」的说明而非数据行，不该比行情行更重
                             Section("买入信号 · 0") {
-                                if anchorHost == .buys { topAnchorRow }
+                                if anchorHost(buys) == .buys { topAnchorRow }
                                 Text("当前没有触发买入条件的弹种（7 天低位企稳 + 税后收益率 ≥ 10%），低位「关注」中的弹种见下方全表。")
                                     .font(Theme.font(.xs)).monospacedDigit().foregroundStyle(Theme.dim)
                             }
@@ -291,7 +293,7 @@ struct AmmoView: View {
                         // 高位越靠前）；买入区块之下、全表之上，同款横滑卡与出血口径
                         if !sells.isEmpty {
                             Section("卖出信号 · \(sells.count)") {
-                                if anchorHost == .sells { topAnchorRow }
+                                if anchorHost(buys) == .sells { topAnchorRow }
                                 ScrollView(.horizontal, showsIndicators: false) {
                                     HStack(spacing: 10) {
                                         ForEach(sells) { item in
@@ -312,12 +314,18 @@ struct AmmoView: View {
 
                     // Section 头见 tableHeader：筛选 · 计数（骨架期间隐藏计数，MOTION.md §4.2）+ 右缀数据年龄（§1.5）
                     Section {
-                        if anchorHost == .table { topAnchorRow }
+                        if anchorHost(buys) == .table { topAnchorRow }
+                        // 日抛开启中的口径提示行（web .dt-tip 对应物；clockTip 同款配方）：
+                        // 吸顶控制条没有 iOS 对应物，菜单开关是隐藏式的——开启后在全表头部
+                        // 常驻一句口径，让「这批行为什么在」不必猜；空态由 emptyState 承担不重复
+                        if dayTradeOnly, case .rows = tableState(rows) {
+                            dayTradeTip
+                        }
                         // 四态互切（MOTION.md §4.2）：Group 在 List 里是透明容器，各态子视图各自成行；
                         // .contentSwap 挂一次到分支容器上——.transition 只在分支切换且事务带动画时生效，
                         // 原先错误 / 空态两处 .transition 没有任何 .animation 驱动，从未真正淡入
                         Group {
-                            switch tableState {
+                            switch tableState(rows) {
                             case .error(let err):
                                 // 首拉失败：换共享 RetryErrorRow（§4.1-6 / C10）——busy 时禁用重试 + 内联进度，消除空转
                                 RetryErrorRow(
@@ -339,7 +347,7 @@ struct AmmoView: View {
                                 EmptyView()
                             }
                         }
-                        .contentSwap(tableState)
+                        .contentSwap(tableState(rows))
                         ForEach(rows) { item in
                             NavigationLink(value: item) {
                                 AmmoRow(item: item, pen: pen(of: item), starred: app.favorites.contains(item.name))
@@ -357,12 +365,12 @@ struct AmmoView: View {
                             }
                         }
                     } header: {
-                        tableHeader
+                        tableHeader(rows)
                     }
                     .listRowBackground(Theme.card)
 
                     Section {
-                        MethodNote(source: app.market.snapshot?.source)
+                        MethodNote(source: app.market.snapshot?.source, rules: app.market.snapshot?.rules)
                     }
                     .listRowBackground(Theme.card)
                 }
@@ -375,9 +383,10 @@ struct AmmoView: View {
                 // 后台刷新失败横幅进出场淡入淡出（§3-F 提示条口径的 iOS 对应物）：键只认有无横幅，文案变化不触发；
                 // 横幅 Section 在列表顶部，带动画时下方内容随之平滑让位而非整列跳动
                 .motion(Theme.animSwap, value: bannerMessage != nil)
-                // 回顶浮动钮（思路库「回顶浮动钮」）：命名坐标系给 TopAwayProbe 当参照（列表可视口）
+                // 回顶浮动钮（思路库「回顶浮动钮」）：命名坐标系给 ListTopAwayProbe 当参照（列表可视口）；
+                // 钮本体收口共享 BackTopButton（Components.swift），行为逐字不变
                 .coordinateSpace(name: Self.listSpace)
-                .overlay(alignment: .bottomTrailing) { backTopButton(proxy) }
+                .overlay(alignment: .bottomTrailing) { BackTopButton(proxy: proxy, anchor: Self.topAnchor, visible: showBackTop) }
                 // 钮进出场 animFast 档——web 端 BackTop .totop 的 iOS 对应物（MOTION.md §3-A「返回顶部」）；RM 置 nil 瞬时
                 .motion(Theme.animFast, value: showBackTop)
                 // TTK 联动：穿透徽章的数据源是 bundle 内 ttk.json（加载一次，毫秒级）；
@@ -410,11 +419,13 @@ struct AmmoView: View {
                 .sensoryFeedback(.selection, trigger: sheetTick)
                 .onChange(of: filter) { _, _ in filterChanged(proxy) }
                 .onChange(of: sort) { _, _ in filterChanged(proxy) }
+                // 日抛是第三个筛选维度：开关=换榜单，同款触感与回顶（§4.1-4 闭环一致）
+                .onChange(of: dayTradeOnly) { _, _ in filterChanged(proxy) }
                 // 搜索词是第三个筛选维度，同样「换词 = 换榜单」回顶（§4.1-4 闭环补齐）：此前列表停在深处时
                 // 输入首字符，匹配行数骤减、滚动位越界被系统弹到内容末尾——用户看到的是口径页脚而非匹配行；
                 // 深链 pendingQuery 写入搜索词（下方 onChange）同受益。不走 filterChanged：键盘逐键已有
-                // 系统触感，再补 selection 即双响，这里只回顶（复用 scrollToTop：animMed / RM 直达同口径）
-                .onChange(of: query) { _, _ in scrollToTop(proxy) }
+                // 系统触感，再补 selection 即双响，这里只回顶（复用共享 scrollToTop：animMed / RM 直达同口径）
+                .onChange(of: query) { _, _ in scrollToTop(proxy, anchor: Self.topAnchor, reduceMotion: reduceMotion) }
                 // 通知深链：弹名在当前快照 → 直达详情；查不到（下架 / 改名 / 快照
                 // 未拉到）→ 兑底走 pendingQuery 搜索词通道。消费后置 nil 防重复触发
                 .onChange(of: app.pendingDetailName) { _, name in consumePendingDetail(name) }
@@ -441,6 +452,13 @@ struct AmmoView: View {
                                 Label("现价", systemImage: "banknote").tag(Sort.price)
                                 Label("等级", systemImage: "shield.lefthalf.filled").tag(Sort.grade)
                                 Label("名称", systemImage: "textformat.abc").tag(Sort.name)
+                                Label("日抛耗时", systemImage: "clock").tag(Sort.dayTradeEta)
+                            }
+                            Divider()
+                            // 日抛 toggle：菜单内的开关项（选中打勾），与信号筛选正交——
+                            // web 端同为 toggle chip 而非单选档，双端语义一致
+                            Toggle(isOn: $dayTradeOnly) {
+                                Label("日抛（24 小时内一买一卖）", systemImage: "clock.arrow.circlepath")
                             }
                         } label: {
                             // 偏离默认（全部 / 收益率）时图标点亮，label 附当前值
@@ -494,50 +512,11 @@ struct AmmoView: View {
         }
     }
 
-    /// 筛选/排序切换（§4.1-4）：轻触反馈 + 回顶（换筛选=换榜单，不停在长列表深处）
+    /// 筛选/排序切换（§4.1-4）：轻触反馈 + 回顶（换筛选=换榜单，不停在长列表深处）；
+    /// 滚动收口共享 scrollToTop 帮助函数（Components.swift，animMed / RM 直达同口径）
     private func filterChanged(_ proxy: ScrollViewProxy) {
         menuTick += 1
-        scrollToTop(proxy)
-    }
-
-    /// 回顶统一实现：换筛选回顶与回顶浮动钮共用；滚动走 animMed 预设（MOTION.md §3-B 回顶档），
-    /// Reduce Motion 下改无动画直达（§7-9，触感保留）
-    private func scrollToTop(_ proxy: ScrollViewProxy) {
-        if reduceMotion {
-            proxy.scrollTo(Self.topAnchor, anchor: .top)
-        } else {
-            withAnimation(Theme.animMed) {
-                proxy.scrollTo(Self.topAnchor, anchor: .top)
-            }
-        }
-    }
-
-    /// 回顶浮动钮（思路库「回顶浮动钮」）：长表离顶后右下浮现。触控 44pt（§7-8）；
-    /// card2 面 + lineHover 描边走面阶分层，轻投影补「悬浮于滚动内容之上」的最后一级分离
-    /// （滚动内容与 card2 同亮度，纯面阶分不开，§8「靠面阶」口径不适用于悬浮件）；
-    /// 点击走 scrollToTop（animMed 滚回榜首）。web 端 BackTop 的 iOS 对应物
-    @ViewBuilder
-    private func backTopButton(_ proxy: ScrollViewProxy) -> some View {
-        if showBackTop {
-            Button {
-                scrollToTop(proxy)
-            } label: {
-                Image(systemName: "chevron.up")
-                    .font(Theme.font(.md, weight: .semibold)) // 图标字号跟字阶走（§6.1-3）
-                    .foregroundStyle(Theme.tx)
-                    .frame(width: 44, height: 44)
-                    .background(Theme.card2, in: Circle())
-                    .overlay(Circle().strokeBorder(Theme.lineHover, lineWidth: 1))
-                    .shadow(color: .black.opacity(0.3), radius: 6, y: 3)
-            }
-            .buttonStyle(PressableButtonStyle(radius: 22))
-            .accessibilityLabel("回到顶部")
-            // 淡入 + 8pt 上移进出场：对齐 web BackTop 的 .totop（只动 opacity/transform，§6-1）
-            .transition(.opacity.combined(with: .offset(y: 8)))
-            .padding(.trailing, Theme.Space.lg)
-            // 让位悬浮 Tab 胶囊：凸钮顶距屏底实测 ≈121pt（themedList 注释口径），垫 140pt 全不叠
-            .padding(.bottom, 140)
-        }
+        scrollToTop(proxy, anchor: Self.topAnchor, reduceMotion: reduceMotion)
     }
 
     /// 通知深链消费：先置 nil（防 onChange/onAppear 双路径重复触发），再按弹名在
@@ -552,7 +531,7 @@ struct AmmoView: View {
         }
     }
 
-    private var menuActive: Bool { filter != .all || sort != .profit }
+    private var menuActive: Bool { filter != .all || sort != .profit || dayTradeOnly }
 
     /// 全表区 Section 头（§1.5 闭环反馈的行情页对应物）：左「筛选 · 计数」文案与此前完全一致
     /// （骨架期间无快照退化为中性词「行情」，否则「全部 · 0 种」与 8 条假行同屏矛盾，MOTION.md §4.2），
@@ -562,8 +541,10 @@ struct AmmoView: View {
     /// （见 body 内 banner 注释），头部右侧是零额外高度的空位。ViewThatFits 两档：同行放不下
     /// （AX 特大字号 / 「可能过期」长文案）时年龄换行右对齐，计数永不被挤截（§7-6）
     @ViewBuilder
-    private var tableHeader: some View {
-        let title = app.market.snapshot == nil ? "行情" : "\(filter.rawValue) · \(rows.count) 种"
+    private func tableHeader(_ rows: [MarketItem]) -> some View {
+        let title = app.market.snapshot == nil
+            ? "行情"
+            : "\(filter.rawValue)\(dayTradeOnly ? " · 日抛" : "") · \(rows.count) 种"
         ViewThatFits(in: .horizontal) {
             HStack(spacing: Theme.Space.sm) {
                 Text(title)
@@ -605,6 +586,7 @@ struct AmmoView: View {
     /// ② 自选为空：教「向右滑动点亮星标」——swipe 手势没有任何可见入口，DESIGN §8-4 不引 TipKit，
     ///    空态是唯一自然的教学位；已有自选但不在本次快照（下架 / 改名）单独陈述，不误导成「没自选过」
     /// ③ 某信号当前无：这是行情事实而非操作失误，如实陈述并指向下拉刷新
+    /// ③b 日抛筛空（dayTradeOnly 开启且筛完为空）：同为行情事实，出路是「关闭日抛」
     /// ④ 全部为空（快照无条目）兜底。「查看全部」只改 filter，触感与回顶由 onChange(of: filter) 统一承担
     @ViewBuilder
     private var emptyState: some View {
@@ -635,6 +617,16 @@ struct AmmoView: View {
                     : "已自选的弹药暂不在本次快照中（下架或改名），下拉刷新再试")
             } actions: {
                 Button("查看全部") { filter = .all }
+            }
+        } else if dayTradeOnly {
+            // ⑤ 日抛筛空：行情事实而非操作失误（口径与 web METHOD 日抛条同源）——
+            // 如实陈述门槛 + 给「关闭日抛」出路（触发感与回顶由 onChange(of: dayTradeOnly) 统一承担）
+            ContentUnavailableView {
+                Label("当前没有可日抛的弹药", systemImage: "clock.arrow.circlepath")
+            } description: {
+                Text("日抛口径：现价买入 ≤24 小时能涨到税后净利 ≥5% 的卖价（近 7 天上涨段中位，样本 ≥2）；现价处 7 天新低 / 新高的不算。高位盘整期命中稀少是行情事实，可下拉刷新再试")
+            } actions: {
+                Button("关闭日抛") { dayTradeOnly = false }
             }
         } else if filter == .all {
             ContentUnavailableView {
@@ -681,6 +673,11 @@ struct AmmoView: View {
         case .watch: list = list.filter { $0.signal == .watch }
         case .favorites: list = list.filter { app.favorites.contains($0.name) }
         }
+        // 日抛 toggle（正交约束，与 web 端 filtered 的 state.dayTrade 同位同口径）：
+        // 信号锚定当下该买还是该卖，日抛约束一轮买卖的完成时限
+        if dayTradeOnly {
+            list = list.filter { SellEtaEngine.isDayTrade(item: $0) }
+        }
         if !query.isEmpty {
             list = list.filter { $0.name.localizedCaseInsensitiveContains(query) }
         }
@@ -693,6 +690,11 @@ struct AmmoView: View {
             case .price: return (a.current ?? 0) > (b.current ?? 0)
             case .grade: return (a.grade ?? 0) > (b.grade ?? 0)
             case .name: return a.name < b.name
+            case .dayTradeEta:
+                // 默认升序=最快到价在前（对齐 web SORT_DIR.eta 'asc'）；无估计沉底
+                let ae = SellEtaEngine.dayTradeEta(item: a)?.medianH ?? .infinity
+                let be = SellEtaEngine.dayTradeEta(item: b)?.medianH ?? .infinity
+                return ae < be
             }
         }
         return list
@@ -769,7 +771,7 @@ struct AmmoRow: View {
                 if let p = item.profitPerRound, item.rank != nil {
                     // minScale 直接传给每枚 Mono（T3 通道）：容器级 .minimumScaleFactor 不会
                     // 传播到子 Text（实测截断成「-851 -…」），长串必须在 Text 自身随宽缩放
-                    Mono("\(p >= 0 ? "+" : "")\(Fmt.price(p)) \(Fmt.pct(item.profitPct))", step: .lead, color: p > 0 ? Theme.ok : Theme.faint, minScale: 0.75)
+                    Mono("\(Fmt.signedPrice(p)) \(Fmt.pct(item.profitPct))", step: .lead, color: p > 0 ? Theme.ok : Theme.faint, minScale: 0.75)
                     Mono(Fmt.price(item.current), step: .sub, color: Theme.tx, minScale: 0.75)
                 } else {
                     Mono(Fmt.price(item.current), step: .lead, minScale: 0.75)
@@ -801,7 +803,7 @@ struct AmmoRow: View {
         if let rank = item.rank { parts.append("7 天分位 \(Fmt.rankPercent(rank))") }
         // 语序对齐视觉（§4.1-1）：预赚在上、现价在下
         if let p = item.profitPerRound, item.rank != nil {
-            parts.append("预赚 \(p >= 0 ? "+" : "")\(Fmt.price(p)) 每发（\(Fmt.pct(item.profitPct))）")
+            parts.append("预赚 \(Fmt.signedPrice(p)) 每发（\(Fmt.pct(item.profitPct))）")
         }
         if let current = item.current { parts.append("现价 \(Fmt.price(current))") }
         if starred { parts.append("已自选") }
@@ -838,7 +840,7 @@ struct SignalCard: View {
                 // 主数字立权（§4.1-2）：预赚与收益率升 lead 档 ok 加粗。
                 // 「预赚 …/发」中英混排：默认 design + 等宽数字（lead=16/body，mono 只留给纯 ASCII）。
                 // 符号跟 Fmt 口径：正数补 +、负数的 - 由 Fmt.price 自带（外层硬拼 + 会得到「+-123」）
-                Text("预赚 \(item.profitPerRound.map { $0 >= 0 ? "+" : "" } ?? "")\(Fmt.price(item.profitPerRound))/发")
+                Text("预赚 \(Fmt.signedPrice(item.profitPerRound))/发")
                     .font(Theme.font(.lg, weight: .semibold))
                     .monospacedDigit()
                     .foregroundStyle(Theme.ok)
@@ -866,9 +868,7 @@ struct SignalCard: View {
     private var a11yLabel: String {
         var parts = [item.name, "买入信号"]
         parts.append("买入不高于 \(Fmt.price(item.current))，挂卖 \(Fmt.price(item.targetSell))，税后到手 \(Fmt.price(item.netSell))")
-        if let p = item.profitPerRound {
-            parts.append("预赚 \(p >= 0 ? "+" : "")\(Fmt.price(p)) 每发（\(Fmt.pct(item.profitPct))）")
-        }
+        parts.append("预赚 \(Fmt.signedPrice(item.profitPerRound)) 每发（\(Fmt.pct(item.profitPct))）")
         if let rank = item.rank { parts.append("7 天分位 \(Fmt.rankPercent(rank))") }
         let eta = SellEtaEngine.predict(item: item)
         if let eta, let med = eta.medianH, eta.episodes >= 2 {
@@ -1000,7 +1000,7 @@ struct PositionRow: View {
             // 囤货行的扫读主角被次级数字压住
             VStack(alignment: .trailing, spacing: Theme.Space.xs) {
                 if let gainNet {
-                    Mono("\(gainNet >= 0 ? "+" : "-")\(Fmt.price(abs(gainNet)))", step: .lead, color: gainNet >= 0 ? Theme.ok : Theme.danger, minScale: 0.75)
+                    Mono(Fmt.signedPrice(gainNet), step: .lead, color: gainNet >= 0 ? Theme.ok : Theme.danger, minScale: 0.75)
                 }
                 if let item { Mono(Fmt.price(item.current), step: .sub, color: Theme.tx, minScale: 0.75) }
             }
@@ -1022,7 +1022,7 @@ struct PositionRow: View {
         if let item {
             // 语序对齐视觉（§4.1-1 同款：浮盈在上先读、现价在下后读）
             if let gainNet {
-                parts.append("到价浮盈 \(gainNet >= 0 ? "+" : "-")\(Fmt.price(abs(gainNet)))")
+                parts.append("到价浮盈 \(Fmt.signedPrice(gainNet))")
             }
             if let c = item.current { parts.append("现价 \(Fmt.price(c))") }
             if atTarget { parts.append("已到挂卖价，可出货") }
@@ -1040,7 +1040,21 @@ struct PositionRow: View {
 
 struct MethodNote: View {
     let source: String?
+    /// 快照顶层 rules（analyze.mjs RULES_VIEW_KEYS 展示子集）；nil = 旧快照 / 字段缺席，
+    /// 各门槛退 v2 定稿值兜底（同 web AmmoMarketView.vue ruleNum 的缺省参数做法）
+    var rules: MarketRules? = nil
+
     var body: some View {
+        // 门槛数字与分位刻度从 rules 取值渲染（契约 shared/API.md §1：不得写死数字；做法对齐 web
+        // AmmoMarketView.vue:370-372 ruleNum / buyRankPct 等）：P20 = BUY_RANK_MAX、10% = BUY_MIN_NET_PCT、
+        // P35 = WATCH_RANK_MAX、P80 = SELL_RANK_MIN、「近 3 天」= TARGET_WINDOW_H（72h）。此前把 v2 门槛写死在
+        // 字面文案里，下次调参 iOS 必再漂移（v1→v2 已翻车一次）。离底 3% / 低点距今 12h / 税率 15% 不在
+        // RULES_VIEW_KEYS 展示子集内，维持文字口径
+        let buyRank = rulePct(rules?.buyRankMax, 20)
+        let buyNet = rulePct(rules?.buyMinNetPct, 10)
+        let watchRank = rulePct(rules?.watchRankMax, 35)
+        let sellRank = rulePct(rules?.sellRankMin, 80)
+        let targetDays = ruleDays(rules?.targetWindowH, 3)
         VStack(alignment: .leading, spacing: 6) {
             // 含中文标题：默认 design + 等宽数字（mono 只留给纯 ASCII）
             Text("口径").font(Theme.font(.xs, weight: .bold)).monospacedDigit().foregroundStyle(Theme.accent)
@@ -1051,8 +1065,22 @@ struct MethodNote: View {
             // SELL 加动能守则）。此前文案是 v1 旧口径「≤ P25 且 ≥ 8%、目标取 7 天 P75」，web 端 METHOD 已随
             // v2 更新而本页滞留：用户按旧口径判读（如 rank 22%、收益 9% 的弹）会误以为 App 漏报买入——
             // 双端同口径是本页「信号仅供参考」这句话成立的前提
-            Text("买卖点 = 近 7 天小时曲线分位 + 趋势确认：现价 ≤ P20、已止跌企稳（离 7 天低点 ≥ 3%、近 12 小时无新低、近 48 小时趋势不向下）且按近 3 天 P75 挂卖税后收益率 ≥ 10% 判「买入」，低位（≤ P35）但门槛未齐判「关注」；≥ P80 且动能转弱判「卖出」，强势上冲不催卖。目标挂卖价取近 3 天 P75，税率按税后价实测反推（约 15%）。历史分位不代表未来走势，信号仅供参考。")
+            Text("买卖点 = 近 7 天小时曲线分位 + 趋势确认：现价 ≤ P\(buyRank)、已止跌企稳（离 7 天低点 ≥ 3%、近 12 小时无新低、近 48 小时趋势不向下）且按近 \(targetDays) 天 P75 挂卖税后收益率 ≥ \(buyNet)% 判「买入」，低位（≤ P\(watchRank)）但门槛未齐判「关注」；≥ P\(sellRank) 且动能转弱判「卖出」，强势上冲不催卖。目标挂卖价取近 \(targetDays) 天 P75，税率按税后价实测反推（约 15%）。历史分位不代表未来走势，信号仅供参考。")
                 .font(Theme.font(.xs)).monospacedDigit().foregroundStyle(Theme.dim)
         }
+    }
+
+    /// rules 分位 / 收益率门槛 → 整数百分比（web buyRankPct 等的 Math.round(x * 100) 同式；
+    /// 正数下 rounded() 与 Math.round 一致）；缺席 / 非有限数退 v2 定稿值（同 web ruleNum）
+    private func rulePct(_ v: Double?, _ dflt: Int) -> Int {
+        guard let v, v.isFinite else { return dflt }
+        return Int((v * 100).rounded())
+    }
+
+    /// rules 小时窗口 → 天（TARGET_WINDOW_H 72 → 3；web 对 MAX_HOLD_H 同用 Math.round(h / 24)）；
+    /// 缺席 / 非正数退 v2 定稿值
+    private func ruleDays(_ v: Double?, _ dflt: Int) -> Int {
+        guard let v, v.isFinite, v > 0 else { return dflt }
+        return Int((v / 24).rounded())
     }
 }

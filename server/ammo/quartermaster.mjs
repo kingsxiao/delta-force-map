@@ -54,14 +54,18 @@ export function normalizeTradeRow(raw, version = '') {
  * 拉取军需处兑换数据（带 TTL 缓存）。
  * @param {{force?:boolean, now?:number, request?:Function}} opts
  *   request 可注入替身（离线自测），默认 kkrbRequest
- * @returns {Promise<{version:string, fetchedAt:string, items:Array}>}
+ * @returns {Promise<{version:string, fetchedAt:string, items:Array}|null>}
+ *   形状异常当轮抛出并缓存空结果，TTL 内后续调用返回 null（join 侧跳过）
  * @throws 上游失败（调用方决定静默跳过 join）
  */
 export async function fetchQuartermaster({ force = false, now = Date.now(), request = kkrbRequest } = {}) {
   if (!force && cache && now - cache.at < QUARTERMASTER_TTL_MS) return cache.data
   const j = await request('getTradeAmmoData', { referer: 'https://www.kkrb.net/?viewpage=view%2Fdepartment%2Ftrade_ammo' })
   const rows = j?.data?.cn
-  if (!Array.isArray(rows)) throw new Error('getTradeAmmoData 形状异常（data.cn 非数组）')
+  if (!Array.isArray(rows)) {
+    cache = { at: now, data: null } // 形状变了：缓存空结果，别每轮重打上游（口径同 season.mjs）
+    throw new Error('getTradeAmmoData 形状异常（data.cn 非数组）')
+  }
   const version = typeof j.version === 'string' ? j.version : ''
   const data = {
     version,

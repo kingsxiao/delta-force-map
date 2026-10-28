@@ -3,90 +3,35 @@
    数据：public/market/radar.json（scripts/market/radar.mjs 落盘）
    口径与子弹页一致（scripts/ammo/analyze.mjs 分位数回归）；榜单来自 kkrb
    涨幅榜 Top10，曲线主源 moligod，双源中位偏差 >15% 压制信号（anomaly）。
-   刷新：同源 SSE（serve 部署，radar 事件静默重拉；端点判定与子弹页共用
-   shared/js/liveChannel.js）+ 60s 轮询兜底；数据节奏 = 服务端雷达
-   循环（默认 10 分钟，radar:monitor 常驻时同口径）。 */
+   刷新：同源 SSE（serve 部署，radar 事件按版本前进静默重拉）+ 分档轮询兜底
+   （off 30min / on 5min / 其余 60s）——整条快照数据链在
+   ../composables/useSnapshotFeed.js（与子弹 / 制造页共用）；数据节奏 =
+   服务端雷达循环（默认 10 分钟，radar:monitor 常驻时同口径）。 */
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import Sparkline from './ammo/Sparkline.vue'
 import PriceChart from './ammo/PriceChart.vue'
 import SkeletonView from '../components/SkeletonView.vue'
 import { imgReady, hideImg } from '../composables/imgReady'
-import { formatVersionLabel, picThumb } from '@shared/js/marketMeta.js'
-import { liveChannelUrl, isLocalHttpHost, createLiveChannel } from '@shared/js/liveChannel.js'
+import { useSnapshotFeed } from '../composables/useSnapshotFeed'
+import { fmt, pct, SIGNAL_META, SIG_COLOR, gradeVar } from '../utils/format.js'
+import { formatVersionLabel, staleness, fmtAge, picThumb } from '@shared/js/marketMeta.js'
 
-const market = ref(null)
-const loadState = ref('loading') // loading | ready | empty | error
-const loadError = ref('')
-const refreshing = ref(false)
-const refreshTip = ref('')
-const refreshTipKind = ref('ok') // ok=成功回声（dim 低调）/ warn=失败提示，模板按此挂色
-let tipTimer = null // 成功回声 4s 自动消失（失败提示常驻到下次刷新，不抢定时器）
 const expanded = ref(null)
 const searchRef = ref(null)
-
-/* BASE_URL 前缀：子路径静态托管（BASE_URL 非 "/"）下不 404（同子弹页口径） */
-const DATA_URL = `${import.meta.env.BASE_URL}market/radar.json`
-const POLL_MS = 60 * 1000
-let pollTimer = null
 let prevTitle = '' // 路由标题：进入存默认值，卸载还原（模式同 AmmoMarketView）
 
-/* 请求序号：SSE 事件 / 轮询 / 手动刷新并发打同一 URL 时只认最新一次的响应，
-   先发慢到的旧快照不覆盖新快照（fetch 不取消、响应落地即丢弃） */
-let loadSeq = 0
-
-async function load({ silent = false, auto = false } = {}) {
-  const seq = ++loadSeq
-  /* 无条件置位（原先仅 silent 才置）：空/错态的重试按钮借此 :disabled 防连点空转——
-     silent 与否只区分「是否回骨架」，不区分「是否有请求在飞」，busy 语义应当一致。
-     auto：区分轮询/SSE/回前台补拉与用户手点刷新——成功提示的出不出声由它决定 */
-  refreshing.value = true
-  const prevVersion = market.value?.version
-  const prevItems = market.value?.items
-  try {
-    const res = await fetch(DATA_URL, { cache: 'no-store' })
-    if (seq !== loadSeq) return
-    if (res.ok) {
-      const j = await res.json()
-      if (seq !== loadSeq) return
-      if (Array.isArray(j.items) && j.items.length) {
-        diffPriceFlash(prevItems, j.items)
-        market.value = j
-        loadState.value = 'ready'
-        /* 刷新成功回声（同子弹页口径）：手动刷新恒提示「已更新至 X」——点击后
-           除按钮一闪的 disabled 外无任何结果反馈；轮询/SSE 只在版本真的前进时
-           提示（纯静态环境快照永不变化，每分钟弹一次旧版本号是误导），此刻
-           恰有价格闪变脉冲在表内发生，两条回声互为因果说明 */
-        if (silent && (!auto || j.version !== prevVersion)) {
-          refreshTip.value = `已更新至 ${formatVersionLabel(j.version)}`
-          refreshTipKind.value = 'ok'
-          if (tipTimer) clearTimeout(tipTimer)
-          tipTimer = setTimeout(() => { refreshTip.value = '' }, 4000)
-        } else {
-          refreshTip.value = ''
-        }
-      } else {
-        loadState.value = 'empty'
-        refreshTip.value = ''
-      }
-    } else if (!silent) {
-      loadError.value = `HTTP ${res.status}`
-      loadState.value = 'error'
-    }
-  } catch (e) {
-    if (seq !== loadSeq) return
-    if (silent) {
-      refreshTip.value = '刷新失败，仍显示之前的数据'
-      refreshTipKind.value = 'warn'
-    } else {
-      loadError.value = e instanceof SyntaxError
-        ? '雷达数据格式异常，请稍后重试'
-        : e.message
-      loadState.value = 'error'
-    }
-  } finally {
-    if (seq === loadSeq) refreshing.value = false
-  }
-}
+/* ---------- 快照数据链（useSnapshotFeed：loadSeq 守卫 / 非 2xx throw / SSE
+   版本门控 / 分档轮询 / 回前台补拉 / 卸载清理）。雷达页差异全走默认：
+   items 为空 → 空态；静默保持 silent（空/错态卡片不闪骨架）；成功回声开。
+   BASE_URL 前缀：子路径静态托管（BASE_URL 非 "/"）下不 404（同子弹页口径） */
+const {
+  market, loadState, loadError, refreshing, refreshTip, refreshTipKind,
+  nowTs, liveChannel, load,
+} = useSnapshotFeed(`${import.meta.env.BASE_URL}market/radar.json`, {
+  events: ['radar'],
+  syntaxError: '雷达数据格式异常，请稍后重试',
+  onLoaded: (json, { prev }) => diffPriceFlash(prev?.items, json.items),
+})
 
 /* ---------- 价格闪变（同 AmmoMarketView.diffPriceFlash）：轮询/SSE 刷出新快照
    后 diff 新旧现价，真变了的格挂 up/down 类做一次性 0.8s 低幅度（≤14%）底色
@@ -113,42 +58,27 @@ function diffPriceFlash(prevItems, nextItems) {
 }
 
 /* ---------- 数据时效 ---------- */
-const nowTs = ref(Date.now())
 const ageMin = computed(() => {
   const t = Date.parse(market.value?.fetchedAt)
   return Number.isFinite(t) ? (nowTs.value - t) / 60000 : null
 })
 const ageLabel = computed(() => {
   if (ageMin.value == null) return ''
-  /* 文案口径对齐 iOS RadarView.ageText：<1 分钟「刚刚更新」（杜绝「0 分钟前」），
-     分钟/小时一律向上取整——年龄宁可报老不报新（1.2 分钟报「2 分钟前」比报
-     「1 分钟前」诚实）；stale-tip 复用本函数（>240min 才出现，不会撞「刚刚更新」分支） */
+  /* <1 分钟「刚刚更新」（杜绝「0 分钟前」，口径对齐 iOS RadarView.ageText）；
+     其余走 @shared/js/marketMeta.js fmtAge（与 TTK 页 / 子弹页过期提示共用，
+     四舍五入取整）；stale-tip 复用本函数（>240min 才出现，不会撞「刚刚更新」分支） */
   if (ageMin.value < 1) return '刚刚更新'
-  return ageMin.value < 60
-    ? `${Math.ceil(ageMin.value)} 分钟前`
-    : `${Math.ceil(ageMin.value / 60)} 小时前`
+  return `${fmtAge(ageMin.value)}前`
 })
 const versionLabel = computed(() => formatVersionLabel(market.value?.version))
-/* 雷达节奏：monitor 默认 30min 一轮、榜单约每小时滚动 → 90min 变灰 / 4h 过期提示 */
-const STALE_DOT_MIN = 90
-const STALE_TIP_MIN = 240
+/* 雷达时效（kkrb-radar+moligod 双源档，@shared/js/marketMeta.js staleness）：
+   monitor 默认 30min 一轮、榜单约每小时滚动 → 90min 变灰 / 4h 过期提示 */
+const thresholds = computed(() => staleness(market.value?.source))
 
-/* ---------- 展示工具 ---------- */
-const fmt = (n) => (Number.isFinite(n) ? Math.round(n).toLocaleString('zh-CN') : '—')
-const pct = (n) => (Number.isFinite(n) ? `${n >= 0 ? '+' : ''}${(n * 100).toFixed(1)}%` : '—')
-const SIGNAL_META = {
-  BUY: { label: '买入', cls: 'buy' },
-  WATCH: { label: '关注', cls: 'watch' },
-  SELL: { label: '卖出', cls: 'sell' },
-  WAIT: { label: '观望', cls: 'wait' },
-}
-/* 迷你走势末点语境色（Sparkline endColor，同子弹页口径）：末点=「现在在哪」，
-   与行内信号徽章同语义着色（BUY ok / SELL danger / WATCH info）；WAIT 走
-   faint——本榜单常态是观望，若默认 teal 会十行同色，强调色只在真强调处出现 */
-const SIG_COLOR = { BUY: 'var(--ok)', SELL: 'var(--danger)', WATCH: 'var(--info)', WAIT: 'var(--faint)' }
+/* ---------- 展示工具：fmt / pct / SIGNAL_META / SIG_COLOR / gradeVar 统一收编
+   ../utils/format.js；CATEGORY_LABEL / crossLabel 为本页专属 ---------- */
 const CATEGORY_LABEL = { props: '物资', protect: '护甲', gun: '枪械', acc: '配件', ammo: '子弹' }
 const categoryLabel = (c) => CATEGORY_LABEL[c] || c || '—'
-const gradeVar = (g) => (g >= 2 && g <= 6 ? `var(--lv${g})` : 'var(--faint)')
 /* 图标到位/失败的事件处理三页共享（composables/imgReady.js）；占位底与淡入样式见 motion.css */
 /* 双源列两种取值混排：有偏差 → 中位偏差百分比；重叠不足（<24h）无偏差 → 重叠
    小时数。原先无数据行显示「样本 0」无单位不自明，且解释只在 hover title 里
@@ -237,14 +167,9 @@ const stats = computed(() => {
 })
 
 /* ---------- 实时通道（同源 SSE，serve 部署形态）：先探测 /health 再连
-   /events，收到 radar 事件静默重拉。断开不再永久放弃——带退避重探
-   /health（30s→2min），服务端部署重启后自动回到实时推送。本地 dev 探
-   不到保持「未连接」继续重探（60s 轮询兜底）；非本地且从未连上判
-   「不适用」——纯静态托管退回轮询不打无效流量（重连助手与子弹页共用
-   shared/js/liveChannel.js） ---------- */
-const LIVE_SSE_URL = liveChannelUrl(location)
-const liveChannel = ref('off') // off(环境不适用) | connecting | on | down
-let live = null
+   /events，收到 radar 事件按版本前进静默重拉；断开带退避重探、服务端部署
+   重启后自动回到实时推送（重连助手与数据链都在 useSnapshotFeed /
+   shared/js/liveChannel.js）。此处只剩通道状态的文案映射 ---------- */
 const liveTip = computed(
   () => ({
     on: '实时推送已连接，异动自动送达',
@@ -252,45 +177,16 @@ const liveTip = computed(
     connecting: '实时推送连接中…',
   }[liveChannel.value] || '')
 )
-function connectLive() {
-  if (!LIVE_SSE_URL) return
-  live = createLiveChannel({
-    url: LIVE_SSE_URL,
-    events: ['radar'],
-    isLocal: () => isLocalHttpHost(location),
-    onState: (s) => { liveChannel.value = s },
-    onEvent: (t) => { if (t === 'radar') load({ silent: true, auto: true }) },
-  })
-  live.start()
-}
-
-function onVisibility() {
-  if (document.hidden) return
-  nowTs.value = Date.now() // 顺带校正数据年龄
-  load({ silent: true, auto: true }) // 挂后台期间跳过的轮询在恢复可见时立即补一次
-}
 
 onMounted(() => {
   prevTitle = document.title
   document.title = '三角洲行动 · 全品类异动雷达'
   /* th 口径说明的 title 兜底改由 popSupported 响应式绑定（见其定义处注释），
      此处不再做事后 DOM 摘除——表格要等四态 out-in 过渡完才进 DOM，摘除赶不上 */
-  load()
-  connectLive()
-  pollTimer = setInterval(() => {
-    if (document.hidden) return // 后台标签不空耗请求，恢复可见时补拉
-    nowTs.value = Date.now()
-    load({ silent: true, auto: true })
-  }, POLL_MS)
-  document.addEventListener('visibilitychange', onVisibility)
 })
 onBeforeUnmount(() => {
-  document.removeEventListener('visibilitychange', onVisibility)
   document.title = prevTitle
-  if (pollTimer) clearInterval(pollTimer)
-  if (tipTimer) clearTimeout(tipTimer) // 成功回声定时器：不摘会在卸载后空写 ref
-  if (flashTimer) clearTimeout(flashTimer) // 同上（闪变摘类定时器）
-  if (live) live.stop()
+  if (flashTimer) clearTimeout(flashTimer) // 闪变摘类定时器：不摘会在卸载后空写 ref
 })
 </script>
 
@@ -298,7 +194,7 @@ onBeforeUnmount(() => {
   <div class="wrap page">
     <!-- 页头（紧凑单行，走 base.css .compact-head；数据过期提示在下方 stale-tip） -->
     <header class="compact-head">
-      <h1>全品类异动雷达 <span class="live-dot" :class="{ stale: ageMin !== null && ageMin > STALE_DOT_MIN }" aria-hidden="true"></span></h1>
+      <h1>全品类异动雷达 <span class="live-dot" :class="{ stale: ageMin !== null && ageMin > thresholds.staleDotMin }" aria-hidden="true"></span></h1>
       <p v-if="market" class="meta" :title="`数据版本 ${versionLabel}${liveTip ? ' · ' + liveTip : ''}`">
         全品类涨幅榜 + 双源曲线交叉<!-- 推送断开从「仅 title 可查」升为常驻可见（触屏够不着
              title）：断开意味着数据可能滞后、是用户需要知道的因果；on/connecting 为
@@ -312,7 +208,7 @@ onBeforeUnmount(() => {
 
     <!-- 过期提示条：淡入淡出（MOTION.md §3-F 提示行统一口径，条件消除时同样淡出） -->
     <Transition name="swap">
-      <p v-if="ageMin !== null && ageMin > STALE_TIP_MIN" class="state-tip stale-tip" role="status">
+      <p v-if="ageMin !== null && ageMin > thresholds.staleTipMin" class="state-tip stale-tip" role="status">
         数据已 {{ ageLabel }} 未更新（榜单约每小时滚动），可稍后回来查看。
       </p>
     </Transition>
@@ -414,14 +310,16 @@ onBeforeUnmount(() => {
                 >
                   <td class="mono dimtx num">{{ i.hiRank ?? '—' }}</td>
                   <td>
-                    <span class="a-icw" aria-hidden="true">
+                    <span
+                      class="a-icw" aria-hidden="true"
+                      :style="{ '--gd': gradeVar(i.grade) }" :title="`品级 ${i.grade}`"
+                    >
                       <img
                         v-if="i.pic" class="a-ic"
                         :src="picThumb(i.pic, 96)" alt=""
                         width="26" height="18" loading="lazy" decoding="async"
                         @load="imgReady" @error="hideImg"
                       >
-                      <i class="a-gd" :style="{ background: gradeVar(i.grade) }" :title="`品级 ${i.grade}`"></i>
                     </span>
                     <span class="a-name">{{ i.name }}</span>
                     <span class="cat-tag">{{ categoryLabel(i.category) }}</span>
@@ -731,17 +629,20 @@ onBeforeUnmount(() => {
   border: 1px solid var(--line2); border-radius: var(--radius-pill);
   padding: 1px 8px; margin-left: 8px; vertical-align: 1px;
 }
+/* 游戏同款品级底色方框（染底 + 描边），口径同 AmmoMarketView 行内图标 */
 .a-icw {
   position: relative;
   display: inline-flex; align-items: center; justify-content: center;
-  width: 28px; height: 18px; margin-right: 8px; vertical-align: middle;
+  width: 30px; height: 22px; margin-right: 8px; vertical-align: middle;
+  border: 1px solid var(--line);
+  border-color: color-mix(in srgb, var(--gd, var(--faint)) 45%, transparent);
+  border-radius: 4px;
+}
+.a-icw.ld {
+  background: var(--deep);
+  background: color-mix(in srgb, var(--gd, var(--faint)) 15%, var(--deep));
 }
 .a-ic { width: 26px; height: 18px; object-fit: contain; } /* 加载淡入与占位底见 motion.css（imgReady） */
-.a-gd {
-  position: absolute; left: -4px; bottom: -3px;
-  width: 6px; height: 6px; transform: rotate(45deg);
-  box-shadow: 0 0 0 2px var(--card);
-}
 .a-name { color: var(--tx-strong); white-space: nowrap; }
 .row-chev {
   display: inline-flex; align-items: center; color: var(--faint);

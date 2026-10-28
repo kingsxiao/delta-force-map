@@ -6,7 +6,7 @@
 // hero = 时利最佳主卡。用法：
 //   <SkeletonView v-if="loadState === 'loading'" variant="table" :rows="8" />
 defineProps({
-  variant: { type: String, default: 'table' }, // 'table' | 'cards' | 'hero'
+  variant: { type: String, default: 'table' }, // 'table' | 'cards' | 'hero'；未知值兜底 table（模板 v-else）
   rows: { type: Number, default: 8 }, // table 变体行数（弹药 8 / 雷达 10）
   // table 变体表头条数：与 .sk-row 同模板对轨（motion.css .sk-head），首条横跨
   // 图标位 + 名字位两轨，故 8 轨对应 7 条；多于 7 条会被 grid 自动换行到第二行
@@ -30,25 +30,8 @@ function nameW(r) {
 <template>
   <!-- 根节点 role=status 供读屏器感知「加载中」；占位块本身对读屏器隐藏 -->
   <div class="sk-view" role="status" aria-label="正在加载">
-    <!-- table：表头条 + rows × .sk-row（图标位 + 名字条 + 5 数字条 + 走势位） -->
-    <div v-if="variant === 'table'" class="sk-tbl" aria-hidden="true">
-      <div class="sk-head">
-        <i v-for="c in cols" :key="c" class="sk sk-line"></i>
-      </div>
-      <div v-for="r in rows" :key="r" class="sk-row">
-        <i class="sk sk-thumb"></i>
-        <i class="sk sk-line" :style="{ '--w': nameW(r) }"></i>
-        <i class="sk sk-num" :style="{ '--w': numW(r, 0) }"></i>
-        <i class="sk sk-num" :style="{ '--w': numW(r, 1) }"></i>
-        <i class="sk sk-num" :style="{ '--w': numW(r, 2) }"></i>
-        <i class="sk sk-num" :style="{ '--w': numW(r, 3) }"></i>
-        <i class="sk sk-num" :style="{ '--w': numW(r, 4) }"></i>
-        <i class="sk sk-chart"></i>
-      </div>
-    </div>
-
     <!-- cards：2×3 信号卡骨架（列宽由 .sk-cards 对齐 .sig-grid 承接） -->
-    <div v-else-if="variant === 'cards'" class="sk-cards" aria-hidden="true">
+    <div v-if="variant === 'cards'" class="sk-cards" aria-hidden="true">
       <div v-for="c in 6" :key="c" class="sk-card">
         <i class="sk sk-line" style="--w: 58%"></i>
         <i class="sk sk-line" style="--w: 40%"></i>
@@ -73,6 +56,25 @@ function nameW(r) {
           <i class="sk sk-hero-big"></i>
           <i class="sk sk-line" style="--w: 88px"></i>
         </div>
+      </div>
+    </div>
+
+    <!-- table：表头条 + rows × .sk-row（图标位 + 名字条 + 5 数字条 + 走势位）；
+         放链尾作 v-else 兜底：未识别的 variant（含规范笔误）归一渲染 table，
+         杜绝 v-if 链落空只剩 role=status 空壳静默失败 -->
+    <div v-else class="sk-tbl" aria-hidden="true">
+      <div class="sk-head">
+        <i v-for="c in cols" :key="c" class="sk sk-line"></i>
+      </div>
+      <div v-for="r in rows" :key="r" class="sk-row">
+        <i class="sk sk-thumb"></i>
+        <i class="sk sk-line" :style="{ '--w': nameW(r) }"></i>
+        <i class="sk sk-num" :style="{ '--w': numW(r, 0) }"></i>
+        <i class="sk sk-num" :style="{ '--w': numW(r, 1) }"></i>
+        <i class="sk sk-num" :style="{ '--w': numW(r, 2) }"></i>
+        <i class="sk sk-num" :style="{ '--w': numW(r, 3) }"></i>
+        <i class="sk sk-num" :style="{ '--w': numW(r, 4) }"></i>
+        <i class="sk sk-chart"></i>
       </div>
     </div>
   </div>

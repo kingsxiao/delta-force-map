@@ -10,6 +10,8 @@
    另有全市场聚合口径 marketClock(items)：逐弹归一为相对自身 7 天均值的
    价格比值后跨弹按小时取中位（见函数注释）——回答「现在几点，该扫货还是
    该出货」。
+   日抛判定 dayTradeEta / isDayTradeItem：现价买入 ≤24h 能涨到「税后回本线
+   +5%」卖价——全表「日抛」筛选项的单一口径源（见函数块注释）。
    时间键双格式：moligod 12 位分钟档（YYYYMMDDHHmm）/ kkrb 10 位小时档
    （YYYYMMDDHH），同 marketMeta 约定。
    墙钟口径固定北京时间（+08:00，时间键的生成口径）：keyToDate 解析与
@@ -243,6 +245,62 @@ export function predictSellEta(item, now = Date.now()) {
     trend: drift > 0 ? 'up' : drift < 0 ? 'down' : 'flat',
     etaLabel,
   }
+}
+
+/* ---------- 日抛（day-trade）判定：纯函数，网页筛选 / iOS / 离线自测共用 ----------
+   回答的问题：「现价买入，一天之内能不能有利润地卖出去」。卖价锚不取 P75
+   目标价（predictSellEta 的口径，服务跨日持有计划）而取**现价的税后回本线
+   加利润下限**：sellFor = 现价 × (1 + minNetPct) / (1 − 税率)——到价卖出即
+   税后净赚 minNetPct。这样对刚崩到 7 天新低（P75 目标遥不可及、profitPct
+   为负）的弹种同样可判：判的是「从这一价位出发的当日修复力」，有历史先例
+   （完整上涨段）才认，无先例（接飞刀）如实拒绝。
+   三个门槛（缺一不算）：
+     · 完整上涨段样本 ≥ DAY_TRADE_MIN_EPISODES（2 段：单样本无置信度，
+       与 etaLine 展示门槛一致）；
+     · 上涨段中位历时 ≤ DAY_TRADE_MAX_H（24h，挂单 24h 费率档即游戏内的
+       「日内」锚点）；
+     · 到价税后净利 ≥ DAY_TRADE_MIN_NET_PCT（5%：日内资金当天可周转两轮，
+       等效于跨日持有一轮的买入利差门槛 BUY_MIN_NET_PCT 10%）。
+   现价处 7 天新高 / 新低（无从该价位出发的历史）自然不命中；命中数随市场
+   状态起伏——高位盘整期稀少是市场状态，不是门槛失灵。历史统计不代表未来。 */
+
+/** 日抛：单轮税后净利下限（5%，理由见块注） */
+export const DAY_TRADE_MIN_NET_PCT = 0.05
+/** 日抛：上涨段中位历时上限（小时，挂单 24h 费率档） */
+export const DAY_TRADE_MAX_H = 24
+/** 日抛：完整上涨段最少样本数（与 etaLine 展示门槛一致） */
+export const DAY_TRADE_MIN_EPISODES = 2
+
+/**
+ * 日抛 ETA：现价买入、当天涨到「税后净利 ≥ minNetPct」卖价的历史节奏。
+ * @param {object} item market.json 条目（用 current / taxRate / curve）
+ * @param {number} [minNetPct=DAY_TRADE_MIN_NET_PCT] 单轮税后净利下限
+ * @returns {null|{medianH:number, fastestH:number, episodes:number, sellFor:number}}
+ *   曲线 <24 点 / 现价或税率缺失 / 样本不足返回 null；中位可能超
+ *   DAY_TRADE_MAX_H（「有节奏但慢」，供耗时列如实展示，是否日抛由调用方
+ *   结合上限判断）
+ */
+export function dayTradeEta(item, minNetPct = DAY_TRADE_MIN_NET_PCT) {
+  const curve = Array.isArray(item && item.curve) ? item.curve : null
+  const current = item && item.current
+  const tax = item && item.taxRate
+  if (!curve || curve.length < 24 || !(current > 0) || !(tax > 0) || tax >= 1) return null
+  const sellFor = current * (1 + minNetPct) / (1 - tax)
+  const eps = reachEpisodes(curve, current, sellFor)
+  if (eps.length < DAY_TRADE_MIN_EPISODES) return null
+  return { medianH: median(eps), fastestH: eps[0], episodes: eps.length, sellFor }
+}
+
+/**
+ * 日抛判定：dayTradeEta 的布尔包装（中位 ≤ maxH 才算「一天内能完成一买一卖」）。
+ * @param {object} item market.json 条目
+ * @param {{medianH:number}|null} [eta] 已算过的 dayTradeEta 结果（复用），缺省内部重算
+ * @param {number} [maxH=DAY_TRADE_MAX_H] 历时上限（小时）
+ * @returns {boolean}
+ */
+export function isDayTradeItem(item, eta, maxH = DAY_TRADE_MAX_H) {
+  const e = eta ?? dayTradeEta(item)
+  return !!e && e.medianH <= maxH
 }
 
 /** 历时可读化：5 → 「5 小时」、2.5 → 「2.5 小时」、72 → 「3 天」 */

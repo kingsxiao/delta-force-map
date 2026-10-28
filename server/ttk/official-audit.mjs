@@ -49,7 +49,7 @@ import { existsSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { getDirectory } from '../official/object-directory.mjs'
-import { writeJsonAtomic } from '../ammo/fetch-once.mjs'
+import { writeJsonAtomic, writeSnapshotPair } from '../ammo/fetch-once.mjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const WEB_DIR = path.join(ROOT, 'apps', 'web')
@@ -458,19 +458,10 @@ export const summaryLine = (report) => `SUMMARY ${JSON.stringify(summarize(repor
 
 /* ---------- 落盘 / 本地数据 ---------- */
 
-/** 写 public/data/ttk-audit.json；dist/data 目录存在时同内容双写。返回写入路径列表 */
+/** 写 public/data/ttk-audit.json；dist/data 目录存在时同内容双写（统一走
+    writeSnapshotPair，dist 存在性判定与其余三处管道同口径）。返回写入路径列表 */
 export async function writeAudit(report, { webDir = WEB_DIR } = {}) {
-  const text = JSON.stringify(report, null, 2) + '\n'
-  const pub = path.join(webDir, 'public', 'data', 'ttk-audit.json')
-  await writeJsonAtomic(pub, text)
-  const written = [pub]
-  const distDir = path.join(webDir, 'dist', 'data')
-  if (existsSync(distDir)) {
-    const dist = path.join(distDir, 'ttk-audit.json')
-    await writeJsonAtomic(dist, text)
-    written.push(dist)
-  }
-  return written
+  return writeSnapshotPair(webDir, path.join('data', 'ttk-audit.json'), JSON.stringify(report, null, 2) + '\n')
 }
 
 /** 读本地三件套（与 server/export-ios-data.mjs 同一 import 方式） */

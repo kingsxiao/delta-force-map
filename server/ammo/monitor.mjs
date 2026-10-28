@@ -88,7 +88,13 @@ async function runCycle() {
   // ≥6h 后恢复通知时，全部现存信号冷却到期会一次性爆发；仅发送受 --no-notify 控制
   const { buys, sells } = judgeSignals(state, r.analysis.items)
   if (!NO_NOTIFY) await sendNotifications(buys, sells, notify)
-  await saveState(state)
+  // state 写失败只记日志不炸循环（口径同 live.mjs 的 saveState：磁盘满 / 目录
+  // 被删也不断调度链——去抖 state 下一轮重记，顶多多发一轮通知）
+  try {
+    await saveState(state)
+  } catch (e) {
+    console.error(`[${new Date().toLocaleString('zh-CN')}] state 落盘失败（不影响监控循环）: ${e.message}`)
+  }
 }
 
 console.log(`子弹行情监控启动：每 ${INTERVAL_MIN} 分钟抓取一次（Ctrl+C 退出）`)

@@ -16,7 +16,7 @@
         与现状逐字段一致 / 1h 曲线空且官方名仅写法不同时重查一次并采用官方
         曲线（写法相同不重查）
    全部通过 exit 0；失败写 stderr 后 exit 1。
-   用法：node scripts/market/selftest.mjs
+   用法：node server/market/selftest.mjs
    ============================================================ */
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { existsSync } from 'node:fs'

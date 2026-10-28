@@ -20,25 +20,8 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const MAX_HOLD_H = 72
 const TAX_FALLBACK = 0.15
 
-/* ---------- 基础统计（与 analyze.mjs 同口径） ---------- */
-function quantile(sorted, p) {
-  const pos = (sorted.length - 1) * p
-  const lo = Math.floor(pos)
-  const hi = Math.ceil(pos)
-  if (lo === hi) return sorted[lo]
-  return sorted[lo] + (sorted[hi] - sorted[lo]) * (pos - lo)
-}
-/** 近 n 小时最小二乘斜率（%/h，相对区间均值归一） */
-function slopePctPerH(prices, n) {
-  const s = prices.slice(-n)
-  if (s.length < 2) return 0
-  const mean = s.reduce((a, b) => a + b, 0) / s.length
-  if (!(mean > 0)) return 0
-  let sx = 0, sy = 0, sxx = 0, sxy = 0
-  for (let i = 0; i < s.length; i++) { sx += i; sy += s[i]; sxx += i * i; sxy += i * s[i] }
-  const k = s.length
-  return ((k * sxy - sx * sy) / (k * sxx - sx * sx) / mean) * 100
-}
+/* ---------- 基础统计：quantile / slopePctPerH 不再本地拷贝，直接引
+   analyze.mjs 的导出（见下方 import）——回测与上线真正同源 ---------- */
 
 /* ---------- 特征预计算 ---------- */
 /** 单物品全时间轴特征：每 t 一个对象（t 从 24 起） */
@@ -73,8 +56,9 @@ const VARIANTS = {
   old: { enter: (f) => f.rank <= 0.25 && f.p75 * (1 - f.tax) - f.cur > 0 && (f.p75 * (1 - f.tax) - f.cur) / f.cur >= 0.08, target: (f) => f.p75 },
 }
 /* prod：直接跑生产 analyzeItem（回测/上线同源，防两套口径漂移）；
-   RULES 供 --mkt-min 扫描临时改市场体制门槛后复位 */
-const { analyzeItem, RULES } = await import('./analyze.mjs')
+   RULES 供 --mkt-min 扫描临时改市场体制门槛后复位；
+   quantile / slopePctPerH 一并取 analyze 导出——统计函数单一来源 */
+const { analyzeItem, RULES, quantile, slopePctPerH } = await import('./analyze.mjs')
 
 /* ---------- 数据与去重 ---------- */
 async function loadAll() {

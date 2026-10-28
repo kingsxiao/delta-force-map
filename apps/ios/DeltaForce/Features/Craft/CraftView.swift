@@ -335,13 +335,9 @@ struct CraftView: View {
 
     private func scopeChanged(_ proxy: ScrollViewProxy) {
         toggleTick += 1
-        if reduceMotion {
-            proxy.scrollTo(Self.topAnchor, anchor: .top)
-        } else {
-            withAnimation(Theme.animMed) { // 档位预设（§2.2，等价原字面值 .easeOut(durMed)）
-                proxy.scrollTo(Self.topAnchor, anchor: .top)
-            }
-        }
+        // 滚动收口共享 scrollToTop 帮助函数（Components.swift）：animMed 预设
+        // （§2.2，等价原字面值 .easeOut(durMed)）/ RM 直达，与行情 / 雷达 / TTK 同口径
+        scrollToTop(proxy, anchor: Self.topAnchor, reduceMotion: reduceMotion)
     }
 
     /* ---------- 派生 ---------- */
@@ -460,12 +456,10 @@ struct CraftBestCard: View {
     }
 
     private var hourlyText: String {
-        guard let p = item.profitPerHour else { return "—" }
-        return p >= 0 ? "+\(Fmt.price(p))" : Fmt.price(p)
+        Fmt.signedPrice(item.profitPerHour)
     }
     private var roiText: String {
-        guard let roi = item.roi else { return "—" }
-        return roi >= 0 ? "+\(Int((roi * 100).rounded()))%" : "\(Int((roi * 100).rounded()))%"
+        Fmt.signedPctInt(item.roi)
     }
     private var roiColor: Color {
         if let roi = item.roi { return roi >= 0 ? Theme.ok : Theme.danger }
@@ -535,7 +529,7 @@ struct CraftRow: View {
             // 缺价配方的服务端字段是 0 而非 null（契约 §1.3 降级展示）：
             // 一律以 hasEstimate 为显示门槛，「+0」绿色时利是估算可用的假象
             if item.hasEstimate, let p = item.profitPerHour {
-                Mono(p >= 0 ? "+\(Fmt.price(p))" : Fmt.price(p), step: .lead, color: p >= 0 ? Theme.ok : Theme.danger, minScale: 0.75)
+                Mono(Fmt.signedPrice(p), step: .lead, color: p >= 0 ? Theme.ok : Theme.danger, minScale: 0.75)
             } else {
                 // 缺价占位「—」= faint + 常规字重（web .na 同口径，CraftView.vue「不覆盖会出现一枚
                 // 加粗的『—』」）：lead 档默认 semibold 会把占位符画成一道粗杠，与真实数字同重——

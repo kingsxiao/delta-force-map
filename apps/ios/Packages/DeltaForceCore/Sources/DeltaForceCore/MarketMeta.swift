@@ -24,11 +24,14 @@ public enum MarketMeta {
         public let staleTipMin: Double
     }
 
-    /// 时效阈值（分钟）：moligod 分钟级 10/30（moligod-craft 特勤处制造同档）；kkrb 小时级兜底 60/360
+    /// 时效阈值（分钟）：moligod 分钟级 10/30（moligod-craft 特勤处制造同档）；kkrb 小时级兜底 60/360；
+    /// kkrb-radar+moligod 雷达双源 90/240（与 web 雷达页口径对齐）
     public static func staleness(source: String?) -> Staleness {
-        source == "moligod" || source == "moligod-craft"
-            ? Staleness(staleDotMin: 10, staleTipMin: 30)
-            : Staleness(staleDotMin: 60, staleTipMin: 360)
+        switch source {
+        case "moligod", "moligod-craft": Staleness(staleDotMin: 10, staleTipMin: 30)
+        case "kkrb-radar+moligod": Staleness(staleDotMin: 90, staleTipMin: 240)
+        default: Staleness(staleDotMin: 60, staleTipMin: 360)
+        }
     }
 
     public static func sourceLabel(_ source: String?) -> String {
@@ -93,11 +96,24 @@ public enum Fmt {
         return grouped(v)
     }
 
+    /// 带符号金额（利润可为负）：+12,345 / -1,024。符号规则与 pct 对齐——正数补 +、
+    /// 负数的 - 由 price 自带（不 abs 拼接：四舍五入到 0 的负值显「0」而非「-0」）
+    public static func signedPrice(_ n: Double?) -> String {
+        guard let n, n.isFinite else { return "—" }
+        return (n >= 0 ? "+" : "") + price(n)
+    }
+
     /// 收益率：+27.6% / -13.4%
     public static func pct(_ n: Double?) -> String {
         guard let n, n.isFinite else { return "—" }
         let sign = n >= 0 ? "+" : ""
         return "\(sign)\(String(format: "%.1f", n * 100))%"
+    }
+
+    /// 带符号整数百分比（成本回报等 roi 口径）：+27% / -13%（四舍五入取整，符号规则同 pct）
+    public static func signedPctInt(_ n: Double?) -> String {
+        guard let n, n.isFinite else { return "—" }
+        return (n >= 0 ? "+" : "") + "\(Int((n * 100).rounded()))%"
     }
 
     /// 分位：0.714 → "71%"

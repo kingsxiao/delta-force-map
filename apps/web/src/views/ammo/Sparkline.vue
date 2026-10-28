@@ -7,7 +7,6 @@ const props = defineProps({
   curve: { type: Array, default: () => [] },
   width: { type: Number, default: 120 },
   height: { type: Number, default: 30 },
-  current: { type: Number, default: null },
   // 末点圆语境色（如行内信号色）；默认不传走 --accent 现状（雷达页等调用点兼容）
   endColor: { type: String, default: '' },
 })

@@ -20,13 +20,13 @@ public enum Signal: String, Codable, Sendable, CaseIterable, Hashable {
         }
     }
 
-    /// 与 analyze.mjs SIGNAL_META.hint 同文案
+    /// 与 analyze.mjs SIGNAL_META.hint 逐字同步（v2 口径；analyze.mjs 该处头注已标注为 iOS 文案镜像源）
     public var hint: String {
         switch self {
-        case .buy: "贴近7天低位，税后仍有利润空间"
-        case .watch: "接近低位，可挂限价单等待"
-        case .sell: "贴近7天高位，持仓建议出货"
-        case .wait: "价格处于中位区间，不动手"
+        case .buy: "低位企稳且趋势走平向上，挂卖近3天P75税后仍有≥10%利润"
+        case .watch: "接近低位但未同时满足止跌/趋势/利差门槛，先挂限价观察"
+        case .sell: "贴近7天高位且动能转弱，持仓建议挂卖离场"
+        case .wait: "价格处于中位区间或仍在下行，不动手"
         }
     }
 }
@@ -225,6 +225,68 @@ public struct SnapshotStats: Codable, Sendable, Hashable {
     }
 }
 
+/// 快照顶层 `rules`（`analyze.mjs` RULES_VIEW_KEYS 展示子集；契约 shared/API.md §1）：
+/// 门槛文案与分位刻度从这里渲染、不得写死数字；null = 该门槛关闭（如市场体制门槛
+/// BUY_MKT_SLOPE_MIN）。逐字段宽松解码（try?）——形状异常时退 nil 而非让整张快照
+/// 解码失败，渲染端有 v2 定稿值兜底（AmmoView MethodNote 同 web ruleNum 缺省做法）
+public struct MarketRules: Codable, Sendable, Hashable {
+    /// 现价分位买入门槛（7 天窗口，0.20）
+    public let buyRankMax: Double?
+    /// 对目标挂卖价的税后净收益率下限（0.10）
+    public let buyMinNetPct: Double?
+    /// 关注分位门槛（0.35）
+    public let watchRankMax: Double?
+    /// 卖出分位门槛（0.80）
+    public let sellRankMin: Double?
+    /// 市场体制门槛（全市场 48h 斜率中位下限，%/h）；null = 关闭
+    public let buyMktSlopeMin: Double?
+    /// 建议最长持有（小时）
+    public let maxHoldH: Double?
+    /// 目标价体制窗口（小时）
+    public let targetWindowH: Double?
+
+    enum CodingKeys: String, CodingKey {
+        case buyRankMax = "BUY_RANK_MAX"
+        case buyMinNetPct = "BUY_MIN_NET_PCT"
+        case watchRankMax = "WATCH_RANK_MAX"
+        case sellRankMin = "SELL_RANK_MIN"
+        case buyMktSlopeMin = "BUY_MKT_SLOPE_MIN"
+        case maxHoldH = "MAX_HOLD_H"
+        case targetWindowH = "TARGET_WINDOW_H"
+    }
+
+    public init(
+        buyRankMax: Double? = nil, buyMinNetPct: Double? = nil, watchRankMax: Double? = nil,
+        sellRankMin: Double? = nil, buyMktSlopeMin: Double? = nil, maxHoldH: Double? = nil,
+        targetWindowH: Double? = nil
+    ) {
+        self.buyRankMax = buyRankMax
+        self.buyMinNetPct = buyMinNetPct
+        self.watchRankMax = watchRankMax
+        self.sellRankMin = sellRankMin
+        self.buyMktSlopeMin = buyMktSlopeMin
+        self.maxHoldH = maxHoldH
+        self.targetWindowH = targetWindowH
+    }
+
+    public init(from decoder: any Decoder) throws {
+        guard let c = try? decoder.container(keyedBy: CodingKeys.self) else {
+            self.init()
+            return
+        }
+        // let 属性不能在委托 self.init() 之后再赋值：先解出各字段、统一走指定初始化器
+        self.init(
+            buyRankMax: try? c.decodeIfPresent(Double.self, forKey: .buyRankMax),
+            buyMinNetPct: try? c.decodeIfPresent(Double.self, forKey: .buyMinNetPct),
+            watchRankMax: try? c.decodeIfPresent(Double.self, forKey: .watchRankMax),
+            sellRankMin: try? c.decodeIfPresent(Double.self, forKey: .sellRankMin),
+            buyMktSlopeMin: try? c.decodeIfPresent(Double.self, forKey: .buyMktSlopeMin),
+            maxHoldH: try? c.decodeIfPresent(Double.self, forKey: .maxHoldH),
+            targetWindowH: try? c.decodeIfPresent(Double.self, forKey: .targetWindowH)
+        )
+    }
+}
+
 /// 快照顶层（`/ammo/market.json` 与 `/market/radar.json` 共用；`signals` 字段是 items 的过滤副本，客户端自行过滤故不解码）
 public struct MarketSnapshot: Codable, Sendable, Hashable {
     public let version: String
@@ -234,8 +296,10 @@ public struct MarketSnapshot: Codable, Sendable, Hashable {
     public let fingerprint: String?
     public let items: [MarketItem]
     public let stats: SnapshotStats?
+    /// 信号门槛展示子集；nil = 旧快照无此字段（雷达快照亦无）——渲染端退 v2 定稿值兜底
+    public let rules: MarketRules?
 
-    public init(version: String, fetchedAt: Date, generatedAt: Date, source: String, fingerprint: String? = nil, items: [MarketItem], stats: SnapshotStats? = nil) {
+    public init(version: String, fetchedAt: Date, generatedAt: Date, source: String, fingerprint: String? = nil, items: [MarketItem], stats: SnapshotStats? = nil, rules: MarketRules? = nil) {
         self.version = version
         self.fetchedAt = fetchedAt
         self.generatedAt = generatedAt
@@ -243,6 +307,7 @@ public struct MarketSnapshot: Codable, Sendable, Hashable {
         self.fingerprint = fingerprint
         self.items = items
         self.stats = stats
+        self.rules = rules
     }
 
     public func items(with signal: Signal) -> [MarketItem] { items.filter { $0.signal == signal } }

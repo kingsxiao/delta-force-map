@@ -19,7 +19,9 @@
      /events  SSE（连接即 hello；落盘广播 market / radar，实现同 live.mjs）
      /health  {ok, source, version, cycles, ...}（弹药侧状态）
      其余     apps/web/dist/ 静态文件（/ → index.html；/assets/ 哈希文件长
-              缓存；*.json 数据与 html 走 no-cache；路径归一化防目录穿越）
+              缓存；*.json 数据与 html 走 no-cache，快照顶层 fingerprint
+              兼作 ETag——If-None-Match 命中回 304 不重发整包；路径归一化
+              防目录穿越）
    通知默认关闭（部署形态通常无桌面）；--notify 开启。
    用法：npm run build && npm run serve [--port 8080] [--host 0.0.0.0] [--notify]
          [--radar-interval 10] [--anchor-interval-hours 24] [--no-anchor] [--trust-proxy[=N]]
@@ -60,12 +62,14 @@ const MIME = {
 
 /**
  * 创建同源站点服务（不 listen；selftest 用 port 0 自取临时端口）。
- * @param {{rootDir?:string, webDir?:string, noNotify?:boolean,
+ * @param {{rootDir?:string, webDir?:string, noNotify?:boolean, statePath?:string,
  *          radarCycle?:Function, radarMs?:number,
  *          craftCycle?:Function, craftMs?:number,
  *          anchorCycle?:Function|null, anchorMs?:number, anchorDelayMs?:number}} opts
  *   rootDir 仓库根（data/ 留档与监控 state 挂这里）；webDir 网页端目录
  *   （public/dist 写入与静态托管，默认 = rootDir，selftest 传临时目录即原行为）；
+ *   statePath live 去抖 state 文件（缺省 = rootDir 下 data/ammo/monitor-state.json，
+ *   selftest 传临时目录路径即与常驻监控进程的共享 state 隔离）；
  *   anchorCycle 官方均价锚（null 关闭），首跑延迟 anchorDelayMs 后每 anchorMs 一轮
  * @returns {{server:http.Server, live:object, start:Function, close:Function,
  *            triggerRadarCycle:Function, triggerCraftCycle:Function, triggerAnchorCycle:Function}}
@@ -74,6 +78,9 @@ export function createSiteServer({
   rootDir = ROOT,
   webDir = rootDir,
   noNotify = true,
+  /** live 去抖 state 文件（缺省透传 undefined → live 侧回落 rootDir 下
+      data/ammo/monitor-state.json；selftest 传临时目录路径即隔离真实 state） */
+  statePath,
   radarCycle = runRadarCycle,
   radarMs = 10 * 60 * 1000,
   craftCycle = runCraftCycle,
@@ -87,7 +94,7 @@ export function createSiteServer({
   trustProxy = false,
 } = {}) {
   const distDir = path.join(webDir, 'dist')
-  const live = createLiveServer({ rootDir, webDir, noNotify, trustProxyHops: typeof trustProxy === 'number' ? trustProxy : 1 })
+  const live = createLiveServer({ rootDir, webDir, noNotify, statePath, trustProxyHops: typeof trustProxy === 'number' ? trustProxy : 1 })
   // 账号 API（注册 / 登录 / 登出 / me + 账号云数据，契约 shared/API.md §6）：
   // 与站点同进程同源；POST/PUT 只进这一支，静态托管仍保持只读 GET/HEAD。
   // trustProxy：nginx 反代形态下显式开启才采信 X-Forwarded-For 做限速
@@ -177,7 +184,21 @@ export function createSiteServer({
     return 'public, max-age=3600'
   }
 
-  async function serveStatic(pathname, res) {
+  /** 快照协商缓存：*.json 顶层带 fingerprint（数据管道写入的内容指纹，见
+   *  server/ammo/fetch-once.mjs）的以它为 ETag——客户端（网页端
+   *  useSnapshotFeed）带 If-None-Match 重询时命中即回 304，未变轮次不再
+   *  整包下发（弹药快照约 400KB × 分钟级轮询）。仅条件请求才解析 JSON，
+   *  常规路径零开销；radar / craft 快照暂无 fingerprint 字段，行为不变 */
+  function snapshotEtagOf(pathname, buf) {
+    if (!pathname.endsWith('.json')) return null
+    try {
+      return JSON.parse(buf).fingerprint || null
+    } catch {
+      return null // 损坏 / 非 JSON：按无 ETag 处理，正常 200 走通
+    }
+  }
+
+  async function serveStatic(req, pathname, res) {
     let p
     try {
       p = path.normalize(path.join(distDir, decodeURIComponent(pathname)))
@@ -195,10 +216,23 @@ export function createSiteServer({
     if (p === distDir || pathname.endsWith('/')) p = path.join(p, 'index.html')
     try {
       const buf = await readFile(p)
-      res.writeHead(200, {
+      const headers = {
         'Content-Type': MIME[path.extname(p).toLowerCase()] || 'application/octet-stream',
         'Cache-Control': cacheControlFor(pathname),
-      })
+      }
+      const inm = req.headers['if-none-match']
+      const etag = inm ? snapshotEtagOf(pathname, buf) : null
+      if (etag) {
+        const quoted = `"${etag}"`
+        headers.ETag = quoted
+        // 子串比对兼容 W/"..." 弱验证与多值列表（fingerprint 为 64 位十六进制，误撞不可能）
+        if (inm.includes(quoted)) {
+          res.writeHead(304, { ETag: quoted, 'Cache-Control': headers['Cache-Control'] })
+          res.end()
+          return
+        }
+      }
+      res.writeHead(200, headers)
       res.end(buf)
     } catch {
       res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' })
@@ -223,7 +257,7 @@ export function createSiteServer({
         res.end('method not allowed')
         return
       }
-      await serveStatic(url.pathname, res)
+      await serveStatic(req, url.pathname, res)
     } catch {
       if (!res.headersSent) res.writeHead(500)
       res.end()

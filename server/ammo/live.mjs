@@ -59,9 +59,13 @@ async function loadState(statePath) {
  * 创建 live 服务（不 listen；selftest 用 port 0 自取临时端口）。
  * @param {{noNotify?:boolean, noDist?:boolean, rootDir?:string, webDir?:string,
  *          statePath?:string, fastMs?:number, slowMs?:number,
+ *          kkrbCadenceMs?:number, failBackoffStartMs?:number, failBackoffCapMs?:number,
  *          trustProxyHops?:number}} opts
  *   rootDir 仓库根（state 默认挂 data/ammo）；webDir 网页端目录（public/dist
  *   写入与预热读取，默认 = rootDir，selftest 注入临时目录即原行为）；
+ *   fastMs / slowMs / kkrbCadenceMs / failBackoffStartMs / failBackoffCapMs
+ *   为各档节奏与失败退避参数（生产默认 60s / 30min / 10min / 60s / 10min，
+ *   均可注入缩短值——selftest 以毫秒级参数多轮驱动兜底状态机用例）；
  *   trustProxyHops 反代信任跳数（/events 单 IP 计数从右数第 N 跳，
  *   单层 nginx = 1 = 末段；多级反代由 server.mjs --trust-proxy=N 传入）
  * @returns {{server:http.Server, triggerCycle:Function, status:object, close:Function}}
@@ -74,6 +78,9 @@ export function createLiveServer({
   statePath = DEFAULT_STATE_PATH,
   fastMs = 60 * 1000,
   slowMs = 30 * 60 * 1000,
+  kkrbCadenceMs = KKRBCADENCE_MS,
+  failBackoffStartMs = 60 * 1000,
+  failBackoffCapMs = 10 * 60 * 1000,
   trustProxyHops = 1,
 } = {}) {
   const clients = new Set()
@@ -89,7 +96,7 @@ export function createLiveServer({
   }
   let servedByKkrbRounds = 0
   let forceProbe = false
-  let failBackoffMs = 60 * 1000
+  let failBackoffMs = failBackoffStartMs
   let fastTimer = null
   let slowTimer = null
   let hbTimer = null
@@ -131,7 +138,7 @@ export function createLiveServer({
     try {
       const r = await fetchOnce(opts)
       status.consecutiveFailures = 0
-      failBackoffMs = 60 * 1000
+      failBackoffMs = failBackoffStartMs
       status.source = r.source
       status.version = r.version
       status.generatedAt = r.analysis.generatedAt
@@ -162,11 +169,11 @@ export function createLiveServer({
 
   /** fast 节奏：moligod 正常 60s±5s；kkrb 兜底 10min（每 3 轮探活）；失败指数退避 */
   function nextFastDelay() {
-    if (status.consecutiveFailures > 0) return Math.min(failBackoffMs, 10 * 60 * 1000)
+    if (status.consecutiveFailures > 0) return Math.min(failBackoffMs, failBackoffCapMs)
     if (status.source === 'kkrb') {
       servedByKkrbRounds++
       if (servedByKkrbRounds % PROBE_EVERY === 0) forceProbe = true
-      return KKRBCADENCE_MS
+      return kkrbCadenceMs
     }
     return fastMs + (Math.random() * 10000 - 5000) // ±5s 抖动
   }
@@ -176,7 +183,7 @@ export function createLiveServer({
     await cycle('fast')
     if (closing) return
     const delay = nextFastDelay()
-    if (status.consecutiveFailures > 0) failBackoffMs = Math.min(failBackoffMs * 2, 10 * 60 * 1000)
+    if (status.consecutiveFailures > 0) failBackoffMs = Math.min(failBackoffMs * 2, failBackoffCapMs)
     fastTimer = setTimeout(fastLoop, delay)
   }
 

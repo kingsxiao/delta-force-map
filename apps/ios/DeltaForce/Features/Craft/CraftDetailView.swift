@@ -86,7 +86,7 @@ struct CraftDetailView: View {
                         // hero / lead Mono 均带缩放兜底（ItemDetailView 详情现价同场景同参 0.75），本页是
                         // 最后一处裸 hero——AX 大字号 × 七位数时利与右侧单位同行争宽时缩放让位而非截断。
                         // 列表最佳卡 hero 是 0.7：窄列可用宽更紧、地板随宽走，非漏改
-                        Mono(p >= 0 ? "+\(Fmt.price(p))" : Fmt.price(p), step: .hero, color: profitColor, minScale: 0.75)
+                        Mono(Fmt.signedPrice(p), step: .hero, color: profitColor, minScale: 0.75)
                             .numericChange(value: p)
                         Text("每小时 · \(it.periodLabel ?? "—")")
                             .font(Theme.font(.xs))
@@ -228,8 +228,8 @@ struct CraftDetailView: View {
         return parts.joined(separator: "，")
     }
     private var roiText: String {
-        guard resolved.hasEstimate, let roi = resolved.roi else { return "—" }
-        return roi >= 0 ? "+\(Int((roi * 100).rounded()))%" : "\(Int((roi * 100).rounded()))%"
+        guard resolved.hasEstimate else { return "—" }
+        return Fmt.signedPctInt(resolved.roi)
     }
     private var roiColor: Color {
         if resolved.hasEstimate, let roi = resolved.roi { return roi >= 0 ? Theme.ok : Theme.danger }

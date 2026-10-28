@@ -12,8 +12,8 @@
    上游约每小时更新一次（响应 version 形如 2026101310 = 10 月 13 日 10 时）。
    返回 88 种子弹：当前价 / 昨日·本周·上周高低点（含税后）/ priceCurve
    （每小时一个点、近 7 天约 168 点）。名称为游戏内名称。
-   另导出 kkrbRequest：同一套会话引导调任意业务接口（子弹以外的品类用，
-   如全物品涨幅榜 getHIPriceCurveData——scripts/market/radar.mjs）。
+   另导出 kkrbRequest：同一套会话引导调任意业务接口（fetchAmmoMarket 与
+   子弹以外的品类共用，如全物品涨幅榜 getHIPriceCurveData——server/market/radar.mjs）。
    ============================================================ */
 
 const BASE = 'https://www.kkrb.net'
@@ -44,6 +44,7 @@ async function bootstrapSession() {
   const home = await fetch(BASE + '/', {
     headers: { 'User-Agent': UA, Accept: 'text/html' },
     redirect: 'follow',
+    signal: AbortSignal.timeout(20000), // 上游 TCP 挂起兜底（口径同 ams-client 的 20s）
   })
   Object.assign(jar, pickCookies(home))
   await home.arrayBuffer() // 读完释放连接
@@ -59,6 +60,7 @@ async function bootstrapSession() {
       Cookie: cookieHeader(jar),
     },
     body: 'globalData=false',
+    signal: AbortSignal.timeout(20000),
   })
   Object.assign(jar, pickCookies(menu))
   await menu.arrayBuffer()
@@ -68,8 +70,8 @@ async function bootstrapSession() {
 
 /**
  * 调 kkrb 任意业务接口（新会话引导 + POST，带重试）。
- * 供子弹以外的品类接口使用（如全物品涨幅榜 getHIPriceCurveData）；
- * getAmmoPLData 继续走 fetchAmmoMarket（无 POST 体，形状校验更严）。
+ * 供任意品类接口使用（如全物品涨幅榜 getHIPriceCurveData）；
+ * getAmmoPLData 由 fetchAmmoMarket 基于本函数封装（外加 version / data 形状校验）。
  * @param {string} path 接口名，如 'getHIPriceCurveData'
  * @param {{body?:object, referer?:string, retries?:number}} opts
  * @returns {Promise<object>} code===1 的业务 JSON（data 形状由调用方自查）
@@ -90,6 +92,7 @@ export async function kkrbRequest(path, { body = {}, referer, retries = 2 } = {}
           Cookie: cookieHeader(jar),
         },
         body: new URLSearchParams(body).toString(),
+        signal: AbortSignal.timeout(20000),
       })
       const json = await res.json()
       if (json.code !== 1) throw new Error(`${path} 业务失败 code=${json.code} msg=${json.msg || ''}`)
@@ -103,49 +106,28 @@ export async function kkrbRequest(path, { body = {}, referer, retries = 2 } = {}
 }
 
 /**
- * 拉取一次完整子弹行情。
+ * 拉取一次完整子弹行情（会话引导 / POST / code!==1 检查 / 3s 递增退避重试
+ * 全部复用 kkrbRequest，这里只做本接口额外的形状校验）。
  * @returns {Promise<{code:number, version:string, data:Array, fetchedAt:string}>}
  *   data 每项字段：itemName / pic / grade / currectPrice / thisWeekHighestPrice(±AfterTax) /
  *   thisWeekLowestPrice / lastWeek* / yesterday* / priceCurve({"YYYYMMDDHHmm": price})
- * @throws {Error} 网络失败或业务 code !== 1
+ * @throws {Error} 网络失败 / 业务 code !== 1 / data 非数组 / version 不合规
  */
 export async function fetchAmmoMarket({ retries = 2 } = {}) {
-  let jar = {}
-  let lastErr = null
-
-  for (let attempt = 0; attempt <= retries; attempt++) {
-    try {
-      jar = await bootstrapSession()
-
-      // 步骤 3：真正的数据接口
-      const data = await fetch(BASE + '/getAmmoPLData', {
-        method: 'POST',
-        headers: {
-          'User-Agent': UA,
-          'X-Requested-With': 'XMLHttpRequest',
-          'x-csrf-token': jar.csrf_token,
-          Referer: BASE + '/?viewpage=view%2Fmarket%2Fammo_price_pl',
-          Cookie: cookieHeader(jar),
-        },
-      })
-      const json = await data.json()
-      if (json.code !== 1 || !Array.isArray(json.data)) {
-        throw new Error(`getAmmoPLData 业务失败 code=${json.code} msg=${json.msg || ''}`)
-      }
-      // version 会被拼进留档文件路径（fetch-once: data/ammo/history/<version>.json），
-      // 只放行纯数字串（上游实为 YYYYMMDDHH 共 10 位；moligod 侧同性质校验 12 位；
-      // 数字类型的十进制表示同样接受）。不合规即拒收本轮快照——防上游被攻破后
-      // 用 '../../../x' 类值穿越写任意路径
-      const version = typeof json.version === 'number' ? String(json.version) : json.version
-      if (typeof version !== 'string' || !/^\d{8,14}$/.test(version)) {
-        throw new Error(`getAmmoPLData version 不合规: ${JSON.stringify(json.version)}`)
-      }
-      return { code: 1, version, data: json.data, fetchedAt: new Date().toISOString() }
-    } catch (e) {
-      lastErr = e
-      jar = {}
-      if (attempt < retries) await new Promise((r) => setTimeout(r, 3000 * (attempt + 1)))
-    }
+  const json = await kkrbRequest('getAmmoPLData', {
+    referer: BASE + '/?viewpage=view%2Fmarket%2Fammo_price_pl',
+    retries,
+  })
+  if (!Array.isArray(json.data)) {
+    throw new Error(`getAmmoPLData 形状异常（data 非数组）: ${JSON.stringify(json.data).slice(0, 60)}`)
   }
-  throw lastErr
+  // version 会被拼进留档文件路径（fetch-once: data/ammo/history/<version>.json），
+  // 只放行纯数字串（上游实为 YYYYMMDDHH 共 10 位；moligod 侧同性质校验 12 位；
+  // 数字类型的十进制表示同样接受）。不合规即拒收本轮快照——防上游被攻破后
+  // 用 '../../../x' 类值穿越写任意路径
+  const version = typeof json.version === 'number' ? String(json.version) : json.version
+  if (typeof version !== 'string' || !/^\d{8,14}$/.test(version)) {
+    throw new Error(`getAmmoPLData version 不合规: ${JSON.stringify(json.version)}`)
+  }
+  return { code: 1, version, data: json.data, fetchedAt: new Date().toISOString() }
 }

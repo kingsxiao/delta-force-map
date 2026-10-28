@@ -255,12 +255,15 @@ struct RadarView: View {
     /// 两个刷新驱动互补——lastRefreshAt 前进时 body 重算（@Observable 追踪）年龄即时归零；
     /// 数据不变时 TimelineView 每 30s 给新「现在」让年龄继续走字（对齐原 FeedHeader 年龄行
     /// 的 30s 周期口径）。超数据源保鲜阈值转 warn 且文案读出「可能过期」（色觉之外的第二通道），
-    /// 判定复用 FeedModel.isStale 的数据源口径而非硬编码分钟数（零魔法数）
+    /// 判定复用 FeedModel.isStale 的数据源口径而非硬编码分钟数（零魔法数）。文案走 Core 共享
+    /// MarketMeta.fmtAge（与行情页 freshness / 详情页同一格式化器：jsRound 取整、含天档）——
+    /// 此前私有 ageText 向上取整且小时封顶无天档，同一数据龄在雷达页与行情页显示不同值
     private var freshness: some View {
         TimelineView(.periodic(from: .now, by: 30)) { ctx in
             if let refreshedAt = app.radar.lastRefreshAt {
+                let seconds = ctx.date.timeIntervalSince(refreshedAt)
+                let text = seconds < 60 ? "刚刚更新" : "\(MarketMeta.fmtAge(minutes: seconds / 60))前更新"
                 let stale = app.radar.isStale(now: ctx.date)
-                let text = Self.ageText(ctx.date.timeIntervalSince(refreshedAt))
                 Text(stale ? "\(text) · 数据可能过期" : text)
                     .font(Theme.font(.micro))
                     .monospacedDigit()
@@ -270,25 +273,13 @@ struct RadarView: View {
         }
     }
 
-    /// 年龄文案：<1 分钟「刚刚更新」、<60 分钟按分钟（向上取整，杜绝「0 分钟前」）、再往上按小时
-    private static func ageText(_ seconds: TimeInterval) -> String {
-        if seconds < 60 { return "刚刚更新" }
-        let minutes = Int((seconds / 60).rounded(.up))
-        return minutes < 60 ? "\(minutes) 分钟前更新" : "\(Int((Double(minutes) / 60.0).rounded(.up))) 小时前更新" // Int 不能直接除 Double 字面量，先升 Double 再取整回 Int
-    }
-
-    /// 筛选切换：轻触 + 滚回榜首（§4.3-5，与 TTK / 行情三页一致）；滚动走 animMed 预设
-    /// （MOTION.md §3-B 筛选回顶档），Reduce Motion 无动画直达（§7-9，触感保留）。
-    /// 换榜本身刻意不加行级进出动画（§3-B 大表重排口径，双端同为瞬时）：回顶 + 触感即「换了榜单」的反馈
+    /// 筛选切换：轻触 + 滚回榜首（§4.3-5，与 TTK / 行情三页一致）；滚动收口共享 scrollToTop
+    /// 帮助函数（Components.swift，animMed 预设 / MOTION.md §3-B 筛选回顶档，RM 无动画直达
+    /// §7-9 触感保留）。换榜本身刻意不加行级进出动画（§3-B 大表重排口径，双端同为瞬时）：
+    /// 回顶 + 触感即「换了榜单」的反馈
     private func scopeChanged(_ proxy: ScrollViewProxy) {
         toggleTick += 1
-        if reduceMotion {
-            proxy.scrollTo(Self.topAnchor, anchor: .top)
-        } else {
-            withAnimation(Theme.animMed) {
-                proxy.scrollTo(Self.topAnchor, anchor: .top)
-            }
-        }
+        scrollToTop(proxy, anchor: Self.topAnchor, reduceMotion: reduceMotion)
     }
 
     /// 刷新 + 成败二分触感（§4.3-6 / §5 闭环反馈）：下拉刷新、错误态「重试」、空态「刷新」

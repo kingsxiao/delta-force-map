@@ -176,6 +176,7 @@ Item 字段：
 | `moligod`（分钟级） | 10 分钟 | 30 分钟 |
 | `moligod-craft`（分钟级，特勤处制造） | 10 分钟 | 30 分钟 |
 | `kkrb`（小时级兜底） | 60 分钟 | 360 分钟 |
+| `kkrb-radar+moligod`（雷达双源；monitor 30min 一轮、榜单约每小时滚动） | 90 分钟 | 240 分钟 |
 
 年龄计算锚点：`fetchedAt`（心跳会刷新它）；年龄可读化 <60min 用分钟、<24h 用小时、更长用天。
 
@@ -189,7 +190,7 @@ Item 字段：
 
 ## 5. fixtures
 
-`fixtures/market-sample.json`、`fixtures/radar-sample.json`：固定样本快照（脱敏自真实数据），供 iOS 单测与「演示模式」捆绑；后端自测另有自己的注入桩。契约变化时同步更新 fixtures。
+`fixtures/market-sample.json`、`fixtures/radar-sample.json`、`fixtures/craft-sample.json`：真实快照全量留档样本（`server/export-ios-data.mjs` 逐字拷贝线上快照，含 `fingerprint` / `officialAnchor` / `season` 等元信息字段，非脱敏），供 iOS 单测断言口径移植与解码（iOS 端无演示模式）；后端自测另有自己的注入桩。契约变化时同步更新 fixtures。
 
 ## 6. 账号与云同步（`server/auth/`，实现方 = 后端）
 

@@ -1,6 +1,6 @@
-# 三角洲行动 · 高清地图与打法详解
+# 三角洲行动 · Delta Force Hub（数据工具）
 
-多端 monorepo：**网页端**（Vite + Vue 3，`apps/web`）+ **iOS 原生端**（Swift 6 + SwiftUI，`apps/ios`）+ **Node 后端**（`server/`，静态托管 + 行情抓取 + SSE）+ **跨端契约与共享逻辑**（`shared/`）。内容：烽火地带六张地图（零号大坝 / 长弓溪谷 / 巴克什 / 航天基地 / 潮汐监狱 / AZ3核电站）的高清标注大图 + 实战打法 + 物资爆率参考、**枪械 TTK 击杀时间排行**页（全枪械 7 兵种 × 各级弹药与护甲）、**子弹行情实时监控**页（交易行子弹的买卖点与税后利润，主源分钟级 + SSE 实时通道）、**全品类异动雷达**页（子弹以外的钥匙 / 护甲 / 配件 / 物资涨幅榜 + 分位信号 + 双源交叉验证），以及**特勤处制造**页（工作台 / 防具台 / 技术中心 / 制药台全量配方的实时利润估算与时利最佳推荐）。`legacy/` 旧单文件页已整体完成组件化迁移，仅作只读留档。
+多端 monorepo：**网页端**（Vite + Vue 3，`apps/web`）+ **iOS 原生端**（Swift 6 + SwiftUI，`apps/ios`）+ **Node 后端**（`server/`，静态托管 + 行情抓取 + SSE）+ **跨端契约与共享逻辑**（`shared/`）。内容：**子弹行情实时监控**页（交易行子弹的买卖点与税后利润，主源分钟级 + SSE 实时通道）、**全品类异动雷达**页（子弹以外的钥匙 / 护甲 / 配件 / 物资涨幅榜 + 分位信号 + 双源交叉验证）、**枪械 TTK 击杀时间排行**页（全枪械 7 兵种 × 各级弹药与护甲），以及**特勤处制造**页（工作台 / 防具台 / 技术中心 / 制药台全量配方的实时利润估算与时利最佳推荐）。`legacy/` 旧单文件页已整体完成组件化迁移，仅作只读留档。
 
 ## 多端架构
 
@@ -54,8 +54,8 @@ cd apps/ios && xcodegen generate                    # 改 project.yml 后重新�
   `deploy/update.sh` 即可完成本次 monorepo 迁移（脚本会自动同步 systemd 单元里的
   `ExecStart=node server/server.mjs` 并 daemon-reload）。
 
-- 路由为 **hash 模式**（`/#/`、`/#/tactics`、`/#/ttk`、`/#/ammo`、`/#/radar`、`/#/craft`），静态托管零配置；页内锚点一律 `scrollIntoView`，禁止向 hash 写入裸锚点。
-- 旧单文件页（`index.html`、`ttk.html`、`shaders.iife.js`）已挪到 **`legacy/`** 留档（只读，不再维护）；特效库的运行时副本在 `apps/web/src/vendor/shaders.iife.js`，由特效组件动态 import。
+- 路由为 **hash 模式**（五个入口：`/#/ammo`、`/#/radar`、`/#/craft`、`/#/ttk`、`/#/account`，`/` 重定向到 `/#/ammo`），静态托管零配置；页内锚点一律 `scrollIntoView`，禁止向 hash 写入裸锚点。
+- 旧单文件页（`index.html`、`ttk.html`、`shaders.iife.js`）已挪到 **`legacy/`** 留档（只读，不再维护）；地图时代特效库的运行时副本 `apps/web/src/vendor/shaders.iife.js` 已随地图模块删除（零引用死资源，`legacy/` 留档逐字节相同）。
 - 静态目录为默认的 **`apps/web/public/`**（dev 于 `/` 下访问、build 原样拷入 dist 根）；仓库根 `assets/` 原图为制作期留档，运行时不引用。
 
 ## 构建产物冒烟验证
@@ -71,11 +71,6 @@ node server/smoke.mjs http://localhost:4173/ shots/vue-smoke
 ## 功能
 
 - **账号与云同步**（两端，`/#/account` / iOS 设置 → 账号）：注册 / 登录 / 登出（token 存网页 localStorage、iOS Keychain），**自选星标 + 囤货台账云同步**——登录后云端与本地合并（星标并集 / 台账按弹名并集·同名本地优先），任何一端的数据都不丢，登录期间改动自动上云（防抖 2s）。口径见 [shared/API.md](shared/API.md) §6：账号数据是不透明 K/V 文档（≤64KB，服务端只存不解析，落 `data/auth/`），密码 scrypt 哈希、令牌 HMAC 签名 30 天有效、登出 = 全设备下线；按 IP 限速防爆破。云端只存「用户创作内容」（自选、台账这类丢了会心疼的），不存设备偏好（通知开关等每台设备自己的）。
-- **页内交互地图查看器**：拖拽平移、滚轮以光标为中心缩放（1–7x）、双击放大、+/−/复位按钮、触屏单指拖动与双指捏合、键盘操作
-- **166 个可点击标注**：出生点 / 撤离点 / Boss / 高价值物资点，四类分层可开关，点击弹出要点信息卡
-- **逐出生点打法卡**：每个出生点四块——打法思路 / 需要注意 / 能抽过点的位置 / 哪里要封烟
-- 撤离点条件、资源搜刮路线、Boss 情报、实战建议
-- 每图物资点爆率表（社区统计口径）
 
 ## TTK 排行页
 
@@ -109,7 +104,7 @@ npm run auth:selftest   # 账号体系离线自测（注册 / 登录 / 令牌 / 
 - **官方均价锚（只校验不改口径）**：`server/official/ammo-anchor.mjs` 每天 1 轮（随 `npm run serve` 常驻，启动 2 分钟后首跑；`--anchor-interval-hours` / `ANCHOR_INTERVAL_HOURS` 可调、`--no-anchor` 关闭；`npm run anchor:fetch` 单跑）拿腾讯官方 AMS 352246 的「近期平均交易价格」给 67 弹现价做外部参照：弹名精确 → 归一化 → 显式别名表三步映射，一对多与未命中一律不猜（2026-10-26 实测命中 66/67，唯一未命中 `5.7x28mm HT` 因官方目录只有 `HT+` 无同名条目），逐弹算 `(moli − official)/official`，**|偏差| > 15% 逐弹告警**。每轮 ≤15 请求（目录 ≤1 次 + 均价 ≤14 批 ×5 id，串行 400ms 间隔），产物只落服务端 `data/ammo/official-anchor.json`（gitignore；不对外、不进快照、不广播）。官方口径是近期均价、无小时曲线，与 moligod 分钟级现价不是同一个量——所以只做校验，不替代主源、不改任何买卖口径
 - **买卖口径（2026-10-26 v2 回测定稿，`server/ammo/backtest.mjs` 21 天 walk-forward：旧口径 284 笔 / 31% 胜率 / 单笔均 −6.6% → v2 14 笔 / 79% 胜率 / 单笔均 +9.6%）**：买入五重门槛——现价 ≤ 7 天 20% 分位、离 7 天低点 ≥3%、低点距今 ≥12h、48h 回归斜率 ≥ 0、按近 3 天 P75 挂卖税后收益率 ≥ 10%（缺一降级 WATCH）；随信号给止损位 max(7 天低点×0.97, 现价×0.95) 与 168h 持有上限。卖出：≥ 80% 分位且 48h 斜率 ≤ +0.05%/h（强势上冲不催卖）。税率按税后价实测反推（约 15%，逐弹计算；moligod 无税后字段时回退 15%）。15% 税下止盈需 ≥ +17.6% 价差才回本，宁缺毋滥；历史统计不代表未来
 - **通知去重**（notify-policy，live/monitor 共用）：首次出现立即通知；信号切换需连续 2 轮确认（分钟级数据在分位边界抖动防刷屏）；同信号 6 小时冷却；BUY 冷却期内价格再跌 5% 立即再报
-- **纯静态部署不白屏**：页面吃构建时快照并如实标注「数据已 X 分钟未更新」与来源；时效阈值按 source 分档（moligod 10/30 分钟，kkrb 沿用 60/360 分钟）。静态环境（探测不到服务端）自动轮询退回 30 分钟、且仅在版本前进时才提示「已更新」，不对静态主机打每分钟无效流量。线上快照由 CI 定时任务自动刷新（见「部署」）；要 SSE 级实时用 `npm run serve` 自托管模式
+- **纯静态部署不白屏**：页面吃构建时快照并如实标注「数据已 X 分钟未更新」与来源；时效阈值按 source 分档（moligod 10/30 分钟，kkrb 沿用 60/360 分钟）。静态环境（探测不到服务端）自动轮询退回 30 分钟、且仅在版本前进时才提示「已更新」，不对静态主机打每分钟无效流量。线上快照由服务器上 serve 进程内的抓取循环持续刷新（见「部署」）；要 SSE 级实时用 `npm run serve` 自托管模式
 - 页面含：买入信号卡（买入价 / 挂卖价 / 税后到手 / 预赚每发与收益率）、卖出高位简表、全表筛选排序、自选星标、每行 7 天走势 sparkline、点击行展开大图（P25/P75 参考线）；本地 dev 且 live 服务在跑时页头显示「实时通道已连接」
 - 页尾 **PLAYBOOK 倒卖手册**（`apps/web/src/views/ammo/Playbook.vue`，静态内容；iOS 端同一份文案）：社区攻略整理的实操动线——一天内买卖时段（凌晨扫货 / 午休上架 / 晚间出货）、买入选品与军需处倒挂、挂单定价技巧（删位法 / 柱状图法 / 分批抛）、版本赛季窗口套利、卡邮件当临时仓库（含 30 天期限与封号风险警示）、变现红线与费率口径说明，附来源链接
 - `data/ammo/`（历史快照与监控状态）已 gitignore，不入库；留档仅指纹变化且 ≥10 分钟才写一份，超 7 天或 1000 份自动清理
@@ -145,16 +140,10 @@ npm run craft:selftest  # 纯逻辑离线自测（不打外网）
 - 页面：榜单表（榜单名次 / 品类标签 / 信号 / 预赚每件 / 7 天分位条 / 周区间 / 走势 / 双源偏差），行点击展开 P25/P75 大图；双源异常行 ⚠ 标记并可单独筛出
 - `data/market/`（监控状态）已 gitignore；与 ammo 管线互不写同一文件，可并行跑
 
-## 数据说明
-
-- 点位坐标来自官方地图工具公开数据；打法与爆率整理自社区公开资料（官方工具、wiki、图文与视频攻略），**未在游戏内逐条实测**
-- 爆率为社区统计口径（S/A/B 分级 + 定性排名），官方从未公布精确百分比，可能与实际掉落有出入
-- 数据基线 2026-08 ~ 2026-10，版本更新后以游戏内战术地图为准
-
 ## 目录
 
 - `package.json` — 仓库根 Node 工程：网页端构建依赖 + 全部 npm 脚本（名字不变，内部指向 `apps/web` 与 `server/`）
-- `apps/web/` — 网页端：`index.html` / `vite.config.js`（`@shared` 别名指向仓库根 `shared/`）、`src/`（Vue 视图、组件、样式设计令牌与数据，自 `legacy/` 迁移完成）、`public/`（构建时原样拷入 dist 的静态资源：抽取出的图片、`ammo/market.json` 行情快照、`market/radar.json` 雷达快照、`craft/craft.json` 特勤处制造快照、`guns/` 枪械图）；构建产物 `apps/web/dist/`
+- `apps/web/` — 网页端：`index.html` / `vite.config.js`（`@shared` 别名指向仓库根 `shared/`）、`src/`（Vue 视图、组件、样式设计令牌与数据，自 `legacy/` 迁移完成）、`public/`（构建时原样拷入 dist 的静态资源：`ammo/market.json` 行情快照、`market/radar.json` 雷达快照、`craft/craft.json` 特勤处制造快照、`guns/` 枪械图）；构建产物 `apps/web/dist/`（`figs/` 地图时代图片已删，原始高清版留档于仓库根 `assets/`）
 - `apps/ios/` — iOS 原生端（Swift 6 + SwiftUI）：`project.yml`（xcodegen）、`DeltaForce/`（App 壳）、`Packages/DeltaForceCore/`（纯逻辑内核 + Swift Testing 单测）；说明见 [apps/ios/README.md](apps/ios/README.md)
 - `server/` — Node 后端（零 npm 依赖）：`server.mjs` 同源站点（静态托管 + 抓取循环 + SSE）、`refresh-data.mjs`、`export-ios-data.mjs`（跨端数据导出）、`smoke.mjs`（构建产物浏览器冒烟）、`extract-*.mjs`（一次性抽取留档）
   - `server/ammo/` — 子弹行情抓取 / 分析 / 监控：moligod-client（主源）/ kkrb-client（兜底源）/ analyze / notify / fetch-once / monitor / live（SSE 本地服务）/ selftest（离线自测）；通知去抖用 `shared/js/notify-policy.js`
@@ -163,7 +152,7 @@ npm run craft:selftest  # 纯逻辑离线自测（不打外网）
   - `server/auth/` — 账号与云同步：store（scrypt 密码 + HMAC 无状态令牌 + 原子落盘 `data/auth/`）/ api（`/api/auth/*`、`/api/account/data`，挂 server.mjs 同进程）/ selftest（离线自测）
 - `shared/` — 跨端共享层：`API.md` 接口契约、`schema/`（market / radar 快照与 SSE 事件的 JSON Schema）、`js/`（sellEta / marketMeta / liveChannel 纯函数，网页端与后端共用）、`data/ttk.json` 与 `fixtures/*.json`（`npm run export:ios` 产出，iOS 捆绑 + 单测样本）
 - `deploy/` — systemd 单元、nginx 示例、`update.sh` 一键更新（含单元文件自动同步）、阿里云部署文档
-- `legacy/` — 旧单文件页留档：`index.html`（含全部数据与图片）、`ttk.html`（TTK 排行）、`shaders.iife.js`（WebGPU 特效库；只读，运行时以 `apps/web/src/vendor/` 副本为准）
+- `legacy/` — 旧单文件页留档：`index.html`（含全部数据与图片）、`ttk.html`（TTK 排行）、`shaders.iife.js`（WebGPU 特效库；只读留档，运行时副本 `apps/web/src/vendor/` 已删除，现仅存于此）
 - `assets/<地图>/hotspots.json` — 各图点位标定数据留档
 - `assets/` 其余 — 各图原始高清底图留档
 

@@ -24,9 +24,12 @@ export function formatVersionLabel(v) {
 /**
  * 数据时效阈值（分钟）：moligod 分钟级——live 点 10min 变灰、30min 出过期
  * 提示；kkrb 小时级兜底——沿用原 60min / 360min。moligod-craft（特勤处
- * 制造）同为分钟级源，同档。
+ * 制造）同为分钟级源，同档。kkrb-radar+moligod（雷达双源）——90min 变灰 /
+ * 240min 过期提示，与 web 雷达页口径对齐（monitor 默认 30min 一轮、榜单约
+ * 每小时滚动；此前 iOS 经本函数落入 else 兜底得到 kkrb 的 60/360，两端不一致）。
  */
 export function staleness(source) {
+  if (source === 'kkrb-radar+moligod') return { staleDotMin: 90, staleTipMin: 240 } // 雷达双源口径（与 iOS MarketMeta.swift 同分支）
   return source === 'moligod' || source === 'moligod-craft'
     ? { staleDotMin: 10, staleTipMin: 30 }
     : { staleDotMin: 60, staleTipMin: 360 }

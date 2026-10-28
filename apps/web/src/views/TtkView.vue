@@ -32,6 +32,7 @@ import { GUNS } from '../data/ttk/guns.js'
 import { DUR, HEAD_DUR, PARTS } from '../data/ttk/armor.js'
 import { combo } from '../data/ttk/model.js'
 import { fmtAge } from '@shared/js/marketMeta.js'
+import { peekSnapshot, storeSnapshot } from '../composables/snapshotCache.js'
 import { PART_CHAR, scenLabel, fmtMs } from './ttk/format.js'
 
 /* ---------- 分段控件条目（legacy segDefs L714-742 原样，共六组实例） ---------- */
@@ -408,11 +409,15 @@ function toggleAllAmmo() {
   for (const k of ammoKeys) ammoOpen[k] = next
 }
 
-/* ---------- 行情联动（本页唯一的网络请求，一次性拉取同源 /ammo/market.json） ----------
+/* ---------- 行情联动（本页唯一的网络请求，一次性取同源 /ammo/market.json） ----------
    现价是增量信息不是本页地基：加载失败 / 快照缺失时现价列一律显「—」，
-   伤害与 TTK 数据不受任何影响。同源相对路径两种部署形态（npm run serve
-   静态托管 / 纯静态托管）均可达；纯静态部署下快照可能很旧——按快照
-   fetchedAt 标注数据龄，不裸显无时间锚的旧价误导买卖决策。 */
+   伤害与 TTK 数据不受任何影响。与子弹页共用 composables/snapshotCache.js 的
+   会话级缓存：本会话 /ammo 已拉到的同一份快照（约 400KB）直接内存复用，
+   免去二次全量下载；未拉到才发请求，结果也入缓存供 /ammo 侧复用。同源相对
+   路径两种部署形态（npm run serve 静态托管 / 纯静态托管）均可达；纯静态
+   部署下快照可能很旧——按快照 fetchedAt 标注数据龄，不裸显无时间锚的旧价
+   误导买卖决策。 */
+const MARKET_URL = `${import.meta.env.BASE_URL}ammo/market.json`
 const market = ref(null) // market.json 快照（null = 未加载完 / 失败）
 const marketFailed = ref(false)
 const priceByName = computed(() => {
@@ -446,12 +451,20 @@ onMounted(() => {
   prevTitle = document.title
   document.title = PAGE_TITLE
   observeRoot(rootEl.value)
-  // 行情快照一次性拉取（失败静默兜底：现价列全显「—」，marketAgeText 报「行情不可用」）
-  fetch(`${import.meta.env.BASE_URL}ammo/market.json`)
+  // 行情快照：会话缓存命中（/ammo 已拉到）直接内存复用；否则一次性拉取并回填
+  // 缓存（失败静默兜底：现价列全显「—」，marketAgeText 报「行情不可用」）
+  const cached = peekSnapshot(MARKET_URL)
+  if (cached) {
+    market.value = cached
+    return
+  }
+  fetch(MARKET_URL)
     .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
     .then((j) => {
-      if (j && Array.isArray(j.items)) market.value = j
-      else throw new Error('数据格式异常')
+      if (j && Array.isArray(j.items)) {
+        storeSnapshot(MARKET_URL, j)
+        market.value = j
+      } else throw new Error('数据格式异常')
     })
     .catch(() => { marketFailed.value = true })
 })

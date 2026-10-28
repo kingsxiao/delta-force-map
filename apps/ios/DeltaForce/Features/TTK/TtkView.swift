@@ -27,18 +27,14 @@ struct TtkView: View {
     @State private var chipsViewportWidth: CGFloat = 0
     private var chipsOverflow: Bool { chipsContentWidth > chipsViewportWidth + 0.5 }
     /// 回顶浮动钮显隐（思路库「回顶浮动钮」，与行情页同款规范跨页恒量）：离顶探测见
-    /// TtkTopAwayProbe（挂在首行 chips 行背景）；TTK 榜 68~200+ 行，深处滚回顶成本高
+    /// 共享 ListTopAwayProbe（挂在首行 chips 行背景）；TTK 榜 68~200+ 行，深处滚回顶成本高
     @State private var showBackTop = false
 
     /// 筛选变化后滚回榜首的锚点 id
     private static let topAnchor = "ttk-top"
 
-    /// 回顶钮探测用的列表命名坐标系（挂在 List 上 = 列表可视口，探测的 frame 参照）；
-    /// fileprivate：文件尾的 TtkTopAwayProbe（与行情页嵌套写法不同、此处独立成体）要读它
-    fileprivate static let listSpace = "ttk-list"
-
-    /// 离顶阈值：首行 minY 低于 -300（≈ 滚过筛选区 + 数行）才浮出回顶钮，浅滚不动声色（行情页同值）
-    fileprivate static let topAwayThreshold: CGFloat = 300
+    /// 回顶钮探测用的列表命名坐标系（挂在 List 上 = 列表可视口，共享 ListTopAwayProbe 的 frame 参照）
+    private static let listSpace = "ttk-list"
 
     /// 默认口径（DESIGN §4.4-1）：「重置筛选」出口回到这套基准，与四枚 FilterMenu 的 defaultId 同源
     private static let defaultClassId = "ar"
@@ -183,8 +179,9 @@ struct TtkView: View {
                             Color.clear.preference(key: ChipsViewportWidthKey.self, value: geo.size.width)
                         }
                     )
-                    // 离顶探测（回顶浮动钮数据源）：本行恒为列表首行，其在命名坐标系的 minY 即滚动偏移
-                    .background(TtkTopAwayProbe(away: $showBackTop))
+                    // 离顶探测（回顶浮动钮数据源，共享 ListTopAwayProbe）：本行恒为列表首行，
+                    // 其在命名坐标系的 minY 即滚动偏移
+                    .background(ListTopAwayProbe(space: Self.listSpace, away: $showBackTop))
                     .onPreferenceChange(ChipsContentWidthKey.self) { chipsContentWidth = $0 }
                     .onPreferenceChange(ChipsViewportWidthKey.self) { chipsViewportWidth = $0 }
                     // 右缘渐隐遮罩（视觉复验修复：第 4 枚 chip 首屏被裁切却无「可横滚」暗示）：
@@ -234,9 +231,10 @@ struct TtkView: View {
             }
             .themedList()
             .listStyle(.insetGrouped)
-            // 回顶浮动钮（思路库「回顶浮动钮」，行情页同款）：命名坐标系给 TtkTopAwayProbe 当参照（列表可视口）
+            // 回顶浮动钮（思路库「回顶浮动钮」，行情页同款）：命名坐标系给 ListTopAwayProbe 当参照
+            // （列表可视口）；钮本体收口共享 BackTopButton（Components.swift），行为逐字不变
             .coordinateSpace(name: Self.listSpace)
-            .overlay(alignment: .bottomTrailing) { backTopButton(proxy) }
+            .overlay(alignment: .bottomTrailing) { BackTopButton(proxy: proxy, anchor: Self.topAnchor, visible: showBackTop) }
             // 钮进出场 animFast 档——web 端 BackTop .totop 的 iOS 对应物（MOTION.md §3-A「返回顶部」）；RM 置 nil 瞬时
             .motion(Theme.animFast, value: showBackTop)
             // 搜索栏常驻（DESIGN §4.4-6）：与行情页对齐，数据密集工具搜索是跨 Tab 恒量
@@ -253,8 +251,9 @@ struct TtkView: View {
             // 本页 68~200+ 行是全 App 最长表，停在深处时输入首字符，匹配行骤减、滚动位越界
             // 被系统弹到口径页脚，用户看到的不是匹配行；web 端 TTK 任意 state 变化重建列表
             // 「从首批行重新看起」（TtkView.vue:156-170），同一心智。不走 filterChanged：
-            // 键盘逐键已有系统触感，再补 selection 即双响，这里只回顶（行情页同款取舍）
-            .onChange(of: query) { _, _ in scrollToTop(proxy) }
+            // 键盘逐键已有系统触感，再补 selection 即双响，这里只回顶（行情页同款取舍；
+            // 复用共享 scrollToTop：animMed / RM 直达同口径）
+            .onChange(of: query) { _, _ in scrollToTop(proxy, anchor: Self.topAnchor, reduceMotion: reduceMotion) }
             // UI 巡检钩子（同 RootView -startTab 模式，生产无此参数）：-openGunFirst
             // 进首行枪械详情、-wfScrollEnd 滚到列表末尾补拍折叠区
             .task { await shotHook(proxy) }
@@ -329,52 +328,12 @@ struct TtkView: View {
     }
 
     /// 筛选变化：滚回榜首 + 轻触反馈（长榜单深处换筛选不再迷失位置）；
-    /// 滚动走 animMed 预设（§3-B 筛选回顶档，等价原字面值 .easeOut(durMed)），Reduce Motion 下
-    /// 无动画直达（§7-9）。换榜本身刻意不加行级进出动画（§3-B 大表重排口径）：几十~200 行重排
+    /// 滚动收口共享 scrollToTop 帮助函数（Components.swift，animMed 预设 / RM 直达，与行情页同构）。
+    /// 换榜本身刻意不加行级进出动画（§3-B 大表重排口径）：几十~200 行重排
     /// 的可感反馈由「回顶 + 触感 + Section 头计数瞬时更新」承担，行级 FLIP 代价大于收益
     private func filterChanged(_ proxy: ScrollViewProxy) {
         hapticTick += 1
-        scrollToTop(proxy)
-    }
-
-    /// 回顶统一实现：换筛选回顶与回顶浮动钮共用；滚动走 animMed 预设（MOTION.md §3-B 回顶档），
-    /// Reduce Motion 下改无动画直达（§7-9，触感保留）。与行情页 scrollToTop 同构（跨页恒量）
-    private func scrollToTop(_ proxy: ScrollViewProxy) {
-        if reduceMotion {
-            proxy.scrollTo(Self.topAnchor, anchor: .top)
-        } else {
-            withAnimation(Theme.animMed) {
-                proxy.scrollTo(Self.topAnchor, anchor: .top)
-            }
-        }
-    }
-
-    /// 回顶浮动钮（思路库「回顶浮动钮」，行情页同款规范）：长表离顶后右下浮现。触控 44pt（§7-8）；
-    /// card2 面 + lineHover 描边走面阶分层，轻投影补「悬浮于滚动内容之上」的最后一级分离
-    /// （滚动内容与 card2 同亮度，纯面阶分不开，§8「靠面阶」口径不适用于悬浮件）；
-    /// 点击走 scrollToTop（animMed 滚回榜首）。web 端 BackTop 的 iOS 对应物
-    @ViewBuilder
-    private func backTopButton(_ proxy: ScrollViewProxy) -> some View {
-        if showBackTop {
-            Button {
-                scrollToTop(proxy)
-            } label: {
-                Image(systemName: "chevron.up")
-                    .font(Theme.font(.md, weight: .semibold)) // 图标字号跟字阶走（§6.1-3）
-                    .foregroundStyle(Theme.tx)
-                    .frame(width: 44, height: 44)
-                    .background(Theme.card2, in: Circle())
-                    .overlay(Circle().strokeBorder(Theme.lineHover, lineWidth: 1))
-                    .shadow(color: .black.opacity(0.3), radius: 6, y: 3)
-            }
-            .buttonStyle(PressableButtonStyle(radius: 22))
-            .accessibilityLabel("回到顶部")
-            // 淡入 + 8pt 上移进出场：对齐 web BackTop 的 .totop（只动 opacity/transform，§6-1）
-            .transition(.opacity.combined(with: .offset(y: 8)))
-            .padding(.trailing, Theme.Space.lg)
-            // 让位悬浮 Tab 胶囊：凸钮顶距屏底实测 ≈121pt（themedList 注释口径），垫 140pt 全不叠（行情页同值）
-            .padding(.bottom, 140)
-        }
+        scrollToTop(proxy, anchor: Self.topAnchor, reduceMotion: reduceMotion)
     }
 }
 
@@ -388,8 +347,6 @@ struct RankRow: View {
     var marketReady: Bool = false
     /// TTK 比例条基准（当前榜单最小正 TTK；0 = 无基准，条画满不参与比较）
     var best: Double = 0
-    /// 点现价直达该弹行情详情：写 app.pendingDetailName 复用通知深链管线（见 priceChip 注释）
-    @Environment(AppModel.self) private var app
     /// 序号列宽随 Dynamic Type 缩放（锚与名次 sub 档同步走 subheadline）
     @ScaledMetric(relativeTo: .subheadline) private var indexWidth: CGFloat = 24
 
@@ -443,7 +400,8 @@ struct RankRow: View {
                     Text(combo.ammo.n).font(Theme.font(.xs)).monospacedDigit().foregroundStyle(Theme.dim).lineLimit(1)
                         .minimumScaleFactor(0.8)
                 }
-                priceChip
+                // 现价直达行情详情（机制与降级梯见共享 PriceLinkChip）
+                PriceLinkChip(item: market, marketReady: marketReady)
             }
             // 左右块最小间距走 Space.xs：与 GunDetail 弹药行、AmmoRow / PositionRow（AmmoView.swift）同令牌，
             // 四种数据行同一最小列距（§2 T8 收编字面值）
@@ -473,42 +431,6 @@ struct RankRow: View {
         .accessibilityLabel(a11yLabel)
     }
 
-    /// 现价文本（点击直达该弹行情详情）：borderless 让 List 行内的按钮自成触达区、
-    /// 不与整行 NavigationLink 抢整行点击；「现价 …」中文混排走 design + 等宽数字。
-    /// 独占弹药行下方的第三行（不再与弹名抢宽，弹名恒完整）：常态整行放得下
-    /// 「现价 N · N%」；ViewThatFits + minScale 仅留特大 Dynamic Type 的降级兜底——
-    /// 先省「· N%」分位后缀、再缩 75%，现价数字永不折行、不截断（§7-3）。
-    /// 无行情（快照未拉到 / 未映射 / 禁交易弹）整行不渲染，不显占位。
-    /// 为什么走 pendingDetailName 而非裸切 Tab（原实现）：裸切只把人扔到行情榜顶，看哪发弹要再搜一遍，
-    /// 「点现价」没有回声（§1.5 闭环）；web .d-mp 跳 /ammo?q=弹名 带上下文。复用通知深链管线
-    /// （RootView 切行情 Tab + AmmoView onAppear/onChange 消费 push 详情、查无此弹兑底搜索词），
-    /// 只写 AppModel 公开属性、不动 State 文件（§0 口径）；item 取自 app.market.items，弹名恒命中
-    @ViewBuilder
-    private var priceChip: some View {
-        if marketReady, let market {
-            Button {
-                app.pendingDetailName = market.name
-            } label: {
-                ViewThatFits(in: .horizontal) {
-                    HStack(spacing: 3) {
-                        Text("现价 \(Fmt.price(market.current))")
-                        if market.rank != nil {
-                            Text("· \(Fmt.rankPercent(market.rank))")
-                        }
-                    }
-                    Text("现价 \(Fmt.price(market.current))")
-                }
-                .font(Theme.font(.xs))
-                .monospacedDigit()
-                .lineLimit(1)
-                // 大额现价（12.7mm 百万级）双档均超宽：先缩 75% 再截断，避免「现价 1,…」（OCR 实测）
-                .minimumScaleFactor(0.75)
-                .foregroundStyle(Theme.accent)
-            }
-            .buttonStyle(.borderless)
-        }
-    }
-
     /// 成句转述：名次 / 枪 / 弹药 / 现价 / TTK / 击杀与碎甲发数 / 射速（TTK 与碎甲口径同视觉行：首发 / 碎甲省略规则一致）
     private var a11yLabel: String {
         var s = "第 \(index) 名 · \(combo.gun.zh) · \(combo.ammo.n)"
@@ -523,7 +445,7 @@ struct GunDetailView: View {
     let data: TtkData
     let partId: String
     let armor: Int
-    /// 行情联动读 marketItem；点现价写 pendingDetailName 走通知深链直达详情（与排行行 priceChip 同机制）
+    /// 行情联动读 marketItem；点现价写 pendingDetailName 走通知深链直达详情（与排行行 PriceLinkChip 同机制）
     @Environment(AppModel.self) private var app
     /// 「穿透矩阵」sheet（与排行页工具栏入口同款）：全弹药对比行的 PenBadge「穿 N」与
     /// 「通过 X%」都出自穿透 × 护甲判定表——读行时查表是高频动作，入口跟随页面上下文，
@@ -572,7 +494,8 @@ struct GunDetailView: View {
                             // 弹名截断承担（§7-3）：备注 / 徽标不折让，长弹名（Ultra Nosler）由名称截断兜底
                             Text(c.ammo.n).font(Theme.font(.md, weight: .semibold)).foregroundStyle(Theme.txStrong).lineLimit(1)
                             if let note = c.ammo.note { Text(note).font(Theme.font(.xs)).monospacedDigit().foregroundStyle(Theme.faint).lineLimit(2) }
-                            priceChip(link)
+                            // 现价直达行情详情（机制与降级梯见共享 PriceLinkChip，与排行行同款）
+                            PriceLinkChip(item: link.item, marketReady: link.snapshotReady)
                         }
                         // 左右块最小间距 Space.xs：与排行行同令牌（原无参 Spacer 取系统默认 ~8，两种行节奏不齐）
                         Spacer(minLength: Theme.Space.xs)
@@ -629,36 +552,6 @@ struct GunDetailView: View {
             PenMatrixView(armor: armor).presentationDetents([.medium, .large])
         }
         .sensoryFeedback(.selection, trigger: matrixTick)
-    }
-
-    /// 现价文本（点击直达该弹行情详情，机制与排行行 priceChip 同：写 pendingDetailName 走通知深链管线）：
-    /// 本 Section 行无整行导航，按钮自成触达区；
-    /// 无行情（快照未拉到 / 未映射 / 禁交易弹）整行不渲染、不显占位（与排行行同口径）。
-    /// 单行纪律与降级次序与排行行同款（§7-3）：先省「· N%」后缀、再缩 75%，现价数字永不折行
-    @ViewBuilder
-    private func priceChip(_ link: (item: MarketItem?, snapshotReady: Bool)) -> some View {
-        if link.snapshotReady, let item = link.item {
-            Button {
-                app.pendingDetailName = item.name
-            } label: {
-                ViewThatFits(in: .horizontal) {
-                    HStack(spacing: 3) {
-                        Text("现价 \(Fmt.price(item.current))")
-                        if item.rank != nil {
-                            Text("· \(Fmt.rankPercent(item.rank))")
-                        }
-                    }
-                    Text("现价 \(Fmt.price(item.current))")
-                }
-                .font(Theme.font(.xs))
-                .monospacedDigit()
-                .lineLimit(1)
-                // 与排行行 priceChip 同款：大额现价先缩 75% 再截断
-                .minimumScaleFactor(0.75)
-                .foregroundStyle(Theme.accent)
-            }
-            .buttonStyle(.borderless)
-        }
     }
 
     /// 成句转述：弹名 / 备注 / 现价 / TTK / 击杀与通过率 / 无甲发数 / 最佳与超弹匣（与排行行同口径；
@@ -925,19 +818,46 @@ private struct TtkBar: View {
     }
 }
 
-/// 回顶浮动钮离顶探测（思路库「回顶浮动钮」，行情页 TopAwayProbe 同款）：探测行背景
-/// GeometryReader 读自身在列表命名坐标系的 minY，离顶超过阈值置 away。onChange 带
-/// initial（iOS 17）：List 行懒回收后探测随行销毁、状态保留最后值（深处 = 钮常显）；
-/// 行回到布局（滚回顶 / 回顶动画）时 initial 立即按当前位汇报，杜绝「人已回顶、钮还亮着」的滞留
-private struct TtkTopAwayProbe: View {
-    @Binding var away: Bool
+/// 现价直达行情详情 chip（排行行 RankRow 与 GunDetail 弹药行共用——两处实现约 90% 逐字相同，
+/// 收编为一个组件，ViewThatFits 降级 / monospacedDigit / 深链管线全一致）：
+/// borderless 让 List 行内的按钮自成触达区、不与整行 NavigationLink 抢整行点击；
+/// 「现价 …」中文混排走 design + 等宽数字。排行行独占弹药行下方第三行（不与弹名抢宽，
+/// 弹名恒完整）：常态整行放得下「现价 N · N%」；ViewThatFits + minScale 仅留特大
+/// Dynamic Type 的降级兜底——先省「· N%」分位后缀、再缩 75%，现价数字永不折行、
+/// 不截断（§7-3）。无行情（快照未拉到 / 未映射 / 禁交易弹）整行不渲染，不显占位。
+/// 为什么走 pendingDetailName 而非裸切 Tab：裸切只把人扔到行情榜顶，看哪发弹要再搜一遍，
+/// 「点现价」没有回声（§1.5 闭环）；web .d-mp 跳 /ammo?q=弹名 带上下文。复用通知深链管线
+/// （RootView 切行情 Tab + AmmoView onAppear/onChange 消费 push 详情、查无此弹兑底搜索词），
+/// 只写 AppModel 公开属性、不动 State 文件（§0 口径）；item 取自 app.market.items，弹名恒命中
+fileprivate struct PriceLinkChip: View {
+    /// 行情条目；nil = 无行情（快照未拉到 / 未映射 / 禁交易弹），不渲染
+    let item: MarketItem?
+    /// 行情快照是否已落地（false = item == nil 只是「还没拉到行情」，同样不渲染）
+    var marketReady: Bool = true
+    @Environment(AppModel.self) private var app
 
     var body: some View {
-        GeometryReader { geo in
-            Color.clear
-                .onChange(of: geo.frame(in: .named(TtkView.listSpace)).minY, initial: true) { _, minY in
-                    away = minY < -TtkView.topAwayThreshold
+        if marketReady, let item {
+            Button {
+                app.pendingDetailName = item.name
+            } label: {
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 3) {
+                        Text("现价 \(Fmt.price(item.current))")
+                        if item.rank != nil {
+                            Text("· \(Fmt.rankPercent(item.rank))")
+                        }
+                    }
+                    Text("现价 \(Fmt.price(item.current))")
                 }
+                .font(Theme.font(.xs))
+                .monospacedDigit()
+                .lineLimit(1)
+                // 大额现价（12.7mm 百万级）双档均超宽：先缩 75% 再截断，避免「现价 1,…」（OCR 实测）
+                .minimumScaleFactor(0.75)
+                .foregroundStyle(Theme.accent)
+            }
+            .buttonStyle(.borderless)
         }
     }
 }

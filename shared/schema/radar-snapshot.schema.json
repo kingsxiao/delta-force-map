@@ -25,12 +25,19 @@
   },
   "$defs": {
     "radarItem": {
+      "description": "雷达条目 = market-snapshot marketItemCore + 雷达字段。grade 放宽到 0：涨幅榜是全品类，枪械等无品质物品 kkrb itemGrade 即为 0，如实透传（弹药快照 marketItem 仍为 1–6）",
       "allOf": [
-        { "$ref": "market-snapshot.schema.json#/$defs/marketItem" },
+        { "$ref": "market-snapshot.schema.json#/$defs/marketItemCore" },
         {
           "type": "object",
           "required": ["hiRank", "category", "crossDev", "crossOverlap", "anomaly", "rawSignal", "curveSource"],
           "properties": {
+            "grade": {
+              "description": "品级 1–6；0 = 无品质（枪械等，上游 itemGrade=0）；null = 上游未给",
+              "type": ["integer", "null"],
+              "minimum": 0,
+              "maximum": 6
+            },
             "hiRank": { "description": "kkrb 涨幅榜名次（1 起）", "type": "integer", "minimum": 1 },
             "category": { "type": "string" },
             "crossDev": {

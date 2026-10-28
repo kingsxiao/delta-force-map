@@ -1,13 +1,13 @@
 /* ============================================================
-   refresh-data.mjs — 统一数据刷新（CI 定时任务 / 本地手动共用）
+   refresh-data.mjs — 统一数据刷新（本地手动刷弹药 + 雷达）
    ------------------------------------------------------------
    弹药：先按上次快照的 fetchedAt 预热曲线缓存（TTL 从真实抓取时间起算，
-   30min 内的曲线不重抓——CI 冷 runner 上等效 live 服务的稳态节奏，不会
+   30min 内的曲线不重抓——续用上份快照时等效 live 服务的稳态节奏，不会
    对上游打满 67 条 history），再 fetchOnce(auto)。
    雷达：runRadarCycle 一轮（双源交叉验证）。
-   两路独立容错：一路失败不拖累另一路；两路全挂才 exit 1（CI 侧配合
-   continue-on-error，部署降级为旧快照 + 页面如实标注数据年龄）。
-   用法：node scripts/refresh-data.mjs（npm run refresh）
+   两路独立容错：一路失败不拖累另一路；两路全挂才 exit 1（部署降级为
+   旧快照 + 页面如实标注数据年龄）。
+   用法：node server/refresh-data.mjs（npm run refresh）
    ============================================================ */
 import { readFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'

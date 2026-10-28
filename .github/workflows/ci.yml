@@ -45,4 +45,12 @@ jobs:
           node server/ttk/selftest.mjs
           node server/auth/selftest.mjs
 
+      - name: 契约校验（fixtures + 线上三份静态快照逐份对照 shared/schema/，schema 漂移或数据越界即失败）
+        run: npm run contract:check
+
+      - name: TTK 导出对账（改 ttk 三件套任一数值后必须先 npm run export:ios 重生成 shared/data/ttk.json，任一值漂移即失败）
+        run: |
+          npm run export:ios
+          git diff --exit-code shared/data/
+
       - run: npm run build

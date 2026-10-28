@@ -79,6 +79,7 @@ export function historyTimeToKey(timeStr, now = new Date()) {
 async function httpGetJson(url) {
   const res = await fetch(url, {
     headers: { 'User-Agent': UA, Accept: 'application/json', Referer: BASE + '/market/ammo' },
+    signal: AbortSignal.timeout(20000), // 上游 TCP 挂起兜底（口径同 ams-client 的 20s）
   })
   if (!res.ok) throw new Error(`HTTP ${res.status} ${url.replace(/\?.*/, '')}`)
   const buf = Buffer.from(await res.arrayBuffer())

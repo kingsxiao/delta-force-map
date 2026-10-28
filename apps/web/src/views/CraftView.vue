@@ -4,94 +4,53 @@
    特勤处快照，利润口径 = 材料现价买入 → 产出按现价×数量挂卖 → 扣手续费）。
    最佳口径（三端一致，见 shared/API.md §1.3）：missingPriceCount === 0 中
    profitPerHour 最大者——制造台同一时间只能跑一条，时利才是真实约束。
-   刷新：同源 SSE（craft 事件静默重拉，shared/js/liveChannel.js）+ 60s 轮询
-   兜底；数据节奏 = 服务端特勤处循环（默认 10 分钟）。 */
+   刷新：同源 SSE（craft 事件按版本前进静默重拉）+ 分档轮询兜底（off 30min /
+   on 5min / 其余 60s）——整条快照数据链在 ../composables/useSnapshotFeed.js
+   （与子弹 / 雷达页共用）；数据节奏 = 服务端特勤处循环（默认 10 分钟）。 */
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
-import { formatVersionLabel, picThumb } from '@shared/js/marketMeta.js'
-import { liveChannelUrl, isLocalHttpHost, createLiveChannel } from '@shared/js/liveChannel.js'
+import { formatVersionLabel, staleness, fmtAge, picThumb } from '@shared/js/marketMeta.js'
 import SkeletonView from '../components/SkeletonView.vue'
 import { imgReady, hideImg } from '../composables/imgReady'
+import { useSnapshotFeed } from '../composables/useSnapshotFeed'
+import { fmt, pct, fmtSigned, gradeVar } from '../utils/format.js'
 
-const market = ref(null)
-const loadState = ref('loading') // loading | ready | empty | error
-const loadError = ref('')
-const refreshing = ref(false)
-const refreshTip = ref('')
 const expanded = ref(null)
 /* 搜索框「注入示意」态：hero 材料 chip 把搜索词写进 state.q 时置真（回声样式 .search.armed，
    同 AmmoMarketView openFromSell 语汇）；用户手动输入即解除——手动敲出同一个词是用户自己的
    筛选意图，不该点亮「程序注入」的示意态 */
 const chipArmed = ref(false)
-
-/* BASE_URL 前缀：子路径静态托管（BASE_URL 非 "/"）下不 404（同子弹页口径） */
-const DATA_URL = `${import.meta.env.BASE_URL}craft/craft.json`
-const POLL_MS = 60 * 1000
-let pollTimer = null
 let prevTitle = ''
 
-/* 请求序号：SSE 事件 / 轮询 / 手动刷新并发打同一 URL 时只认最新一次的响应，
-   先发慢到的旧快照不覆盖新快照（fetch 不取消、响应落地即丢弃） */
-let loadSeq = 0
+/* ---------- 快照数据链（useSnapshotFeed：loadSeq 守卫 / 非 2xx throw / SSE
+   版本门控 / 分档轮询 / 回前台补拉 / 卸载清理）。制造页差异：静默刷新成功
+   不回声「已更新至 X」（数据本身没有版本对齐的展示位，失败提示仍常驻）；
+   items 为空 → 空态。BASE_URL 前缀：子路径静态托管下不 404（同子弹页口径） */
+const {
+  market, loadState, loadError, refreshing, refreshTip,
+  nowTs, liveChannel, load,
+} = useSnapshotFeed(`${import.meta.env.BASE_URL}craft/craft.json`, {
+  events: ['craft'],
+  syntaxError: '特勤处数据格式异常，请稍后重试',
+  successTip: false,
+})
 
-async function load({ silent = false } = {}) {
-  const seq = ++loadSeq
-  /* 「进行中」不再只属静默刷新：空/错态的 retry 也复用同一标志（模板 :disabled 防连点空转——
-     请求序号守卫只保证旧响应不覆盖新数据，拦不住重复发请求）。首载骨架态无按钮可禁用，无副作用 */
-  refreshing.value = true
-  try {
-    const res = await fetch(DATA_URL, { cache: 'no-store' })
-    if (seq !== loadSeq) return
-    if (res.ok) {
-      const j = await res.json()
-      if (seq !== loadSeq) return
-      if (Array.isArray(j.items) && j.items.length) {
-        market.value = j
-        loadState.value = 'ready'
-      } else {
-        loadState.value = 'empty'
-      }
-      refreshTip.value = ''
-    } else if (!silent) {
-      loadError.value = `HTTP ${res.status}`
-      loadState.value = 'error'
-    }
-  } catch (e) {
-    if (seq !== loadSeq) return
-    if (silent) {
-      refreshTip.value = '刷新失败，仍显示之前的数据'
-    } else {
-      loadError.value = e instanceof SyntaxError ? '特勤处数据格式异常，请稍后重试' : e.message
-      loadState.value = 'error'
-    }
-  } finally {
-    if (seq === loadSeq) refreshing.value = false
-  }
-}
-
-/* ---------- 数据时效（分钟级源：10min 变灰 / 30min 过期提示） ---------- */
-const nowTs = ref(Date.now())
+/* ---------- 数据时效（moligod-craft 分钟级档，marketMeta.staleness：
+   10min 变灰 / 30min 过期提示） ---------- */
 const ageMin = computed(() => {
   const t = Date.parse(market.value?.fetchedAt)
   return Number.isFinite(t) ? (nowTs.value - t) / 60000 : null
 })
-/* 输出时长（不带「前」）：模板拼接为「数据已 3 小时未更新」——时间点表述会拼出语病 */
-const ageLabel = computed(() => {
-  if (ageMin.value == null) return ''
-  return ageMin.value < 60
-    ? `${Math.round(ageMin.value)} 分钟`
-    : `${Math.round(ageMin.value / 60)} 小时`
-})
+/* 输出时长（不带「前」，@shared/js/marketMeta.js fmtAge）：模板拼接为
+   「数据已 3 小时未更新」——时间点表述会拼出语病 */
+const ageLabel = computed(() => (ageMin.value == null ? '' : fmtAge(ageMin.value)))
 const versionLabel = computed(() => formatVersionLabel(market.value?.version))
-const STALE_DOT_MIN = 10
-const STALE_TIP_MIN = 30
+const thresholds = computed(() => staleness(market.value?.source))
 
-/* ---------- 展示工具 ---------- */
-const fmt = (n) => (Number.isFinite(n) ? Math.round(n).toLocaleString('zh-CN') : '—')
-const fmtProfit = (n) => (Number.isFinite(n) ? `${n >= 0 ? '+' : ''}${Math.round(n).toLocaleString('zh-CN')}` : '—')
-const pct = (n) => (Number.isFinite(n) ? `${n >= 0 ? '+' : ''}${Math.round(n * 100)}%` : '—')
+/* ---------- 展示工具：fmt / pct / fmtSigned / gradeVar 统一收编
+   ../utils/format.js（带符号金额即 fmtSigned：+12,345 / -1,024）；PLACE_LABEL
+   为本页专属 ---------- */
 const PLACE_LABEL = { workbench: '工作台', armory: '防具台', tech: '技术中心', pharmacy: '制药台' }
 const placeLabel = (p) => PLACE_LABEL[p] || p
-const gradeVar = (g) => (g >= 1 && g <= 6 ? `var(--lv${g})` : 'var(--faint)')
 /* 图片到位/失败的事件处理三页共享（composables/imgReady.js）；占位底与淡入样式见 motion.css「图片占位」段 */
 
 /* ---------- 筛选与排序 ---------- */
@@ -217,10 +176,8 @@ const placeBests = computed(() => {
   return out
 })
 
-/* ---------- 实时通道（同源 SSE；craft 事件静默重拉） ---------- */
-const LIVE_SSE_URL = liveChannelUrl(location)
-const liveChannel = ref('off') // off | connecting | on | down
-let live = null
+/* ---------- 实时通道（同源 SSE；craft 事件按版本前进静默重拉，数据链在
+   useSnapshotFeed）。此处只剩通道状态的文案映射 ---------- */
 const liveTip = computed(
   () => ({
     on: '实时推送已连接，利润自动更新',
@@ -228,49 +185,22 @@ const liveTip = computed(
     connecting: '实时推送连接中…',
   }[liveChannel.value] || '')
 )
-function connectLive() {
-  if (!LIVE_SSE_URL) return
-  live = createLiveChannel({
-    url: LIVE_SSE_URL,
-    events: ['craft'],
-    isLocal: () => isLocalHttpHost(location),
-    onState: (s) => { liveChannel.value = s },
-    onEvent: (t) => { if (t === 'craft') load({ silent: true }) },
-  })
-  live.start()
-}
-function onVisibility() {
-  if (document.hidden) return
-  nowTs.value = Date.now()
-  load({ silent: true })
-}
 
 onMounted(() => {
   prevTitle = document.title
   document.title = '三角洲行动 · 特勤处制造利润'
-  load()
-  connectLive()
-  pollTimer = setInterval(() => {
-    if (document.hidden) return
-    nowTs.value = Date.now()
-    load({ silent: true })
-  }, POLL_MS)
-  document.addEventListener('visibilitychange', onVisibility)
   document.addEventListener('keydown', onGlobalKeydown)
 })
 onBeforeUnmount(() => {
-  document.removeEventListener('visibilitychange', onVisibility)
   document.removeEventListener('keydown', onGlobalKeydown)
   document.title = prevTitle
-  if (pollTimer) clearInterval(pollTimer)
-  if (live) live.stop()
 })
 </script>
 
 <template>
   <div class="wrap page">
     <header class="compact-head">
-      <h1>特勤处制造 <span class="live-dot" :class="{ stale: ageMin !== null && ageMin > STALE_DOT_MIN }" aria-hidden="true"></span></h1>
+      <h1>特勤处制造 <span class="live-dot" :class="{ stale: ageMin !== null && ageMin > thresholds.staleDotMin }" aria-hidden="true"></span></h1>
       <p v-if="market" class="meta" :title="`数据版本 ${versionLabel}${liveTip ? ' · ' + liveTip : ''}`">
         配方 {{ market.stats.total }} · 价格完整 {{ market.stats.complete }}
       </p>
@@ -278,7 +208,7 @@ onBeforeUnmount(() => {
 
     <!-- 过期提示条：出现 / 消失走 swap 淡入淡出（MOTION.md §3-F 提示行统一口径） -->
     <Transition name="swap">
-      <p v-if="ageMin !== null && ageMin > STALE_TIP_MIN" class="state-tip stale-tip" role="status">
+      <p v-if="ageMin !== null && ageMin > thresholds.staleTipMin" class="state-tip stale-tip" role="status">
         数据已 {{ ageLabel }}未更新，利润估算可能已变化，可稍后回来查看。
       </p>
     </Transition>
@@ -317,14 +247,16 @@ onBeforeUnmount(() => {
           </div>
           <div class="hero-main">
             <!-- key 跟随配方：换最佳时图标容器重建，占位底重新铺开（否则沿用上一张图的 .ld） -->
-            <span :key="best.id" class="a-icw hero-icw" aria-hidden="true">
+            <span
+              :key="best.id" class="a-icw hero-icw" aria-hidden="true"
+              :style="{ '--gd': gradeVar(best.output.grade) }" :title="`品级 ${best.output.grade}`"
+            >
               <img
                 v-if="best.output.pic" class="a-ic hero-ic"
                 :src="picThumb(best.output.pic, 144)" alt=""
                 width="56" height="40" loading="lazy" decoding="async"
                 @load="imgReady" @error="hideImg"
               >
-              <i class="a-gd hero-gd" :style="{ background: gradeVar(best.output.grade) }" :title="`品级 ${best.output.grade}`"></i>
             </span>
             <div class="hero-name">
               <h2>{{ best.output.name }}<span v-if="best.output.count > 1" class="hero-count"> ×{{ best.output.count }}</span></h2>
@@ -334,13 +266,13 @@ onBeforeUnmount(() => {
               <!-- 单点关键数字变化走 swap 交叉淡入（旧值脱流原位淡出、新值淡入 + 6px 上移）：key 绑数值，
                    静默刷新数值未变时不触发；表格多行数字仍瞬时更新（MOTION.md §3-E） -->
               <p class="hero-num" :class="{ loss: best.profit < 0 }">
-                <Transition name="swap"><span :key="best.profitPerHour" class="hero-num-v">{{ fmtProfit(best.profitPerHour) }}</span></Transition>
+                <Transition name="swap"><span :key="best.profitPerHour" class="hero-num-v">{{ fmtSigned(best.profitPerHour) }}</span></Transition>
               </p>
               <p class="hero-unit">哈夫币 / 小时</p>
             </div>
           </div>
           <dl class="hero-stats">
-            <div><dt>单次净利润</dt><dd :class="{ loss: best.profit < 0 }">{{ fmtProfit(best.profit) }}</dd></div>
+            <div><dt>单次净利润</dt><dd :class="{ loss: best.profit < 0 }">{{ fmtSigned(best.profit) }}</dd></div>
             <div><dt>材料成本</dt><dd>{{ fmt(best.cost) }}</dd></div>
             <div><dt>制造耗时</dt><dd>{{ best.periodLabel || '—' }}</dd></div>
             <div><dt>成本回报</dt><dd :class="{ loss: best.roi < 0 }">{{ pct(best.roi) }}</dd></div>
@@ -373,11 +305,11 @@ onBeforeUnmount(() => {
             <template v-if="pb.item">
               <p class="pc-name">{{ pb.item.output.name }}</p>
               <p class="pc-nums">
-                <!-- 时利与利润都带正负号（fmtProfit）：与 hero 主数、榜单净利润列同口径——同语义数字
+                <!-- 时利与利润都带正负号（fmtSigned）：与 hero 主数、榜单净利润列同口径——同语义数字
                      一处有号一处无号，扫读正负要多看一眼颜色；bestOf 已滤掉 profitPerHour 为 null 的项，
                      时利不会落到「—」 -->
-                <span class="pc-hour" :class="{ loss: pb.item.profit < 0 }">{{ fmtProfit(pb.item.profitPerHour) }}/h</span>
-                <span class="pc-sub">{{ pb.item.periodLabel }} · 利润 {{ fmtProfit(pb.item.profit) }}</span>
+                <span class="pc-hour" :class="{ loss: pb.item.profit < 0 }">{{ fmtSigned(pb.item.profitPerHour) }}/h</span>
+                <span class="pc-sub">{{ pb.item.periodLabel }} · 利润 {{ fmtSigned(pb.item.profit) }}</span>
               </p>
             </template>
             <p v-else class="pc-empty">价格数据不足</p>
@@ -459,14 +391,16 @@ onBeforeUnmount(() => {
                 >
                   <td class="mono dimtx num">{{ idx + 1 }}</td>
                   <td>
-                    <span class="a-icw" aria-hidden="true">
+                    <span
+                      class="a-icw" aria-hidden="true"
+                      :style="{ '--gd': gradeVar(i.output.grade) }" :title="`品级 ${i.output.grade}`"
+                    >
                       <img
                         v-if="i.output.pic" class="a-ic"
                         :src="picThumb(i.output.pic, 96)" alt=""
                         width="26" height="18" loading="lazy" decoding="async"
                         @load="imgReady" @error="hideImg"
                       >
-                      <i class="a-gd" :style="{ background: gradeVar(i.output.grade) }" :title="`品级 ${i.output.grade}`"></i>
                     </span>
                     <span class="a-name">{{ i.output.name }}</span>
                     <span v-if="i.output.count > 1" class="a-count">×{{ i.output.count }}</span>
@@ -480,15 +414,15 @@ onBeforeUnmount(() => {
                   <!-- 缺价占位「—」挂 .na（--faint + 常规字重）：与真实数据（--dim 次级 / 语义色 600）拉开一档，
                        18/230 缺价行排在队尾，四列「—」若与数字同色同重会读成一片假数据 -->
                   <td class="mono dimtx num" :class="{ na: i.missingPriceCount > 0 }">{{ i.missingPriceCount ? '—' : fmt(i.cost) }}</td>
-                  <td class="mono num profit-cell" :class="{ pos: i.profit > 0, neg: i.profit < 0, na: i.missingPriceCount > 0 }">{{ i.missingPriceCount ? '—' : fmtProfit(i.profit) }}</td>
+                  <td class="mono num profit-cell" :class="{ pos: i.profit > 0, neg: i.profit < 0, na: i.missingPriceCount > 0 }">{{ i.missingPriceCount ? '—' : fmtSigned(i.profit) }}</td>
                   <td class="num">
                     <div class="hourly-cell">
                       <!-- 缺价配方的服务端字段是 0 而非 null（契约 §1.3 降级展示）：
                            与成本 / 利润列同款以 missingPriceCount 为门槛，不显示假「0」。
-                           带正负号（fmtProfit）：与本列语义同源的 hero 主数 / place-card / 净利润列
+                           带正负号（fmtSigned）：与本列语义同源的 hero 主数 / place-card / 净利润列
                            全都带号（见上方 pc-nums 注释），快照 50/230 完整行为负——无号时正负
                            只剩颜色一层编码，列内口径也不打架 -->
-                      <span v-if="i.profitPerHour != null && !i.missingPriceCount" class="mono hourly-num" :class="{ pos: i.profitPerHour > 0, neg: i.profitPerHour < 0 }">{{ fmtProfit(i.profitPerHour) }}</span>
+                      <span v-if="i.profitPerHour != null && !i.missingPriceCount" class="mono hourly-num" :class="{ pos: i.profitPerHour > 0, neg: i.profitPerHour < 0 }">{{ fmtSigned(i.profitPerHour) }}</span>
                       <span v-else class="mono na">—</span>
                       <!-- 条形槽位恒占 72px（缺价行走 .ghost 透明轨）：此前缺价行无条形图，「—」在 flex-end 下
                            直接贴到单元格右缘，与上下行数字的右缘错开整整 80px；0 值完整行保留空轨 = 真实 0% -->
@@ -504,10 +438,10 @@ onBeforeUnmount(() => {
                   </td>
                   <!-- 同时利列：缺价行 todayMaxProfit 服务端降级为 0 而非 null，
                        按 missingPriceCount 门槛显示 —，不与成本/净利润/时利三列口径打架。
-                       正负号同 fmtProfit 口径（快照今日最高含负值 -83,998）。
+                       正负号同 fmtSigned 口径（快照今日最高含负值 -83,998）。
                        口径说明只挂表头 title 一处——此前逐行 td 重复同文 title，鼠标扫行时反复弹同款
                        tooltip，纯噪声（触屏无 hover 更是死属性） -->
-                  <td class="mono dimtx num c-today" :class="{ na: i.missingPriceCount > 0 || i.todayMaxProfit == null }">{{ i.todayMaxProfit != null && !i.missingPriceCount ? fmtProfit(i.todayMaxProfit) : '—' }}</td>
+                  <td class="mono dimtx num c-today" :class="{ na: i.missingPriceCount > 0 || i.todayMaxProfit == null }">{{ i.todayMaxProfit != null && !i.missingPriceCount ? fmtSigned(i.todayMaxProfit) : '—' }}</td>
                 </tr>
                 <!-- 展开行（MOTION.md §3-C〔改〕）：tr 仍由 v-if 瞬时插入，动的是内容——.exp-clip grid-rows
                      0fr→1fr 铺开 + 行整体淡入；td 内边距下沉到 .exp-pad（.exp-inner 不带 padding 才能真 0 高） -->
@@ -536,7 +470,7 @@ onBeforeUnmount(() => {
                               产出收入 {{ fmt(i.revenue) }}（{{ fmt(i.output.price) }} × {{ i.output.count }}）
                               − 材料成本 {{ fmt(i.cost) }}
                               − 手续费 {{ fmt(i.fee) }}（{{ Math.round((i.feeRate ?? 0) * 100) }}%）
-                              = 净利润 <b :class="{ neg: i.profit < 0 }">{{ fmtProfit(i.profit) }}</b>
+                              = 净利润 <b :class="{ neg: i.profit < 0 }">{{ fmtSigned(i.profit) }}</b>
                             </p>
                             <!-- 缺价行的产出单价 / 7 日最高利润服务端均为 0 而非 null：0 与 null 同等降级为 —，
                                  避免「利润无法估算」旁边站着假数字 0（完整行不受影响，可照常显示含 0/负值） -->
@@ -644,9 +578,20 @@ onBeforeUnmount(() => {
   display: flex; align-items: center; gap: var(--sp-4);
   margin-top: var(--sp-3); flex-wrap: wrap;
 }
-.hero-icw { width: 60px; height: 44px; }
-.hero-ic { width: 56px; height: 40px; }
-.hero-gd { left: -5px; bottom: -4px; width: 7px; height: 7px; }
+/* hero 产物图标匣：游戏同款品级底色方框的放大版（染底/描边口径同下方 .a-icw，
+   品级色经行内 --gd 下发）。复合选择器压过同文件后段的 .a-icw 基础几何——
+   源序上 .hero-icw 在前，单类写法会被后段宽高反向覆盖 */
+.a-icw.hero-icw {
+  width: 60px; height: 44px;
+  border: 1px solid var(--line);
+  border-color: color-mix(in srgb, var(--gd, var(--faint)) 45%, transparent);
+  border-radius: 4px;
+}
+.a-icw.hero-icw.ld {
+  background: var(--deep);
+  background: color-mix(in srgb, var(--gd, var(--faint)) 15%, var(--deep));
+}
+.a-ic.hero-ic { width: 56px; height: 40px; }
 .hero-name { min-width: 0; flex: 1; }
 .hero-name h2 {
   font-size: var(--fs-xl); color: var(--tx-strong); font-weight: 700;
@@ -668,7 +613,7 @@ onBeforeUnmount(() => {
 /* 数值变化交叉淡入（swap 类来自 motion.css）：新值在流内淡入 + 6px 上移；离场旧值脱流钉在原位
    只淡出——不占位、不挤行。inline-block 让 translateY 生效；右对齐锚右缘，窄屏左对齐时锚左缘。
    min-width 9ch：mono + tabular-nums 下 1ch = 1 位数字宽，新值位数变少时容器不收窄、旧值不向左溢出
-   叠到名称上；取值依据 2026-10 快照全量价格完整配方 fmtProfit 最长 7 字符（+10,767）留 2 字符余量，
+   叠到名称上；取值依据 2026-10 快照全量价格完整配方 fmtSigned 最长 7 字符（+10,767）留 2 字符余量，
    超出只退化为 ≤250ms 轻微叠字，不破版 */
 .hero-num-v { display: inline-block; min-width: 9ch; }
 .hero-num-v.swap-leave-active { position: absolute; top: 0; right: 0; }
@@ -811,10 +756,18 @@ onBeforeUnmount(() => {
    「点了没反应」；--lift（白 6%）比 hover 面（白 5%）深一档读作「按实」。置于 .row.open 之后——
    特异性同级、源序取胜，收起已展开行时同样有反馈。背景过渡沿用 base.css .tbl tbody tr（RM 已关） */
 .row:active { background: var(--lift); }
+/* 游戏同款品级底色方框（染底 + 描边），口径同 AmmoMarketView 行内图标 */
 .a-icw {
   position: relative;
   display: inline-flex; align-items: center; justify-content: center;
-  width: 28px; height: 18px; margin-right: 8px; vertical-align: middle;
+  width: 30px; height: 22px; margin-right: 8px; vertical-align: middle;
+  border: 1px solid var(--line);
+  border-color: color-mix(in srgb, var(--gd, var(--faint)) 45%, transparent);
+  border-radius: 4px;
+}
+.a-icw.ld {
+  background: var(--deep);
+  background: color-mix(in srgb, var(--gd, var(--faint)) 15%, var(--deep));
 }
 /* ---------- 图片占位 ---------- */
 /* 容器占位底与 .a-ic 淡入已提升 motion.css（三页共享，含 RM 兜底）；本页只留几何尺寸 */
@@ -822,11 +775,6 @@ onBeforeUnmount(() => {
 /* 材料 16px 小图没有容器（本页特有）：底色铺在自身，到位后过渡为透明（background-color 过渡无布局成本，§6-1 允许） */
 .mat-ic { border-radius: var(--radius-sm); background: var(--sk-base); transition: background-color var(--t-med) var(--ease); }
 .mat-ic.ld { background: transparent; }
-.a-gd {
-  position: absolute; left: -4px; bottom: -3px;
-  width: 6px; height: 6px; transform: rotate(45deg);
-  box-shadow: 0 0 0 2px var(--card);
-}
 .a-name { color: var(--tx-strong); white-space: nowrap; }
 .a-count { font-family: var(--mono); font-size: var(--fs-xs); color: var(--dim); margin-left: 4px; }
 .miss-tag {

@@ -7,6 +7,8 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { picThumb } from '@shared/js/marketMeta.js'
 import { predictSellEta, fmtPeak } from '@shared/js/sellEta.js'
+import { fmt, gradeVar } from '../../utils/format.js'
+import { hideImg } from '../../composables/imgReady'
 
 const props = defineProps({
   item: { type: Object, required: true },
@@ -16,9 +18,8 @@ const props = defineProps({
 })
 defineEmits(['open'])
 
-const fmt = (n) => (Number.isFinite(n) ? Math.round(n).toLocaleString('zh-CN') : '—')
-const gradeVar = (g) => (g >= 2 && g <= 6 ? `var(--lv${g})` : 'var(--faint)')
-const hideImg = (e) => { e.target.style.display = 'none' }
+/* fmt / gradeVar 收编 ../../utils/format.js；图标加载失败就地隐藏的事件处理
+   走 ../../composables/imgReady（占位底样式见 motion.css「图片占位」段） */
 
 /* 卖出分位线（analyze.mjs SELL_RANK_MIN）：轨道刻度与徽章悬浮说明共用 */
 const sellMin = computed(() => (Number.isFinite(props.rules.SELL_RANK_MIN) ? props.rules.SELL_RANK_MIN : 0.8))
@@ -62,13 +63,14 @@ onBeforeUnmount(() => clearTimeout(flashTimer))
     @click="$emit('open')"
   >
     <span class="sl-head">
-      <span class="sl-ic">
+      <span
+        class="sl-ic" :style="{ '--gd': gradeVar(item.grade) }" :title="`品级 ${item.grade}`"
+      >
         <img
           v-if="item.pic" :src="picThumb(item.pic, 96)"
           alt="" width="26" height="24" loading="lazy" decoding="async"
           @error="hideImg"
         >
-        <i class="sl-grade" :style="{ background: gradeVar(item.grade) }" :title="`品级 ${item.grade}`"></i>
       </span>
       <b class="sl-name">{{ item.name }}</b>
       <span
@@ -158,23 +160,21 @@ onBeforeUnmount(() => clearTimeout(flashTimer))
   transition-duration: var(--t-fast);
 }
 
-/* ---------- 头部：切角图标匣 + 弹名 + P 分位徽章（同 SignalCard .sc-head 族） ---------- */
+/* ---------- 头部：切角图标匣（游戏同款品级染底 + 描边，口径同 SignalCard .sc-ic）
+   + 弹名 + P 分位徽章（同 SignalCard .sc-head 族） ---------- */
 .sl-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .sl-ic {
   position: relative; flex: none;
   width: 38px; height: 34px;
   display: grid; place-items: center;
   background: var(--deep);
+  background: color-mix(in srgb, var(--gd, var(--faint)) 15%, var(--deep));
   border: 1px solid var(--line);
+  border-color: color-mix(in srgb, var(--gd, var(--faint)) 45%, transparent);
   /* 右上切角：战术弹药匣轮廓，与 SignalCard .sc-ic 同族 */
   clip-path: polygon(0 0, calc(100% - 9px) 0, 100% 9px, 100% 100%, 0 100%);
 }
 .sl-ic img { width: 26px; height: 24px; object-fit: contain; }
-.sl-grade {
-  position: absolute; right: 3px; bottom: 2px;
-  width: 6px; height: 6px; transform: rotate(45deg);
-  box-shadow: 0 0 0 2px var(--deep); /* 镶边让角标压在图标上仍可读 */
-}
 .sl-name {
   flex: 1; min-width: 0;
   font-size: var(--fs-sm); font-weight: 600; color: var(--tx-strong);

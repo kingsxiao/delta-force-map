@@ -51,6 +51,15 @@ struct MarketMetaTests {
         #expect(Fmt.pct(0.276) == "+27.6%")
         #expect(Fmt.pct(-0.13443) == "-13.4%")
         #expect(Fmt.pct(0) == "+0.0%")
+        // 带符号金额 / 整数百分比（符号规则与 pct 对齐：正数补 +、负数自带 -；
+        // 四舍五入到 0 的负值不显「-0」）
+        #expect(Fmt.signedPrice(12345.6789) == "+12,346")
+        #expect(Fmt.signedPrice(-1024.2) == "-1,024")
+        #expect(Fmt.signedPrice(-0.4) == "0")
+        #expect(Fmt.signedPrice(nil) == "—")
+        #expect(Fmt.signedPctInt(0.276) == "+28%")
+        #expect(Fmt.signedPctInt(-0.134) == "-13%")
+        #expect(Fmt.signedPctInt(nil) == "—")
         #expect(Fmt.rankPercent(0.7142857) == "71%")
         #expect(Fmt.grouped(999) == "999")
         #expect(Fmt.grouped(1000) == "1,000")

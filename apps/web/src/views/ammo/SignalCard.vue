@@ -9,6 +9,8 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import Sparkline from './Sparkline.vue'
 import { picThumb } from '@shared/js/marketMeta.js'
 import { predictSellEta, fmtHours, fmtPeak } from '@shared/js/sellEta.js'
+import { fmt, pct, fmtSigned, gradeVar } from '../../utils/format.js'
+import { hideImg } from '../../composables/imgReady'
 
 const props = defineProps({
   item: { type: Object, required: true },
@@ -162,30 +164,25 @@ const etaTip = computed(() => {
 /* 预计历时的展示门槛：至少 2 次完整上涨样本（单样本中位没有置信度） */
 const etaReady = computed(() => !!eta.value && eta.value.medianH != null && eta.value.episodes >= 2)
 
-const fmt = (n) => (Number.isFinite(n) ? Math.round(n).toLocaleString('zh-CN') : '—')
-/* 收益率带符号（按成本重算后可能为负）：+8.2% / -3.1% */
-const pct = (n) => (Number.isFinite(n) ? `${n >= 0 ? '+' : ''}${(n * 100).toFixed(1)}%` : '—')
-/* 带符号金额（利润可能为负）：+12,345 / -1,024 */
-const fmtSigned = (n) => (Number.isFinite(n) ? `${n >= 0 ? '+' : '-'}${Math.abs(Math.round(n)).toLocaleString('zh-CN')}` : '—')
-// 品级色沿用 base.css --lv* 语义变量（2 绿 ~ 6 红）
-const gradeVar = (g) => (g >= 2 && g <= 6 ? `var(--lv${g})` : 'var(--faint)')
 const rankPct = (r) => (Number.isFinite(r) ? Math.round(r * 100) : null)
 // 游标定位夹在 2%~98%：rank 极值时菱形不出轨道端头
 const markPos = (r) => Math.min(98, Math.max(2, rankPct(r) ?? 50))
-// 图标加载失败（CDN 抖动等）就地隐藏，不占位不报错
-const hideImg = (e) => { e.target.style.display = 'none' }
+/* fmt / pct（带符号一位小数）/ fmtSigned / gradeVar 收编 ../../utils/format.js；
+   图标加载失败（CDN 抖动等）就地隐藏的事件处理走 ../../composables/imgReady */
 </script>
 
 <template>
   <article class="sig-card">
     <header class="sc-head">
-      <span class="sc-ic" :class="{ empty: !item.pic }">
+      <span
+        class="sc-ic" :class="{ empty: !item.pic }"
+        :style="{ '--gd': gradeVar(item.grade) }" :title="`品级 ${item.grade}`"
+      >
         <img
           v-if="item.pic" :src="picThumb(item.pic, 128)"
           alt="" width="32" height="28" loading="lazy" decoding="async"
           @error="hideImg"
         >
-        <i class="sc-grade" :style="{ background: gradeVar(item.grade) }" :title="`品级 ${item.grade}`"></i>
       </span>
       <h4 class="sc-name">{{ item.name }}</h4>
       <span
@@ -334,24 +331,26 @@ const hideImg = (e) => { e.target.style.display = 'none' }
   border-color: color-mix(in srgb, var(--ok) 90%, transparent);
 }
 
-/* ---------- 头部：切角图标框 + 品级菱形角标 + 弹名 + 分位徽章 ---------- */
+/* ---------- 头部：切角图标框（游戏同款品级染底 + 描边，口径同全表 .a-icw） +
+   弹名 + 分位徽章 ---------- */
 .sc-head { display: flex; align-items: center; gap: var(--sp-3); }
 .sc-ic {
   position: relative;
   width: 44px; height: 44px; flex: none;
   display: grid; place-items: center;
   background: var(--deep);
+  background: color-mix(in srgb, var(--gd, var(--faint)) 15%, var(--deep));
   border: 1px solid var(--line);
+  border-color: color-mix(in srgb, var(--gd, var(--faint)) 45%, transparent);
   /* 右上切角：战术弹药匣轮廓，切边处无描边为有意为之 */
   clip-path: polygon(0 0, calc(100% - 11px) 0, 100% 11px, 100% 100%, 0 100%);
 }
-.sc-ic.empty { border-style: dashed; clip-path: none; }
-.sc-ic img { width: 30px; height: 28px; object-fit: contain; }
-.sc-grade {
-  position: absolute; right: 3px; bottom: 3px;
-  width: 7px; height: 7px; transform: rotate(45deg);
-  box-shadow: 0 0 0 2px var(--deep); /* 镶边让角标压在图标上仍可读 */
+/* 空态（无图）：回中性底与描边，虚线「缺图」语义不与品级色混 */
+.sc-ic.empty {
+  background: var(--deep);
+  border-style: dashed; border-color: var(--line); clip-path: none;
 }
+.sc-ic img { width: 30px; height: 28px; object-fit: contain; }
 .sc-name {
   flex: 1; min-width: 0; margin: 0;
   font-size: var(--fs-lg);

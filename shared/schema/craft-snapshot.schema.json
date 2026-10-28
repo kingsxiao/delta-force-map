@@ -1,0 +1,254 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://delta-force-map/shared/schema/craft-snapshot.schema.json",
+  "title": "CraftSnapshot",
+  "description": "GET /craft/craft.json — 特勤处制造利润快照。口径见 shared/API.md §1 craft 节；实现 server/craft/snapshot.mjs（上游 moligod-craft，公开传输编码 AES-256-GCM + gzip 解码后整形）。利润为上游预估值：材料按现价买入 → 产出按现价 × 数量挂卖 → 扣手续费。",
+  "type": "object",
+  "required": [
+    "version",
+    "fetchedAt",
+    "generatedAt",
+    "source",
+    "places",
+    "items",
+    "stats"
+  ],
+  "properties": {
+    "version": {
+      "$ref": "#/$defs/versionKey"
+    },
+    "fetchedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "generatedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "source": {
+      "const": "moligod-craft"
+    },
+    "places": {
+      "description": "制造台展示序（snapshot.mjs PLACE_ORDER 定调，非上游字母序）",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "label"],
+        "properties": {
+          "id": { "$ref": "#/$defs/placeId" },
+          "label": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "items": {
+      "description": "全量配方（过滤上游 is_special_ops_visible === false）",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/craftItem"
+      }
+    },
+    "stats": {
+      "description": "完整 = missingPriceCount === 0；可盈利 = 完整且 profit > 0",
+      "type": "object",
+      "required": ["total", "complete", "profitable"],
+      "properties": {
+        "total": { "type": "integer", "minimum": 0 },
+        "complete": { "type": "integer", "minimum": 0 },
+        "profitable": { "type": "integer", "minimum": 0 }
+      }
+    }
+  },
+  "$defs": {
+    "versionKey": {
+      "description": "12 位分钟档 YYYYMMDDHHmm（北京墙钟，= 全部配方产出 lastUpdate 最大值）",
+      "type": "string",
+      "pattern": "^[0-9]{12}$"
+    },
+    "placeId": {
+      "type": "string",
+      "enum": ["workbench", "armory", "tech", "pharmacy"]
+    },
+    "goodsCore": {
+      "description": "产物与材料共有的物品字段",
+      "type": "object",
+      "required": ["name", "grade", "pic", "count"],
+      "properties": {
+        "name": {
+          "description": "物品官方中文名（优先上游 display_name）",
+          "type": "string",
+          "minLength": 1
+        },
+        "grade": {
+          "description": "品级 1–6；0 = 无品级（枪械本体 category=gun）",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 6
+        },
+        "pic": {
+          "description": "官方图标 URL；上游缺失时为 null",
+          "type": ["string", "null"]
+        },
+        "count": {
+          "description": "产出 / 消耗数量",
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "craftItem": {
+      "type": "object",
+      "required": [
+        "id",
+        "place",
+        "requiredLevel",
+        "category",
+        "output",
+        "materials",
+        "cost",
+        "fee",
+        "feeRate",
+        "revenue",
+        "profit",
+        "profitPerHour",
+        "roi",
+        "periodHours",
+        "periodLabel",
+        "todayMaxProfit",
+        "sevenDayMaxProfit",
+        "missingPriceCount"
+      ],
+      "properties": {
+        "id": {
+          "description": "上游配方 id（唯一键）",
+          "type": "integer",
+          "minimum": 1
+        },
+        "place": {
+          "$ref": "#/$defs/placeId"
+        },
+        "requiredLevel": {
+          "description": "制造台解锁等级",
+          "type": "integer",
+          "minimum": 1
+        },
+        "category": {
+          "description": "产出品类（ammo / protect / gun / acc / props …开放集，不做 enum）；上游缺失时为 null",
+          "type": ["string", "null"],
+          "minLength": 1
+        },
+        "output": {
+          "$ref": "#/$defs/output"
+        },
+        "materials": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/material"
+          }
+        },
+        "cost": {
+          "description": "材料成本合计 = Σ cost",
+          "type": "number",
+          "minimum": 0
+        },
+        "fee": {
+          "description": "手续费 = revenue × feeRate",
+          "type": "number",
+          "minimum": 0
+        },
+        "feeRate": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "revenue": {
+          "description": "产出收入 = price × count",
+          "type": "number",
+          "minimum": 0
+        },
+        "profit": {
+          "description": "预估净利润 = revenue − fee − cost（可为负）",
+          "type": "number"
+        },
+        "profitPerHour": {
+          "description": "时利 = profit / periodHours（最佳口径三端一致）；periodHours ≤ 0 时为 null（可为负）",
+          "type": ["number", "null"]
+        },
+        "roi": {
+          "description": "回报率 = profit / cost；cost ≤ 0 时为 null（可为负）",
+          "type": ["number", "null"]
+        },
+        "periodHours": {
+          "description": "制造耗时（小时）",
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "periodLabel": {
+          "description": "耗时原始标签（如 12h / 4h30m）；上游缺失时为 null",
+          "type": ["string", "null"]
+        },
+        "todayMaxProfit": {
+          "description": "今日最高利润（乐观参照，非承诺；可为负）",
+          "type": "number"
+        },
+        "sevenDayMaxProfit": {
+          "description": "7 日最高利润（乐观参照；可为负）",
+          "type": "number"
+        },
+        "missingPriceCount": {
+          "description": "材料或产出缺价计数；> 0 时利润估算不可用，客户端应降级展示",
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "if": {
+        "properties": {
+          "profitPerHour": { "type": "number" }
+        }
+      },
+      "then": {
+        "properties": {
+          "periodHours": {
+            "type": "number",
+            "exclusiveMinimum": 0
+          }
+        }
+      }
+    },
+    "output": {
+      "allOf": [{ "$ref": "#/$defs/goodsCore" }],
+      "type": "object",
+      "required": ["price", "lastUpdate"],
+      "properties": {
+        "price": {
+          "description": "产物现价；缺价时为 0 并计入 missingPriceCount（snapshot.mjs num() 对缺失输入得 0，非 null）",
+          "type": "number",
+          "minimum": 0
+        },
+        "lastUpdate": {
+          "description": "价格更新时刻（北京墙钟）；缺价时为 null",
+          "type": ["string", "null"],
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}$"
+        }
+      }
+    },
+    "material": {
+      "allOf": [{ "$ref": "#/$defs/goodsCore" }],
+      "type": "object",
+      "required": ["price", "cost"],
+      "properties": {
+        "price": {
+          "description": "材料现价；缺价时为 null（has_price 门控，与产出的 0 口径不同）",
+          "type": ["number", "null"],
+          "minimum": 0
+        },
+        "cost": {
+          "description": "= price × count；缺价材料记 0",
+          "type": "number",
+          "minimum": 0
+        }
+      }
+    }
+  }
+}

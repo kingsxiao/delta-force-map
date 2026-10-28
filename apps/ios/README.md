@@ -75,13 +75,13 @@ cd apps/ios && xcodebuild -project DeltaForce.xcodeproj -scheme DeltaForce \
 # 3. 模拟器运行：需要先装 iOS Simulator runtime（Xcode ▸ Settings ▸ Components / Platforms，
 #    或 xcodebuild -downloadPlatform iOS），然后 Xcode 打开 DeltaForce.xcodeproj ⌘R，
 #    或用 ios-simulator 插件：ios_build_and_run(project: "apps/ios/DeltaForce.xcodeproj", scheme: "DeltaForce")
-```
 
 # 4. 打包（Release 归档 / IPA 导出 / 体积报告；Release 已配 -Osize + Thin LTO + 符号剥离，
 #    在仓库根执行）
 npm run ios:archive                                  # 未签名 Release 构建 + 体积报告（本地体积检查）
 bash deploy/ios-archive.sh --ipa --team <团队ID>      # 真机归档并导出 IPA；TestFlight 加 --method app-store-connect
 #    可选 --refresh-data：打包前先 npm run export:ios 重导 TTK 数据
+```
 
 真机 / TestFlight：签名 Team 在 `project.yml` 的 `DEVELOPMENT_TEAM`（当前已写入
 `S4R9UW3RSD`，如换自己的团队改这里后重新 `xcodegen generate`）。

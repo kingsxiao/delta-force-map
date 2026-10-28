@@ -26,7 +26,6 @@
    用法：node server/market/radar.mjs [--interval 分钟=30] [--once] [--no-notify]
    ============================================================ */
 import { readFile } from 'node:fs/promises'
-import { existsSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { kkrbRequest } from '../ammo/kkrb-client.mjs'
@@ -34,7 +33,7 @@ import { fetchHistory } from '../ammo/moligod-client.mjs'
 import { analyzeItem, fmtPrice, fmtPct } from '../ammo/analyze.mjs'
 import { judgeSignals, emptyState } from '../../shared/js/notify-policy.js'
 import { notify } from '../ammo/notify.mjs'
-import { writeJsonAtomic } from '../ammo/fetch-once.mjs'
+import { writeJsonAtomic, writeSnapshotPair } from '../ammo/fetch-once.mjs'
 import { getDirectory, findByName, normalizeName, DIRECTORY_PRIMARIES } from '../official/object-directory.mjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
@@ -291,11 +290,8 @@ export async function runRadarCycle({ rootDir = ROOT, webDir = rootDir, notifyFn
     stats,
   }
 
-  const outPath = path.join(webDir, 'public', 'market', 'radar.json')
-  const text = JSON.stringify(out)
-  await writeJsonAtomic(outPath, text)
-  const distPath = path.join(webDir, 'dist', 'market', 'radar.json')
-  if (existsSync(path.dirname(distPath))) await writeJsonAtomic(distPath, text)
+  // public + dist 双写统一走 writeSnapshotPair（dist 目录存在时联动）
+  await writeSnapshotPair(webDir, path.join('market', 'radar.json'), JSON.stringify(out))
 
   if (state) {
     const { buys, sells } = judgeSignals(state, items)
@@ -327,7 +323,13 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
       console.error(`[${new Date().toLocaleString('zh-CN')}] 雷达抓取失败: ${e.message}`)
       return
     }
-    await writeJsonAtomic(STATE_PATH, JSON.stringify(state))
+    // state 写失败只记日志不炸循环（口径同 live.mjs / monitor.mjs：state 是旁路，
+    // 磁盘满 / 目录被删时不得杀死进程、断掉下一轮调度）
+    try {
+      await writeJsonAtomic(STATE_PATH, JSON.stringify(state))
+    } catch (e) {
+      console.error(`[${new Date().toLocaleString('zh-CN')}] radar state 落盘失败（不影响雷达循环）: ${e.message}`)
+    }
     const s = r.stats
     console.log(
       `[${new Date().toLocaleString('zh-CN')}] version ${r.version} · 榜单 ${s.total} 项 · 买入 ${s.buy} / 卖出 ${s.sell} / 关注 ${s.watch}` +

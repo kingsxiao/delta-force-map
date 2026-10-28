@@ -97,7 +97,7 @@
 **新组件 `apps/web/src/components/SkeletonView.vue`（唯一新组件）：**
 
 ```vue
-<!-- props: variant: 'table'|'cards'|'stats'|'hero'; rows=8; cols=8 -->
+<!-- props: variant: 'table'|'cards'|'hero'; rows=8; cols=8 -->
 <!-- 内部只输出 .sk-* 结构，不拉数据、不占 .state-card 类名（smoke.mjs 兼容，见 §6-6） -->
 <SkeletonView v-if="loadState === 'loading'" variant="table" :rows="8" />
 ```
@@ -105,7 +105,6 @@
 | variant | 结构 | 用于 |
 |---------|------|------|
 | `table` | 表头条 + `rows` × `.sk-row`（雷达 10 行 / 弹药 8 行） | /ammo /radar /craft 首载 |
-| `stats` | 4 格脉冲总览骨架（`.pulse` 同构） | /ammo 首载表头之上（可选叠加） |
 | `cards` | 2×3 信号卡骨架 | /ammo 买入区（可选） |
 | `hero` | 时利最佳主卡骨架 | /craft 首载 |
 
@@ -260,7 +259,7 @@ if app.market.snapshot == nil, let err = app.market.lastError {
 
 | 页 | 现状（替换点） | 改为 |
 |----|----------------|------|
-| /ammo | `AmmoMarketView.vue:677` `.state-tip` 一行字 | `<Transition name="swap" mode="out-in">` 包四态（key=loadState）；loading 态渲染 `<SkeletonView variant="table" :rows="8" />`（可上叠 `variant="stats"`） |
+| /ammo | `AmmoMarketView.vue:677` `.state-tip` 一行字 | `<Transition name="swap" mode="out-in">` 包四态（key=loadState）；loading 态渲染 `<SkeletonView variant="table" :rows="8" />` |
 | /radar | `MarketRadarView.vue:244` `.load-hold` 空盒（430-437 的 min-height 560px 预留思路保留：ready 实测 ≈590px，10 行 ×~46px + 表头 ≈500px **不够**——骨架容器加 `min-height: max(560px, 60vh)` 兜底（motion.css `.sk-hold` 三页统一，560px 保验收③只增不减、60vh 保验收② ≥60vh），或行数取 12） | `<SkeletonView variant="table" :rows="10" />`（容器 `.sk-hold`：min-height max(560px, 60vh)） |
 | /craft | `CraftView.vue:235` `.state-tip` | `variant="hero"` + `variant="table" :rows="8"`（最佳卡 + 榜单双段） |
 | /ttk | 本地数据毫秒级加载，无 loading 态 | 不加骨架（原则 3） |

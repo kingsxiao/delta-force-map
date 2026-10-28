@@ -9,9 +9,10 @@
      apps/web/public/ammo/market.json               → shared/fixtures/market-sample.json
      apps/web/public/market/radar.json              → shared/fixtures/radar-sample.json
      apps/web/public/craft/craft.json               → shared/fixtures/craft-sample.json
-   fixtures 是固定样本：iOS 单测断言口径移植（sellEta / marketMeta /
-   NotifyPolicy）与「演示模式」离线数据都吃它；只在契约或 TTK 数据
-   变化时重跑本脚本并一起提交。
+   fixtures 是真实快照的全量留档样本（对线上快照逐字拷贝、不脱敏，含
+   fingerprint / officialAnchor / season 等元信息字段）：iOS 单测断言口径
+   移植（sellEta / marketMeta / NotifyPolicy / craft 解码）吃它（iOS 端无
+   演示模式）；只在契约或 TTK 数据变化时重跑本脚本并一起提交。
    PARTS.dur 是函数不能序列化：导出耐久表 + 覆盖规则枚举，Swift 端按
    同一规则实现（chest: al>0 用 DUR；belly: al≥3 用 DUR（1-2 级甲不
    护腹）；head: al>0 用 HEAD_DUR）。
@@ -77,6 +78,9 @@ const alias = {
 await writeFile(path.join(SHARED, 'data', 'ammo-alias.json'), JSON.stringify(alias, null, 1) + '\n')
 console.log(`✓ shared/data/ammo-alias.json：${AMMO_MARKET_PAIRS.length} 对映射 · ${AMMO_MARKET_UNMAPPED.length} 条显式不映射`)
 
+// 三张快照的逐字全量拷贝（readFile → 原样 stringify，不脱敏、不裁字段）：
+// 留档样本即真实线上快照（含 fingerprint / officialAnchor / season.events
+// 等元信息字段），iOS 单测据此断言真实形状
 for (const [from, to] of [
   ['public/ammo/market.json', 'market-sample.json'],
   ['public/market/radar.json', 'radar-sample.json'],

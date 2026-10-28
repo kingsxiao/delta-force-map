@@ -11,23 +11,28 @@
      ⑤ notify-policy：首次立即报 / 同信号冷却 / 切换需 streak≥2 确认 /
         冷却到期 / BUY 深跌重报（单轮跳变 + 渐进阴跌按累计跌幅）
      ⑥ fetchOnce：指纹门槛（变化才写、同指纹静默、5min 心跳）+ source 字段
-        + dist 联动
+        + dist 联动 + writeSnapshotPair 双写助手
+     ⑥b joinOfficialAnchor：锚缺失/坏档静默跳过 + 正常 join（official 挂锚、
+        dev 按本快照现价现算、joined 计有效锚条数）
      ⑦ 主源故障自动回落 kkrb（兜底分支：重试 3 次、来源如实切换、旧口径兼容）
      ⑧ 留档 ≥10min 门槛 + 超 7 天 / 超 1000 份清理
      ⑨ 并发读写原子性（写盘全程读方 JSON.parse 不炸、无 .tmp 残留）
      ⑨b 并发写者共写同一目标（违反「只跑一个写盘者」时的安全网）
      ⑩ SSE：连接即收 event:hello、落盘广播 event:market（wire 格式断言，
         127.0.0.1 临时端口）；--no-notify 下 state 仍全量记录（防恢复爆发）
+     ⑩b live kkrb 兜底状态机：moligod 失败→kkrb 降档节奏服务→第 3 轮探活
+        切回（探活轮不回落 kkrb；注入缩短的节奏参数多轮驱动）
+     ⑩c live 双源失败指数退避：起点起步、连败 ×2 增长、cap 封顶不再翻倍
      ⑪ 页面纯逻辑（src/views/ammo/marketMeta.js）：版本双格式 / 阈值分档 /
         实时通道端点（本地 8787 / 同源 /events / file 不可用）/ 过期文案
         分钟·小时·天分档（纯静态部署的如实标注分支）
      ⑫ 页面纯逻辑（src/views/ammo/sellEta.js）：预计卖出——历史到达历时 /
         日内节律 / 时钟标签 / 通知文案（样本门槛）
      ⑬ server.mjs 同源部署服务：静态托管 + 缓存头 + SSE·health 复用 + 防穿越
-        + 雷达落盘广播 event:radar（注入桩，不打外网）
+        + 雷达/特勤处落盘广播 event:radar / event:craft（注入桩，不打外网）
    可选 --online：追加真实上游连通性检查（默认跳过，保证离线可跑）。
    全部通过 exit 0；任何失败把原因写 stderr 后 exit 1。
-   用法：node scripts/ammo/selftest.mjs [--online]
+   用法：node server/ammo/selftest.mjs [--online]
    ============================================================ */
 import { mkdtemp, mkdir, readFile, writeFile, readdir, utimes, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -39,7 +44,7 @@ import {
   inferYear, historyTimeToKey, getSnapshot, primeCurveCache, clearCurveCache, curveCacheStats,
   CURVE_TTL_MS, beijingParts,
 } from './moligod-client.mjs'
-import { fetchOnce, writeJsonAtomic, HEARTBEAT_MS } from './fetch-once.mjs'
+import { fetchOnce, writeJsonAtomic, writeSnapshotPair, joinOfficialAnchor, HEARTBEAT_MS } from './fetch-once.mjs'
 import { judgeSignals, emptyState, POLICY, buyLine, sellLine } from '../../shared/js/notify-policy.js'
 import { analyzeItem, analyzeMarket } from './analyze.mjs'
 import { createLiveServer } from './live.mjs'
@@ -49,6 +54,7 @@ import {
 } from '../../shared/js/marketMeta.js'
 import {
   hourlyProfile, reachEpisodes, predictSellEta, fmtHours, fmtPeak,
+  dayTradeEta, isDayTradeItem, DAY_TRADE_MAX_H, DAY_TRADE_MIN_NET_PCT, DAY_TRADE_MIN_EPISODES,
 } from '../../shared/js/sellEta.js'
 
 const ONLINE = process.argv.includes('--online')
@@ -185,7 +191,7 @@ function respondGzip(obj, status = 200) {
 
 function installStub({ catalog, histories = {}, kkrb = null } = {}) {
   const realFetch = globalThis.fetch
-  const calls = { catalog: 0, history: [], kkrbHome: 0, kkrbMenu: 0, kkrbData: 0 }
+  const calls = { catalog: 0, history: [], kkrbHome: 0, kkrbMenu: 0, kkrbData: 0, kkrbTrade: 0, kkrbCalendar: 0 }
   globalThis.fetch = async (input) => {
     const url = typeof input === 'string' ? input : input && input.url
     // 本机回环请求（SSE 读 127.0.0.1 临时端口）不走桩，透传真 fetch
@@ -205,6 +211,19 @@ function installStub({ catalog, histories = {}, kkrb = null } = {}) {
       return respondGzip(h)
     }
     if (url && url.includes('kkrb.net')) {
+      // fetch-once 的 join 旁路（军需处兑换 / 赛季日历）与子弹快照同为 kkrb
+      // 接口，桩内如实应答：军需处空表、日历无有效赛季——两者模块级 TTL 缓存
+      // 首次命中后后续轮次零请求。不建模的话它们会落进下面的 home 兜底分支
+      // 拿到空 body，res.json() 抛错再触发 kkrbRequest 内部 3s+6s 重试，每轮
+      // fetchOnce 白吃 ~18s（⑩b 兜底状态机 20s 轮询窗就是被这个拖爆的）
+      if (url.includes('/getTradeAmmoData')) {
+        calls.kkrbTrade++
+        return Response.json({ code: 1, version: '2026101314', data: { cn: [] } })
+      }
+      if (url.includes('/getActivityCalendarData')) {
+        calls.kkrbCalendar++
+        return Response.json({ code: 1, data: {} })
+      }
       if (!kkrb) throw new Error(`stub: 意外的 kkrb 调用 ${url}`)
       const res = (body, setCookie) =>
         new Response(body, { headers: setCookie ? [['set-cookie', setCookie]] : {} })
@@ -559,8 +578,71 @@ check('fetchOnce：指纹门槛（变化才写/同指纹静默/心跳重写）+ 
     assert(r.changed === true, '价格变化应写盘')
     const j2 = JSON.parse(await readFile(pub, 'utf8'))
     assert(j2.fingerprint !== j1.fingerprint, '指纹应随价格翻转')
+
+    // writeSnapshotPair（四处「public + dist 双写」的统一助手）：dist 命中双写、
+    // 返回路径列表；dist 目录不存在时只写 public
+    await rm(path.join(root, 'dist', 'ammo'), { recursive: true, force: true }) // 撤掉 dist 再对比
+    const written = await writeSnapshotPair(root, path.join('ammo', 'market.json'), JSON.stringify({ pair: 1 }))
+    assert(written.length === 1 && written[0] === pub, `无 dist 目录应只写 public，实际 ${written.join(',')}`)
+    await mkdir(path.join(root, 'dist', 'ammo'), { recursive: true })
+    const written2 = await writeSnapshotPair(root, path.join('ammo', 'market.json'), JSON.stringify({ pair: 2 }))
+    assert(
+      written2.length === 2 && written2[1] === path.join(root, 'dist', 'ammo', 'market.json'),
+      `dist 目录存在应双写并返回两路径，实际 ${written2.join(',')}`
+    )
+    assert(JSON.parse(await readFile(written2[1], 'utf8')).pair === 2, 'dist 应与 public 同内容')
   } finally {
     stub.restore()
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+/* ============================================================
+   ⑥b joinOfficialAnchor：锚缺失 / 坏档静默跳过 + 正常 join（纯离线）
+   ============================================================ */
+check('joinOfficialAnchor：锚缺失/坏档静默跳过 + 正常 join（dev 现算）', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'ammo-selftest-6b-'))
+  const anchorPath = path.join(root, 'data', 'ammo', 'official-anchor.json')
+  const items = [
+    { name: '测试弹0号', current: 110 },
+    { name: '测试弹1号', current: 50 },
+    { name: '无锚弹', current: 80 },
+  ]
+  try {
+    // 分支一：锚文件不存在 → 原样返回、officialAnchor=null（旁路参照永不阻塞主链路）
+    let r = await joinOfficialAnchor(items, anchorPath)
+    assert(r.officialAnchor === null && r.items === items, '锚缺失应原样返回且 officialAnchor=null')
+
+    // 分支二：坏档（半截 JSON）→ 同上静默跳过
+    await mkdir(path.dirname(anchorPath), { recursive: true })
+    await writeFile(anchorPath, '{"items": [')
+    r = await joinOfficialAnchor(items, anchorPath)
+    assert(r.officialAnchor === null && r.items === items, '坏档应静默跳过、不炸主链路')
+
+    // 分支三：正常 join——按弹名精确挂 official；dev 按本快照现价现算；
+    // joined 计锚侧有效条数（快照里没有的锚条目也计入，如实反映锚覆盖面）
+    await writeFile(anchorPath, JSON.stringify({
+      fetchedAt: '2026-10-27T08:00:00.000Z',
+      items: [
+        { name: '测试弹0号', official: 100 },
+        { name: '测试弹1号', official: 'x' }, // 非法锚值剔除
+        { name: '锚里多余的弹', official: 200 }, // 快照无此弹：joined 仍计
+      ],
+    }))
+    r = await joinOfficialAnchor(items, anchorPath)
+    assert(
+      r.officialAnchor && r.officialAnchor.joined === 2 && r.officialAnchor.fetchedAt === '2026-10-27T08:00:00.000Z',
+      `joined 应为有效锚条数 2 且透传 fetchedAt，实际 ${JSON.stringify(r.officialAnchor)}`
+    )
+    const a = r.items.find((i) => i.name === '测试弹0号')
+    assert(
+      a.official && a.official.avg === 100 && a.official.dev === 0.1 && a.official.at === '2026-10-27T08:00:00.000Z',
+      `official 应挂锚并按现价现算 dev=(110−100)/100=0.1，实际 ${JSON.stringify(a.official)}`
+    )
+    assert(r.items.find((i) => i.name === '测试弹1号').official === undefined, '锚值非法的弹不得造字段')
+    assert(r.items.find((i) => i.name === '无锚弹').official === undefined, '锚里没有的弹不造字段')
+    assert(items[0].official === undefined, '入参数组不得被改动（返回新数组）')
+  } finally {
     await rm(root, { recursive: true, force: true })
   }
 })
@@ -796,6 +878,154 @@ check('SSE：连接即收 event:hello；落盘广播 event:market（wire 格式�
   }
 })
 
+/* ---------- live 状态机观测工具：轮询等待 + 首次观测时刻（⑩b/⑩c 计时口径） ---------- */
+/** 轮询直到 cond() 成立；返回首次观测为真的时刻（ms 时间戳）。
+ *  live 的调度全部走真实 setTimeout——多轮状态机用例注入毫秒级节奏参数，
+ *  用 2ms 轮询观测 status / 桩计数的变化时刻来测轮间距 */
+async function pollUntil(cond, what, timeoutMs = 20000, stepMs = 2) {
+  const t0 = Date.now()
+  while (!cond()) {
+    if (Date.now() - t0 > timeoutMs) throw new Error(`等待超时（${timeoutMs}ms）：${what}`)
+    await new Promise((r) => setTimeout(r, stepMs))
+  }
+  return Date.now()
+}
+
+/* ============================================================
+   ⑩b live kkrb 兜底状态机：降档节奏 → 每 3 轮探活 → 探活成功切回
+   ============================================================ */
+check('live kkrb 兜底状态机：moligod 失败→kkrb 降档服务→第 3 轮探活切回', async () => {
+  clearCurveCache()
+  const root = await mkdtemp(path.join(tmpdir(), 'ammo-selftest-10b-'))
+  let moligodUp = false
+  const stub = installStub({
+    catalog: () => {
+      if (!moligodUp) throw new Error('moligod 挂了（模拟）')
+      return catalogFixture()
+    },
+    histories: () => historyFixture(),
+    kkrb: kkrbFixture('2026101314'),
+  })
+  // 捕获 console.log：探活成功的日志行是 forceProbe 分支专属，作探活路径的直证
+  const logs = []
+  const origLog = console.log
+  console.log = (...a) => logs.push(a.join(' '))
+  const live = createLiveServer({
+    rootDir: root,
+    statePath: path.join(root, 'data', 'ammo', 'monitor-state.json'),
+    noNotify: true,
+    // 注入缩短的节奏（生产默认 60s / 10min / 30min）：kkrbCadenceMs=300ms，
+    // fastMs 故意拉大到 60s——若兜底期误用 fast 档，第 2/3 轮要等 ~60s 必超时
+    fastMs: 60 * 1000,
+    kkrbCadenceMs: 300,
+    slowMs: 60 * 60 * 1000, // slow loop 不参与本用例
+  })
+  try {
+    await live.start() // 冷启动轮（auto）：moligod 3 连败（4.5s 重试间隔）→ 回落 kkrb
+    assert(
+      live.status.source === 'kkrb' && live.status.cycles === 1 && live.status.consecutiveFailures === 0,
+      `冷启动应回落 kkrb 并成功（source=${live.status.source} cycles=${live.status.cycles} failures=${live.status.consecutiveFailures}）`
+    )
+    const j = JSON.parse(await readFile(path.join(root, 'public', 'ammo', 'market.json'), 'utf8'))
+    assert(j.source === 'kkrb', 'kkrb 兜底轮落盘应如实标记来源')
+
+    // 第 2、3 轮仍由 kkrb 服务；轮间距 = 兜底节奏 300ms（降档生效，非 fast 档）。
+    // 计时口径：上一轮成功（cycles 递增）→ 下一轮首发 catalog 请求的间隔；
+    // 每轮 moligod 恰好打 3 次 catalog（⑦ 已证），第 n 轮首发即第 3(n−1)+1 次
+    const tEnd1 = Date.now()
+    const tStart2 = await pollUntil(() => stub.calls.catalog >= 4, '第 2 轮发起')
+    const tEnd2 = await pollUntil(() => live.status.cycles >= 2, '第 2 轮成功')
+    const tStart3 = await pollUntil(() => stub.calls.catalog >= 7, '第 3 轮发起')
+    await pollUntil(() => live.status.cycles >= 3, '第 3 轮成功')
+    assert(live.status.source === 'kkrb' && live.status.consecutiveFailures === 0, '前 3 轮应持续由 kkrb 服务')
+    for (const [n, gap] of [['2', tStart2 - tEnd1], ['3', tStart3 - tEnd2]]) {
+      assert(
+        gap >= 290 && gap <= 1200,
+        `第 ${n} 轮间距应为兜底节奏 300ms（实测 ${gap}ms）——误用 fast 档（60s）会超时、无退避会 <290ms`
+      )
+    }
+
+    // 第 3 轮后探活武装：moligod 恢复 → 第 4 轮（探活轮，fallback:false）切回。
+    // kkrbData 在探活轮必须零增量——探活失败不得回落 kkrb（fallback:false 的直证）
+    const kkrbDataBefore = stub.calls.kkrbData
+    moligodUp = true
+    await pollUntil(
+      () => live.status.source === 'moligod' && live.status.cycles >= 4,
+      '第 4 轮探活切回 moligod',
+      10000
+    )
+    assert(live.status.consecutiveFailures === 0, '探活成功应无失败计数')
+    assert(
+      logs.some((l) => l.includes('moligod 探活成功，切回分钟级节奏')),
+      `应出现探活成功日志（forceProbe 分支专属），实际 ${JSON.stringify(logs)}`
+    )
+    assert(stub.calls.kkrbData === kkrbDataBefore, '探活轮不得回落 kkrb（fallback:false）')
+    await new Promise((r) => setTimeout(r, 50)) // 等落盘尾工（state 写盘）收口
+  } finally {
+    console.log = origLog
+    await live.close()
+    stub.restore()
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+/* ============================================================
+   ⑩c live 双源失败指数退避：起点起步 → ×2 增长 → cap 封顶
+   ============================================================ */
+check('live 双源失败指数退避：起点起步、连败 ×2 增长、cap 封顶不再翻倍', async () => {
+  clearCurveCache()
+  const root = await mkdtemp(path.join(tmpdir(), 'ammo-selftest-10c-'))
+  // kkrb 桩给「会话成功但 version 不合规」的响应：fetchAmmoMarket 的形状校验
+  // 在 kkrbRequest 成功之后才抛——绕开 kkrb-client 内部 3s 递增重试，让每轮
+  // 失败只耗 moligod 的 4.5s 重试间隔（两源全挂的真实路径，计时可控）
+  const stub = installStub({
+    catalog: new Error('moligod 挂了（模拟）'),
+    kkrb: { code: 1, version: 'bad-version', data: [] },
+  })
+  const live = createLiveServer({
+    rootDir: root,
+    statePath: path.join(root, 'data', 'ammo', 'monitor-state.json'),
+    noNotify: true,
+    // 注入缩短的退避参数（生产默认起点 60s / cap 10min）：
+    // 期望延时序列 40 → 40 → 80 → 80（首尾两次 40：start 不翻倍；80 封顶不再翻到 160）
+    fastMs: 10,
+    kkrbCadenceMs: 50,
+    failBackoffStartMs: 40,
+    failBackoffCapMs: 80,
+    slowMs: 60 * 60 * 1000,
+  })
+  const origErr = console.error
+  console.error = () => {} // 失败日志刷屏降噪（本用例断言节奏，不断言文案）
+  try {
+    await live.start() // 第 1 轮（auto）失败：moligod 3 连败 + kkrb 形状不符
+    assert(live.status.consecutiveFailures === 1, `第 1 轮应失败计数 1，实际 ${live.status.consecutiveFailures}`)
+    assert(stub.calls.catalog === 3, `moligod 应恰好 3 次尝试，实际 ${stub.calls.catalog}`)
+    // 逐轮记录「上一轮失败落定（failures 递增）→ 下一轮首发请求」的间隔 = 本轮退避延时
+    const gaps = []
+    for (let round = 2; round <= 5; round++) {
+      const tEnd = await pollUntil(() => live.status.consecutiveFailures >= round - 1, `第 ${round - 1} 轮失败落定`)
+      const tStart = await pollUntil(() => stub.calls.catalog >= 3 * (round - 1) + 1, `第 ${round} 轮发起`)
+      gaps.push(tStart - tEnd)
+    }
+    await pollUntil(() => live.status.consecutiveFailures >= 5, '第 5 轮失败落定') // 等在飞轮次收口再关服务
+    assert(live.status.consecutiveFailures === 5, `五轮应全失败，实际 ${live.status.consecutiveFailures}`)
+    // 退避序列断言：下界按 setTimeout 硬保证（不会提前）留 5ms 观测偏移余量；
+    // 上界留足调度噪声。未翻倍的机器恒 40ms 到不了 80；未封顶的机器第 5 轮
+    // 会翻到 160ms 恒超上界（gap[0] 的观测起点在 start() 返回后，可比定时器
+    // 注册晚零点几毫秒，故下界 35 而非 40——仍远大于无退避的 fastMs=10 档）
+    assert(gaps[0] >= 35 && gaps[0] <= 150, `第 2 轮延时应为起点 40ms，实际 ${gaps[0]}`)
+    assert(gaps[1] >= 40 && gaps[1] <= 150, `第 3 轮延时应仍为 40ms（start 不翻倍），实际 ${gaps[1]}`)
+    assert(gaps[2] >= 80 && gaps[2] <= 150, `第 4 轮延时应翻倍到 80ms，实际 ${gaps[2]}`)
+    assert(gaps[3] >= 80 && gaps[3] <= 150, `第 5 轮延时应封顶 80ms（未封顶将翻到 160ms），实际 ${gaps[3]}`)
+    await new Promise((r) => setTimeout(r, 50)) // 等第 5 轮尾工收口
+  } finally {
+    console.error = origErr
+    await live.close()
+    stub.restore()
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
 /* ============================================================
    ⑪ 页面纯逻辑：版本双格式 / 阈值分档 / 通道门槛 / 过期文案（静态回退分支）
    ============================================================ */
@@ -899,6 +1129,28 @@ check('页面纯逻辑：预计卖出（历史到达历时 / 日内节律 / 时�
   assert(!lineOld.includes('预计'), '无曲线条目不应输出预计历时')
   const sLine = sellLine({ name: '测试弹', current: 120, rank: 0.9, curve })
   assert(sLine.includes('日内19–22 点最贵'), `卖出通知应含日内高位，实际：${sLine}`)
+
+  // 日抛判定（dayTradeEta / isDayTradeItem）：卖价锚 = 现价税后回本线 + 5%，
+  // fixture 现价 80 → sellFor = 80×1.05/0.85 ≈ 98.82；每天 02 点坑(80)→03 点(100)
+  // 一段（1 小时）× 7 段，中位 1h ≤24h → 命中
+  assert(DAY_TRADE_MAX_H === 24 && DAY_TRADE_MIN_NET_PCT === 0.05 && DAY_TRADE_MIN_EPISODES === 2,
+    `日抛门槛常量异常：${DAY_TRADE_MAX_H}/${DAY_TRADE_MIN_NET_PCT}/${DAY_TRADE_MIN_EPISODES}`)
+  const dtItem = { current: 80, taxRate: 0.15, curve }
+  const dt = dayTradeEta(dtItem)
+  assert(dt && dt.medianH === 1 && dt.episodes === 7, `日抛 ETA 应 1h × 7 段，实际 ${dt && dt.medianH}/${dt && dt.episodes}`)
+  assert(Math.abs(dt.sellFor - 80 * 1.05 / 0.85) < 1e-9, `卖价锚应现价×(1+5%)/(1−税率)，实际 ${dt.sellFor}`)
+  assert(isDayTradeItem(dtItem, dt), '中位 1h ≤24h 应判日抛')
+  // 门槛分支：单样本拒判；中位超 24h 拒判（maxH 可注入覆写）；eta 复用与内部重算等价
+  assert(!isDayTradeItem(dtItem, { medianH: 25, episodes: 3 }), '中位 25h 超门槛不应判日抛')
+  assert(isDayTradeItem(dtItem, { medianH: 25, episodes: 3 }, 48), '注入 maxH=48 时 25h 应命中')
+  assert(isDayTradeItem(dtItem), '缺省 eta 应内部重算并命中')
+  // 现价处 7 天新低（fixture 曲线最低 80，现价 60）：无从该价位出发的历史 → 如实拒绝
+  assert(dayTradeEta({ current: 60, taxRate: 0.15, curve }) === null, '现价低于全曲线（无历史先例）应返回 null')
+  // 数据不足 / 容错：短曲线、缺税率、缺现价、空条目
+  assert(dayTradeEta({ current: 80, taxRate: 0.15, curve: curve.slice(0, 10) }) === null, '曲线 <24 点应返回 null')
+  assert(dayTradeEta({ current: 80, curve }) === null, '缺税率应返回 null')
+  assert(dayTradeEta({ taxRate: 0.15, curve }) === null, '缺现价应返回 null')
+  assert(dayTradeEta(null) === null && !isDayTradeItem(null), '空条目应安全返回 null / false')
 })
 
 /* ============================================================
@@ -980,7 +1232,7 @@ check('旁路参照：军需处清洗/join 与赛季阶段 seasonPhase', async (
 /* ============================================================
    ⑬ server.mjs 同源部署服务：静态托管 / 缓存头 / SSE·health 复用 / 防穿越
    ============================================================ */
-check('server.mjs 同源部署服务：静态托管 / 缓存头 / SSE·health 复用 / 防穿越 / 雷达广播', async () => {
+check('server.mjs 同源部署服务：静态托管 / 缓存头 / SSE·health 复用 / 防穿越 / 雷达·特勤处广播', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'ammo-selftest-13-'))
   const dist = path.join(root, 'dist')
   await mkdir(path.join(dist, 'ammo'), { recursive: true })
@@ -989,12 +1241,18 @@ check('server.mjs 同源部署服务：静态托管 / 缓存头 / SSE·health �
   await writeFile(path.join(dist, 'assets', 'app-abc.js'), 'x')
   await writeFile(path.join(dist, 'ammo', 'market.json'), '{}')
   await writeFile(path.join(root, 'secret.txt'), 'topsecret')
-  // 雷达循环注入桩（不打外网）：只验证「落盘后广播 event:radar」的接线
+  // 雷达/特勤处循环均注入桩（不打外网；craftCycle 默认 runCraftCycle 会真实
+  // 抓 moligod）：只验证「落盘后广播 event:radar / event:craft」的接线；
+  // statePath 比照用例⑩指向临时目录——否则 live 的去抖 state 会写进仓库
+  // 真实 data/ammo/monitor-state.json，与常驻监控进程并发写共享 state
   const radarOut = { version: '202610141200', stats: { total: 10, anomaly: 1, buy: 0, sell: 3, watch: 6 } }
+  const craftOut = { version: '202610141200', stats: { total: 20, complete: 18, profitable: 9 } }
   const site = createSiteServer({
     rootDir: root,
     noNotify: true,
+    statePath: path.join(root, 'data', 'ammo', 'monitor-state.json'),
     radarCycle: async () => radarOut,
+    craftCycle: async () => craftOut,
   })
   try {
     await new Promise((resolve) => site.server.listen(0, '127.0.0.1', resolve))
@@ -1031,6 +1289,14 @@ check('server.mjs 同源部署服务：静态托管 / 缓存头 / SSE·health �
     assert(
       radarData.version === radarOut.version && radarData.total === radarOut.stats.total && radarData.anomaly === 1,
       `radar 事件应携带版本与统计，实际 ${radar.data}`
+    )
+    // 特勤处制造落盘广播：同雷达桩模式 → event:craft（版本 + 统计）
+    await site.triggerCraftCycle()
+    const craft = await reader.waitFor('craft', 1500)
+    const craftData = JSON.parse(craft.data)
+    assert(
+      craftData.version === craftOut.version && craftData.total === craftOut.stats.total && craftData.profitable === 9,
+      `craft 事件应携带版本与统计，实际 ${craft.data}`
     )
     reader.close()
 

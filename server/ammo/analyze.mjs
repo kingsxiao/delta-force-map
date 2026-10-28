@@ -33,8 +33,9 @@
    注意：历史统计不代表未来；生产曲线窗口 7 天，全部特征在窗口内可算。
    ============================================================ */
 
-/** 升序数组的线性插值分位（p ∈ [0,1]） */
-function quantile(sorted, p) {
+/** 升序数组的线性插值分位（p ∈ [0,1]）。backtest.mjs 的同款统计从此导入
+    （口径单一来源，杜绝本地拷贝与生产口径漂移） */
+export function quantile(sorted, p) {
   if (!sorted.length) return null
   const pos = (sorted.length - 1) * p
   const lo = Math.floor(pos)
@@ -204,7 +205,9 @@ export function analyzeItem(raw, ctx = {}) {
   }
 }
 
-/** 信号中文说明（通知与页面共用文案口径） */
+/** 信号中文说明（通知与页面共用文案口径）。iOS 文案镜像源：hint 四条逐字镜像于
+    apps/ios .../DeltaForceCore/Models.swift 的 Signal.hint——改动必须同步两处
+    （全仓无 JS import，导出保留在此作为单一文案源） */
 export const SIGNAL_META = {
   BUY: { label: '买入', tone: 'good', hint: '低位企稳且趋势走平向上，挂卖近3天P75税后仍有≥10%利润' },
   WATCH: { label: '关注', tone: 'warn', hint: '接近低位但未同时满足止跌/趋势/利差门槛，先挂限价观察' },
@@ -212,7 +215,8 @@ export const SIGNAL_META = {
   WAIT: { label: '观望', tone: 'dim', hint: '价格处于中位区间或仍在下行，不动手' },
 }
 
-/** RULES 的展示子集：随快照下发给页面 / iOS 渲染文案与刻度线，杜绝 UI 与规则参数漂移 */
+/** RULES 的展示子集：快照顶层 rules 携带它，页面 / iOS 从中渲染门槛文案与刻度线，
+    杜绝 UI 与规则参数漂移（iOS 此前未解码 rules、门槛写死在文案里，2026-10-28 起对齐） */
 export const RULES_VIEW_KEYS = [
   'BUY_RANK_MAX', 'BUY_MIN_NET_PCT', 'WATCH_RANK_MAX', 'SELL_RANK_MIN',
   'BUY_MKT_SLOPE_MIN', 'MAX_HOLD_H', 'TARGET_WINDOW_H',

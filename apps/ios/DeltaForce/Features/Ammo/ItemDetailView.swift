@@ -464,7 +464,7 @@ struct ItemDetailView: View {
                     .numericChange(value: netNow * qtyD),
                 StatCell(label: "挂 P75 到手", value: Fmt.price((it.netSell ?? 0) * qtyD))
                     .numericChange(value: (it.netSell ?? 0) * qtyD),
-                StatCell(label: "到价利润", value: fmtSigned(gainP75), color: gainP75 >= 0 ? Theme.ok : Theme.danger)
+                StatCell(label: "到价利润", value: Fmt.signedPrice(gainP75), color: gainP75 >= 0 ? Theme.ok : Theme.danger)
                     .numericChange(value: gainP75)
             )
             // 直出档利润单独一行：四格放不下第五个数，且它是「急用钱立卖」的决策数；
@@ -520,11 +520,6 @@ struct ItemDetailView: View {
         }
     }
 
-    /// 带符号金额（利润可为负）：+12,345 / -1,024
-    private func fmtSigned(_ n: Double) -> String {
-        "\(n >= 0 ? "+" : "-")\(Fmt.price(abs(n)))"
-    }
-
     /// 记账确认脉冲（keyframe 两帧，总时长 0.25s = durSwap 档、仅 scaleEffect 不动布局）：
     /// 记入 / 更新囤货成功后浮盈行轻弹一下，把「账已按此价记下、浮盈按这个数」落到视线处——
     /// 比 .selection 触感更可见的操作闭环；RM 下跳过（装饰动效全关，§7-9），
@@ -533,7 +528,7 @@ struct ItemDetailView: View {
     private func profitPulseText(gainNow: Double) -> some View {
         // 数字滚动挂在 keyframe 内层：改档位 / 输入成本时浮盈随四格同滚（方向感知，负值下滚），
         // 记账时刻的 scale 脉冲在外层独立触发，两层动画互不干扰
-        let base = Text("现价直出利润 \(fmtSigned(gainNow))")
+        let base = Text("现价直出利润 \(Fmt.signedPrice(gainNow))")
             .font(Theme.font(.xs)).monospacedDigit()
             .foregroundStyle(gainNow >= 0 ? Theme.ok : Theme.danger)
             .numericChange(value: gainNow)

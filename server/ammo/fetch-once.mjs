@@ -76,6 +76,29 @@ export async function writeJsonAtomic(filePath, text) {
 }
 
 /**
+ * 快照双写：public 恒写，dist 目录存在（跑过 build）时同内容联动——vite
+ * preview serve dist/，不同步会复现「线上刷新永远拿到构建时旧快照」的原始
+ * 问题。四处「public + dist 双写」（fetch-once / market/radar / craft/
+ * snapshot / ttk/official-audit）统一复用本助手，dist 存在性判定归一为
+ * existsSync(dist 文件所在目录)。
+ * @param {string} webDir 网页端目录（public/ 与 dist/ 的共同父目录）
+ * @param {string} relPath 产物相对路径（public 与 dist 下同名同层，如 'ammo/market.json'）
+ * @param {string} text 落盘内容（序列化后的 JSON 字符串）
+ * @returns {Promise<string[]>} 实际写入的绝对路径列表（public 恒在，dist 命中时追加）
+ */
+export async function writeSnapshotPair(webDir, relPath, text) {
+  const pub = path.join(webDir, 'public', relPath)
+  await writeJsonAtomic(pub, text)
+  const written = [pub]
+  const dist = path.join(webDir, 'dist', relPath)
+  if (existsSync(path.dirname(dist))) {
+    await writeJsonAtomic(dist, text)
+    written.push(dist)
+  }
+  return written
+}
+
+/**
  * join 官方均价锚（读取 data/ammo/official-anchor.json，缺档/坏档静默跳过——
  * 官方锚是旁路参照，永不因它阻塞主链路）：逐弹挂 official = { avg, dev, at }，
  * dev 按本快照现价现算（锚文件里的 dev 是锚抓取时刻对 moligod 的，口径过期）。
@@ -208,13 +231,9 @@ export async function fetchOnce({
   if (!changed) return { changed: false, version: analysis.version, source: usedSource, analysis }
 
   const text = JSON.stringify({ ...analysis, fingerprint: fp })
-  await writeJsonAtomic(outPath, text)
-  if (syncDist) {
-    // apps/web/dist/ammo 存在（跑过 build）时联动：vite preview serve dist/，
-    // 不同步会复现「线上刷新永远拿到构建时旧快照」的原始问题
-    const distPath = path.join(webDir, 'dist', 'ammo', 'market.json')
-    if (existsSync(path.dirname(distPath))) await writeJsonAtomic(distPath, text)
-  }
+  // public + dist 双写统一走 writeSnapshotPair；--no-dist（syncDist=false）时只写 public
+  if (syncDist) await writeSnapshotPair(webDir, path.join('ammo', 'market.json'), text)
+  else await writeJsonAtomic(outPath, text)
   await maybeArchive(rootDir, snapshot, analysis, fp, contentChanged)
   return { changed: true, version: analysis.version, source: usedSource, analysis }
 }

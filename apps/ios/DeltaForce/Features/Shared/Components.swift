@@ -1,7 +1,9 @@
 // Components.swift — 共享小部件：信号胶囊、等级角标、分位条、迷你走势、状态头、下拉筛选、
 // 状态胶囊 / 四格行 / 重试错误行 / 连接状态点（DESIGN.md §3 C1–C11）；
 // 共享动效层：骨架屏四件套 / .contentSwap / .swapTransition / .numericChange / MiniSpin /
-// PressableButtonStyle（MOTION.md §2.2）
+// PressableButtonStyle（MOTION.md §2.2）；
+// 回顶浮动钮三件套：scrollToTop 帮助函数 / BackTopButton / ListTopAwayProbe
+// （行情与 TTK 两页逐字重复的私有实现收口，雷达 / 制造的筛选回顶同走帮助函数）
 // 字阶一律走 Theme.font/monoFont（随 Dynamic Type）；含中文的胶囊用默认 design + .monospacedDigit()。
 // 徽标四族统一配方（§1.4）：文字=语义色、底=同色 12%、描边=同色 40%、内边距 h8/v2；配方执行体为 badgeCoat
 // （系统「增强对比度」下自动去半透明底、提描边）。
@@ -840,5 +842,81 @@ struct PressableButtonStyle: ButtonStyle {
             )
             // RM 门经 Theme.motion（置 nil 即瞬时切换色面态）
             .motion(Theme.animFast, value: configuration.isPressed)
+    }
+}
+
+// MARK: - 回顶浮动钮三件套（思路库「回顶浮动钮」；此前行情 / TTK 两页各持一份逐字相同的
+// backTopButton 与同构离顶 Probe，雷达 / 制造的筛选回顶又各自内联 RM 分支——四份实现全靠
+// 注释互称「同款」维系，收口至此单点维护，行为逐字不变）
+
+/// 回顶滚动统一实现（四页 scrollToTop 的 RM 分支收口）：滚动走 animMed 预设
+/// （MOTION.md §3-B 回顶档），Reduce Motion 下改无动画直达（§7-9，触感保留）。
+/// 帮助函数不在视图体内、读不到 @Environment，reduceMotion 由调用方传入
+/// （页面自持 @Environment(\.accessibilityReduceMotion)，与原页面内实现同源同值）
+func scrollToTop(_ proxy: ScrollViewProxy, anchor: String, reduceMotion: Bool) {
+    if reduceMotion {
+        proxy.scrollTo(anchor, anchor: .top)
+    } else {
+        withAnimation(Theme.animMed) {
+            proxy.scrollTo(anchor, anchor: .top)
+        }
+    }
+}
+
+/// 回顶浮动钮：长表离顶后右下浮现。触控 44pt（§7-8）；card2 面 + lineHover 描边走面阶分层，
+/// 轻投影补「悬浮于滚动内容之上」的最后一级分离（滚动内容与 card2 同亮度，纯面阶分不开，
+/// §8「靠面阶」口径不适用于悬浮件）；点击走共享 scrollToTop（animMed 滚回榜首）。
+/// web 端 BackTop 的 iOS 对应物。visible=false 整钮退场——进出场 transition 挂在钮上，
+/// 动画事务由调用处 `.motion(Theme.animFast, value:)` 驱动（原两页挂法不变）
+struct BackTopButton: View {
+    let proxy: ScrollViewProxy
+    /// scrollTo 目标锚点 id（各页 topAnchor）
+    var anchor: String
+    /// 显隐（离顶探测 ListTopAwayProbe 的 away 绑定值）
+    var visible: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        if visible {
+            Button {
+                scrollToTop(proxy, anchor: anchor, reduceMotion: reduceMotion)
+            } label: {
+                Image(systemName: "chevron.up")
+                    .font(Theme.font(.md, weight: .semibold)) // 图标字号跟字阶走（§6.1-3）
+                    .foregroundStyle(Theme.tx)
+                    .frame(width: 44, height: 44)
+                    .background(Theme.card2, in: Circle())
+                    .overlay(Circle().strokeBorder(Theme.lineHover, lineWidth: 1))
+                    .shadow(color: .black.opacity(0.3), radius: 6, y: 3)
+            }
+            .buttonStyle(PressableButtonStyle(radius: 22))
+            .accessibilityLabel("回到顶部")
+            // 淡入 + 8pt 上移进出场：对齐 web BackTop 的 .totop（只动 opacity/transform，§6-1）
+            .transition(.opacity.combined(with: .offset(y: 8)))
+            .padding(.trailing, Theme.Space.lg)
+            // 让位悬浮 Tab 胶囊：凸钮顶距屏底实测 ≈121pt（themedList 注释口径），垫 140pt 全不叠
+            .padding(.bottom, 140)
+        }
+    }
+}
+
+/// 回顶浮动钮离顶探测：挂在锚点行背景，GeometryReader 读自身在列表命名坐标系的 minY，
+/// 离顶超过阈值置 away。onChange 带 initial（iOS 17）：List 行懒回收后探测随行销毁、
+/// 状态保留最后值（深处 = 钮常显）；行回到布局（滚回顶 / 回顶动画）时 initial 立即按当前位
+/// 汇报，杜绝「人已回顶、钮还亮着」的滞留
+struct ListTopAwayProbe: View {
+    /// 列表命名坐标系名（调用处 .coordinateSpace(name:) 挂在 List 上的同一名字）
+    let space: String
+    /// 离顶阈值：探测行 minY 低于 -threshold（≈ 滚过表头 / 筛选区 + 数行）才置 away，浅滚不动声色
+    var threshold: CGFloat = 300
+    @Binding var away: Bool
+
+    var body: some View {
+        GeometryReader { geo in
+            Color.clear
+                .onChange(of: geo.frame(in: .named(space)).minY, initial: true) { _, minY in
+                    away = minY < -threshold
+                }
+        }
     }
 }

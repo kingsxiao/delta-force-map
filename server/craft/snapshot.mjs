@@ -19,11 +19,10 @@
    用法：node server/craft/snapshot.mjs [--once] [--interval 分钟=10]
    ============================================================ */
 import { createDecipheriv, createHash } from 'node:crypto'
-import { existsSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { gunzipSync as gunzip } from 'node:zlib'
-import { writeJsonAtomic } from '../ammo/fetch-once.mjs'
+import { writeSnapshotPair } from '../ammo/fetch-once.mjs'
 
 const BASE = 'https://moligod.com'
 const SNAPSHOT_URL = `${BASE}/api/market/special-ops-snapshot`
@@ -81,6 +80,7 @@ export function decodeWireSnapshot({ body, keyHeader }) {
 export async function fetchCraftRaw() {
   const res = await fetch(SNAPSHOT_URL, {
     headers: { 'User-Agent': UA, Accept: 'application/json', Referer: `${BASE}/crafting` },
+    signal: AbortSignal.timeout(20000), // 上游 TCP 挂起兜底（口径同 ams-client 的 20s）
   })
   if (!res.ok) throw new Error(`HTTP ${res.status} special-ops-snapshot`)
   const keyHeader = res.headers.get('x-special-ops-key') || ''
@@ -184,17 +184,14 @@ export function deriveCraftVersion(items, fallbackIso = new Date().toISOString()
 /* ---------- 落盘与循环 ---------- */
 
 /**
- * 抓一轮并落盘（public + dist 联动）。利润估算随分钟价滚动，默认 10 分钟
- * 一轮与雷达同节奏即可；写频低，原子直写。
+ * 抓一轮并落盘（public + dist 双写统一走 writeSnapshotPair）。利润估算随
+ * 分钟价滚动，默认 10 分钟一轮与雷达同节奏即可；写频低，原子直写。
  * @returns {Promise<{version:string, items:Array, stats:object}>}
  */
 export async function runCraftCycle({ webDir } = {}) {
   const raw = await fetchCraftRaw()
   const out = buildCraftSnapshot(raw)
-  const text = JSON.stringify(out)
-  await writeJsonAtomic(path.join(webDir || process.cwd(), 'public', 'craft', 'craft.json'), text)
-  const distPath = path.join(webDir || process.cwd(), 'dist', 'craft', 'craft.json')
-  if (existsSync(path.dirname(distPath))) await writeJsonAtomic(distPath, text)
+  await writeSnapshotPair(webDir || process.cwd(), path.join('craft', 'craft.json'), JSON.stringify(out))
   return out
 }
 

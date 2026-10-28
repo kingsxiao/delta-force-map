@@ -5,6 +5,8 @@
 //   B. 日内节律：7 天同小时均价的连续 3 小时最高窗口（允许跨午夜）
 //   C. 全市场日内节律 marketClock：逐弹归一（相对自身均价的比值）后跨弹按小时
 //      取中位——回答「现在几点，该扫货还是该出货」（判读对齐倒卖手册 WINDOWS）
+//   D. 日抛判定 dayTradeEta / isDayTrade：现价买入 ≤24h 能涨到「税后回本线 +5%」
+//      卖价——行情页「日抛」筛选的单一口径源（口径注释见日抛块）
 // 时间键为北京时间墙钟（moligod / kkrb 口径一致），因此日历固定 Asia/Shanghai，
 // 不随设备时区漂移；ETA 锚点取 max(曲线末点, now)；marketClock 的「数据时刻」
 // 取曲线末点小时（纯 key 前缀，不经 Date）。历史统计不代表未来——展示层必须带这句。
@@ -303,5 +305,46 @@ public enum SellEtaEngine {
         guard let start, let end else { return nil }
         let e = end == 0 ? 24 : end
         return e <= start ? "\(start)–次日 \(end) 点" : "\(start)–\(e) 点"
+    }
+
+    // MARK: 日抛（day-trade）—— shared/js/sellEta.js dayTradeEta / isDayTradeItem 同构移植
+    // 回答「现价买入，一天之内能不能有利润地卖出去」：卖价锚 = 现价的税后回本线
+    // + 利润下限（现价 × (1+5%)/(1−税率)），不锚 P75 目标价——刚崩新低的弹判的是
+    // 从该价位出发的当日修复力，有历史先例（完整上涨段）才认。门槛与完整口径
+    // 注释见 sellEta.js 日抛块（minNetPct 5% / maxH 24h / minEpisodes 2）。
+
+    /// 日抛 ETA：medianH 可超 maxH（「有节奏但慢」如实给出，是否日抛由 isDayTrade 判）
+    public struct DayTradeEta: Sendable, Hashable {
+        public let medianH: Double
+        public let fastestH: Int
+        public let episodes: Int
+        /// 现价 × (1+minNetPct)/(1−税率)：到价卖出即税后净赚 minNetPct
+        public let sellFor: Double
+    }
+
+    /// 日抛 ETA。曲线 <24 点 / 现价缺失 / 税率异常 / 完整上涨段不足 minEpisodes → nil
+    public static func dayTradeEta(item: MarketItem, minNetPct: Double = DayTrade.minNetPct) -> DayTradeEta? {
+        let curve = item.curve
+        guard curve.count >= 24,
+              let current = item.current, current.isFinite, current > 0,
+              item.taxRate.isFinite, item.taxRate > 0, item.taxRate < 1
+        else { return nil }
+        let sellFor = current * (1 + minNetPct) / (1 - item.taxRate)
+        let eps = reachEpisodes(curve, from: current, to: sellFor)
+        guard eps.count >= DayTrade.minEpisodes else { return nil }
+        return DayTradeEta(medianH: median(eps), fastestH: eps[0], episodes: eps.count, sellFor: sellFor)
+    }
+
+    /// 日抛判定：上涨段中位 ≤ maxH 才算「一天之内能完成一买一卖」
+    public static func isDayTrade(item: MarketItem, eta: DayTradeEta? = nil, maxH: Double = DayTrade.maxH) -> Bool {
+        guard let e = eta ?? dayTradeEta(item: item) else { return false }
+        return e.medianH <= maxH
+    }
+
+    /// 日抛门槛常量（与 sellEta.js DAY_TRADE_* 三常量逐值对齐，改动必须同步两处）
+    public enum DayTrade {
+        public static let minNetPct = 0.05
+        public static let maxH: Double = 24
+        public static let minEpisodes = 2
     }
 }
