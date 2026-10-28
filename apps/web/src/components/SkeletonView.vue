@@ -2,11 +2,11 @@
 // SkeletonView — 首载骨架屏（MOTION.md §4 统一方案，全站唯一骨架组件）
 // 只输出 .sk-* 占位结构（motion.css）：不拉数据、不占 .state-card 等既有类名
 // （server/smoke.mjs 选择器兼容，见 MOTION.md §6-6）。结构贴近各页真实布局：
-// table = 表头条 + N 行（/ammo /radar /craft 榜单）、stats = 4 格行情脉搏、
-// cards = 信号卡网格、hero = 时利最佳主卡。用法：
+// table = 表头条 + N 行（/ammo /radar /craft 榜单）、cards = 信号卡网格、
+// hero = 时利最佳主卡。用法：
 //   <SkeletonView v-if="loadState === 'loading'" variant="table" :rows="8" />
 defineProps({
-  variant: { type: String, default: 'table' }, // 'table' | 'stats' | 'cards' | 'hero'
+  variant: { type: String, default: 'table' }, // 'table' | 'cards' | 'hero'
   rows: { type: Number, default: 8 }, // table 变体行数（弹药 8 / 雷达 10）
   // table 变体表头条数：与 .sk-row 同模板对轨（motion.css .sk-head），首条横跨
   // 图标位 + 名字位两轨，故 8 轨对应 7 条；多于 7 条会被 grid 自动换行到第二行
@@ -47,15 +47,6 @@ function nameW(r) {
       </div>
     </div>
 
-    <!-- stats：4 格行情脉搏骨架（label + 大数 + 说明，结构对齐 .pulse .stat） -->
-    <div v-else-if="variant === 'stats'" class="sk-stats" aria-hidden="true">
-      <div v-for="c in 4" :key="c" class="sk-stat">
-        <i class="sk sk-line" style="--w: 46%"></i>
-        <i class="sk sk-stat-v"></i>
-        <i class="sk sk-line" style="--w: 74%"></i>
-      </div>
-    </div>
-
     <!-- cards：2×3 信号卡骨架（列宽由 .sk-cards 对齐 .sig-grid 承接） -->
     <div v-else-if="variant === 'cards'" class="sk-cards" aria-hidden="true">
       <div v-for="c in 6" :key="c" class="sk-card">
@@ -88,29 +79,8 @@ function nameW(r) {
 </template>
 
 <style scoped>
-/* stats / hero 两变体的组合样式：扫光与底色全在全局 .sk 基块上（sk-stat-v /
-   sk-hero-thumb / sk-hero-big 都挂了 sk 类），这里只管几何贴近真实卡片
-   （.pulse .stat / CraftView .hero） */
-.sk-stats {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: var(--sp-4);
-}
-.sk-stat {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 10px;
-  padding: var(--sp-4);
-  background: var(--card);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--edge-light);
-}
-.sk-stat-v { width: 56px; height: 22px; } /* 对齐 .st-v 大数字高（fs-xl 档），比文字条高一级 */
-@media (max-width: 680px) {
-  .sk-stats { grid-template-columns: repeat(2, 1fr); } /* 对齐 .pulse 窄屏两列 */
-}
+/* hero 变体组合样式：扫光与底色全在全局 .sk 基块上（sk-hero-thumb /
+   sk-hero-big 都挂了 sk 类），这里只管几何贴近真实卡片（CraftView .hero） */
 
 .sk-hero {
   padding: var(--sp-4) var(--sp-5);

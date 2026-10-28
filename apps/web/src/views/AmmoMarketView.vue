@@ -376,7 +376,8 @@ const reduceMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matche
    穿透列显「—」（表尾 METHOD 注明），绝不猜等级。 */
 const penOf = (name) => marketNamePen(name, CAL)
 
-/* ---------- 行情脉搏：全市场信号分布（页头总览条） ---------- */
+/* ---------- 信号计数（筛选 chip 计数 + 买入空态文案共用；页头不再单设总览面板，
+   数字就挂在筛选动作旁边——与雷达页 chip-n 同模式） ---------- */
 const stats = computed(() => {
   const c = { BUY: 0, SELL: 0, WATCH: 0, WAIT: 0 }
   for (const i of items.value) if (c[i.signal] != null) c[i.signal]++
@@ -631,11 +632,20 @@ function clearSearch() {
   searchArmed.value = false
   searchRef.value?.focus({ preventScroll: true })
 }
-function showAllSell() {
-  state.signal = 'SELL'
+/* 总览格 / 空态动作 → 全表筛选联动：设置信号筛选并滚到全表（与卖出迷你卡
+   openFromSell 同族的快捷动线——「这里看到数字，一步跳到明细」） */
+function jumpSignal(v) {
+  state.signal = v
   nextTick(() => {
     allSecRef.value?.scrollIntoView({ block: 'start', behavior: reduceMotion() ? 'auto' : 'smooth' })
   })
+}
+function showAllSell() {
+  jumpSignal('SELL')
+}
+/* 无买入空态的出口：低位「关注」正是买入候补，直接筛出来看 */
+function showWatch() {
+  jumpSignal('WATCH')
 }
 
 const buyList = computed(() => items.value.filter((i) => i.signal === 'BUY').sort((a, b) => b.profitPct - a.profitPct))
@@ -798,9 +808,8 @@ onUnmounted(() => {
          为 key；.state-card 类名保留在空/错态内部（smoke.mjs 依赖） -->
     <Transition name="swap" mode="out-in" @enter="onStateRootEnter">
       <div v-if="loadState === 'loading'" key="loading" class="state-root sk-hold">
-        <!-- 骨架预告真实首屏布局：行情脉搏四格 + 全量表 8 行（占位结构见
-             SkeletonView / motion.css，全局 .sk-hold 的 max(560px, 60vh) 兜底首屏不空） -->
-        <SkeletonView variant="stats" />
+        <!-- 骨架预告真实首屏主体：全量表 8 行（占位结构见 SkeletonView / motion.css，
+             全局 .sk-hold 的 max(560px, 60vh) 兜底首屏不空；与雷达页同构） -->
         <SkeletonView variant="table" :rows="8" />
       </div>
       <div v-else-if="loadState === 'empty'" key="empty" class="state-root">
@@ -816,40 +825,6 @@ onUnmounted(() => {
         </div>
       </div>
       <div v-else key="ready" class="state-root">
-        <!-- 行情脉搏：全市场信号分布一览。四个大数字是「单点关键数字」（MOTION.md
-             §3-E 与详情页 hero 现价同族，非表格多行噪声族）：静默刷新信号数变化时
-             out-in 只动 opacity 的淡切换挡（.nv 见样式段），瞬跳变有回声 -->
-        <section class="pulse reveal" aria-label="行情总览">
-          <div class="stat">
-            <span class="st-k"><i class="st-dot ok"></i>买入信号</span>
-            <Transition name="nv" mode="out-in">
-              <span :key="stats.BUY" class="st-v ok">{{ stats.BUY }}</span>
-            </Transition>
-            <span class="st-s">贴近 7 天低位 · 税后利润达标</span>
-          </div>
-          <div class="stat">
-            <span class="st-k"><i class="st-dot danger"></i>卖出信号</span>
-            <Transition name="nv" mode="out-in">
-              <span :key="stats.SELL" class="st-v danger">{{ stats.SELL }}</span>
-            </Transition>
-            <span class="st-s">贴近 7 天高位 · 建议出货</span>
-          </div>
-          <div class="stat">
-            <span class="st-k"><i class="st-dot info"></i>低位关注</span>
-            <Transition name="nv" mode="out-in">
-              <span :key="stats.WATCH" class="st-v info">{{ stats.WATCH }}</span>
-            </Transition>
-            <span class="st-s">处低位但利润未达线</span>
-          </div>
-          <div class="stat">
-            <span class="st-k"><i class="st-dot mute"></i>覆盖弹种</span>
-            <Transition name="nv" mode="out-in">
-              <span :key="items.length" class="st-v">{{ items.length }}</span>
-            </Transition>
-            <span class="st-s">交易行全部子弹 · 7 天曲线</span>
-          </div>
-        </section>
-
         <!-- 我的囤货台账：纯本地 localStorage（不上传不同步），有持仓才显示。
              浮盈按「挂目标价税后到手」口径；现价已达挂卖价的行高亮可出 -->
         <section v-if="positions.length" ref="posSecRef" class="block reveal pos-block" aria-label="我的囤货台账">
@@ -944,9 +919,21 @@ onUnmounted(() => {
           </div>
           <p v-if="buyList.length > 6" class="more-tip">其余 {{ buyList.length - 6 }} 种买入信号见下方全表（筛选「买入」）。</p>
         </section>
-        <p v-else class="no-buy-tip">
-          当前没有触发买入条件的弹种（7 天 ≤{{ buyRankPct }}% 分位企稳 + 挂卖税后利润 ≥ {{ buyNetPct }}%）。低位「关注」（≤{{ watchRankPct }}%）中的弹种见全表。
-        </p>
+        <!-- 买入空态：从裸虚线段升级为结构化空态卡——左侧信号匣（切角匣同族）+
+             标题句 + 门槛说明，右侧给「低位关注」直达（那正是买入候补名单） -->
+        <div v-else class="no-buy reveal" role="status">
+          <i class="nb-ic" aria-hidden="true">
+            <svg viewBox="0 0 16 16"><rect x="4.9" y="4.9" width="6.2" height="6.2" transform="rotate(45 8 8)" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
+          </i>
+          <div class="nb-body">
+            <b class="nb-t">买入信号静默</b>
+            <span class="nb-d">当前没有弹种满足「7 天 ≤{{ buyRankPct }}% 分位企稳 + 挂卖税后利润 ≥ {{ buyNetPct }}%」的双重门槛；低位「关注」（≤{{ watchRankPct }}%）中的 {{ stats.WATCH }} 个弹种值得留意。</span>
+          </div>
+          <button class="nb-go press" @click="showWatch">
+            查看低位关注
+            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h9M8.5 4.5 12 8l-3.5 3.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+        </div>
 
         <!-- 卖出信号（迷你卡，点击直达全表走势） -->
         <section v-if="sellList.length" class="block reveal">
@@ -957,7 +944,7 @@ onUnmounted(() => {
           <div class="sell-grid">
             <SellCard
               v-for="i in sellList.slice(0, 12)" :key="i.name"
-              :item="i" @open="openFromSell(i)"
+              :item="i" :rules="rules" @open="openFromSell(i)"
             />
             <button
               v-if="sellList.length > 12" class="sell-more press"
@@ -987,6 +974,9 @@ onUnmounted(() => {
                     @click="state.signal = s.v"
                   >
                     <i v-if="s.dot" class="chip-dot" :style="{ background: s.dot }"></i><svg v-if="s.star" class="chip-star" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.6 9.59 6.02 14.28 6.16 10.57 9.03 11.88 13.54 8 10.9 4.12 13.54 5.43 9.03 1.72 6.16 6.41 6.02Z"/></svg>{{ s.label }}
+                    <!-- 信号计数挂在筛选动作旁（原页头总览面板的信息密度平移至此，
+                         与雷达页 chip-n 同模式）；自选计 stars 集合 -->
+                    <span class="chip-n">{{ s.v === 'all' ? items.length : s.v === 'star' ? stars.size : stats[s.v] }}</span>
                   </button>
                 </div>
                 <div class="chips" role="group" aria-label="品级筛选">
@@ -1280,11 +1270,11 @@ onUnmounted(() => {
   padding: var(--sp-6); color: var(--tx); margin: var(--sp-4) 0;
 }
 .state-card .dim { color: var(--faint); font-size: var(--fs-sm); }
-/* loading 态骨架根：脉搏四格 + 全表两段竖排（对齐 ready 首屏节奏）；高度兜底
-   走全局 .sk-hold 的 max(560px, 60vh)（motion.css，三页统一，MOTION.md §4 验收②③） */
+/* loading 态骨架根：全表单段；高度兜底走全局 .sk-hold 的 max(560px, 60vh)
+   （motion.css，三页统一，MOTION.md §4 验收②③） */
 .sk-hold {
   display: flex; flex-direction: column; gap: var(--sp-5);
-  padding-top: var(--sp-6); /* 对齐 ready 首屏 .pulse 的 margin-top 节奏 */
+  padding-top: var(--sp-6); /* 对齐 ready 首屏首块的节奏 */
 }
 /* 主要按钮（重试/清筛选）：--accent-bg 底 + --accent-dim 边，hover 提底 --accent-soft，
    按下 scale(.98)，禁用降透明；键盘走全局 :focus-visible 外框 */
@@ -1305,55 +1295,6 @@ onUnmounted(() => {
 .empty-clear:disabled,
 .pos-add-btn:disabled { opacity: .45; cursor: default; }
 .empty-cell { text-align: center; color: var(--dim); padding: var(--sp-6) 0; }
-
-/* ---------- 行情脉搏总览条：单面板四格，hairline 分隔（移动端 2×2 换分隔轴向） ---------- */
-.pulse {
-  display: grid; grid-template-columns: repeat(4, 1fr);
-  margin-top: var(--sp-6);
-  background: linear-gradient(180deg, var(--card2) 0%, var(--card) 80%);
-  border: 1px solid var(--line); border-radius: var(--radius-lg);
-  box-shadow: var(--edge-light);
-  overflow: hidden;
-}
-.stat { display: flex; flex-direction: column; gap: 2px; padding: var(--sp-4) var(--sp-5); min-width: 0; }
-.stat + .stat { border-left: 1px solid var(--line2); }
-.st-k {
-  display: flex; align-items: center; gap: 7px;
-  font-family: var(--mono); font-size: var(--fs-2xs);
-  color: var(--dim); letter-spacing: .12em;
-}
-.st-dot { width: 6px; height: 6px; transform: rotate(45deg); flex: none; }
-.st-dot.ok { background: var(--ok); }
-.st-dot.danger { background: var(--danger); }
-.st-dot.info { background: var(--info); }
-.st-dot.mute { background: var(--faint); }
-.st-v {
-  font-family: var(--mono); font-size: var(--fs-display); font-weight: 700;
-  line-height: 1.15; color: var(--tx-strong);
-  font-variant-numeric: tabular-nums;
-}
-.st-v.ok { color: var(--ok); }
-.st-v.danger { color: var(--danger); }
-.st-v.info { color: var(--info); }
-.st-s {
-  font-size: var(--fs-2xs); color: var(--faint);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-/* 行情脉搏数字换挡（§3-E 单点关键数字的网页等价物）：out-in 只动 opacity——
-   新旧数字不同帧叠影、也无 6px 位移（fs-display 大数位移显跳）；档位取微交互
-   上限 --t-med，比面板档轻。out-in 下 leave 元素仍占位，格宽稳定无布局跳动 */
-.nv-enter-active,
-.nv-leave-active { transition: opacity var(--t-med) var(--ease); }
-.nv-enter-from,
-.nv-leave-to { opacity: 0; }
-@media (max-width: 680px) {
-  .pulse { grid-template-columns: repeat(2, 1fr); }
-  .stat { padding: var(--sp-3) var(--sp-4); }
-  .stat + .stat { border-left: 0; }
-  .stat:nth-child(2n) { border-left: 1px solid var(--line2); }
-  .stat:nth-child(n+3) { border-top: 1px solid var(--line2); }
-  .st-s { white-space: normal; }
-}
 
 /* ---------- 我的囤货台账（纯本地记录）：汇总条 + 行内可编辑列表 + 录入表单 ---------- */
 .pos-sum {
@@ -1471,21 +1412,55 @@ onUnmounted(() => {
 .buy-clock-tip {
   color: var(--dim);
 }
-.no-buy-tip {
+/* ---------- 买入空态卡：信号匣（切角匣同族）+ 结论句 + 低位关注直达 ---------- */
+.no-buy {
   margin-top: var(--sp-6);
-  border: 1px dashed var(--line2); border-radius: var(--radius);
+  display: flex; align-items: center; gap: var(--sp-4);
   padding: var(--sp-4) var(--sp-5);
-  color: var(--dim); font-size: var(--fs-md);
+  background: linear-gradient(180deg, var(--card2) 0%, var(--card) 80%);
+  border: 1px solid var(--line); border-radius: var(--radius-lg);
+  box-shadow: var(--edge-light);
+}
+.nb-ic {
+  flex: none; width: 42px; height: 42px;
+  display: grid; place-items: center;
+  color: var(--ok);
+  background: var(--deep); border: 1px solid var(--line);
+  /* 右上切角：与 SignalCard 图标匣同族的战术弹药匣轮廓 */
+  clip-path: polygon(0 0, calc(100% - 11px) 0, 100% 11px, 100% 100%, 0 100%);
+}
+.nb-ic svg { width: 14px; height: 14px; display: block; }
+.nb-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.nb-t { font-size: var(--fs-sm); font-weight: 600; color: var(--tx-strong); }
+.nb-d { font-size: var(--fs-xs); color: var(--dim); line-height: 1.7; }
+.nb-go {
+  flex: none;
+  display: inline-flex; align-items: center; gap: 7px;
+  background: var(--accent-bg); color: var(--accent); border: 1px solid var(--accent-dim);
+  border-radius: var(--radius); padding: 7px 16px; cursor: pointer; font-size: var(--fs-sm);
+  transition: background-color var(--t-med) var(--ease), transform var(--t-fast) var(--ease);
+}
+.nb-go:hover { background: var(--accent-soft); }
+.nb-go:active { transform: scale(.98); }
+.nb-go svg { width: 12px; height: 12px; }
+/* 窄屏：文案列保持与图标匣并排，按钮换行到文字下方同列对齐——否则按钮
+   钉在右侧会把说明挤成每行五六字的细条 */
+@media (max-width: 680px) {
+  .no-buy { flex-wrap: wrap; row-gap: 10px; }
+  .nb-body { flex: 1 1 calc(100% - 42px - var(--sp-4)); }
+  .nb-go { margin-left: calc(42px + var(--sp-4)); }
 }
 
-/* ---------- 卖出迷你卡网格（卡片本体样式在 SellCard.vue；此处只管排布） ---------- */
+/* ---------- 卖出迷你卡网格（卡片本体样式在 SellCard.vue；此处只管排布）。
+   auto-fit：信号少于轨道数时（如 3 张卡）收回空轨道让卡撑满行宽，
+   分位轨道加长反而更可读 ---------- */
 .sell-grid {
-  display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: var(--sp-2) var(--sp-3);
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(272px, 1fr)); gap: var(--sp-3);
 }
 .sell-more {
   display: flex; align-items: center; justify-content: center;
-  min-height: 54px;
-  border: 1px dashed var(--line2); border-radius: var(--radius);
+  min-height: 96px;
+  border: 1px dashed var(--line2); border-radius: var(--radius-lg);
   background: none; color: var(--dim);
   font-family: var(--mono); font-size: var(--fs-xs);
   cursor: pointer;
@@ -1533,6 +1508,8 @@ onUnmounted(() => {
 .chip.on { color: var(--accent); border-color: var(--accent-dim); background: var(--accent-bg); }
 .chip-dot { width: 6px; height: 6px; border-radius: 50%; }
 .chip-star { width: 12px; height: 12px; fill: currentColor; flex: none; }
+/* 信号计数（同雷达页 chip-n）：弱化等宽小字缀在标签后，数字即概览 */
+.chip-n { font-family: var(--mono); color: var(--faint); }
 .chip.refresh { margin-left: auto; }
 .chip.refresh:disabled { opacity: .6; cursor: default; }
 /* 触屏筛选/排序 chip 与搜索框增高（真实 padding 而伪元素垫层——chips 间 gap
@@ -1744,6 +1721,8 @@ onUnmounted(() => {
 }
 @media (max-width: 680px) {
   .c-range { display: none; }
+  /* 窄屏控制条本就多行换行，计数缀字加大换行噪音：同雷达页口径隐藏 */
+  .chip-n { display: none; }
   /* 穿透列与 7 天区间列同法降级：移动端窄屏隐藏（穿透徽标仍可见于 TTK 页与详情） */
   .c-pen { display: none; }
   /* 弹种列整格不折行：容器窄于表格时 auto 布局按「最长不可断单词」压缩首列，
@@ -1916,9 +1895,9 @@ onUnmounted(() => {
    .swap .flip .exp 与 .a-ic 淡入、.mini-spin 等全局类由 motion.css 文件尾统一兜底） */
 @media (prefers-reduced-motion: reduce) {
   .chip, .search, .search-clear, .sell-more, .exp-close, .star, .row-chev,
-  .retry, .empty-clear, .pos-add-btn, .pos-in, .pos-del { transition: none; }
-  /* 行情脉搏数字换挡：瞬时（信号色与数字本身即静态等价物） */
-  .nv-enter-active, .nv-leave-active { transition: none; }
+  .retry, .empty-clear, .pos-add-btn, .pos-in, .pos-del,
+  .nb-go { transition: none; }
+  .nb-go:active { transform: none; }
   .retry:active, .empty-clear:active, .pos-add-btn:active { transform: none; }
   /* C 项滚动驱动投影降级为常驻投影（现状）：吸顶「浮在内容上」的语义不随 RM 丢失 */
   .ctl-sticky { animation: none; }
