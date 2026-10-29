@@ -14,14 +14,15 @@ const props = defineProps({
   official: { type: Number, default: null },
 })
 
-const H = 200
 const PAD = { l: 46, r: 14, t: 12, b: 26 }
 
-/* ---------- 绘图基准宽自适应（子弹/雷达双页共用，props 不变） ----------
-   固定 680 基准等比缩放时，<680px 容器下刻度/标注文字会等比缩到 ~6px 难读。
-   按容器实际宽选基准：≥680 用 680 基准（更宽容器仍由样式 max-width:900px
-   封顶放大）；窄容器用容器实际宽（下限 400 兜底超窄屏）——viewBox 宽 ≈
-   渲染宽，缩放比恒 ≈1，文字保持像素级大小稳定。容器宽经 ResizeObserver 跟踪。 */
+/* ---------- 绘图基准随容器实际宽自适应（子弹 / 雷达 / 详情页三处共用，props 不变） ----------
+   固定基准等比缩放的两端都不行：<680px 容器下刻度/标注文字会等比缩到 ~6px 难读；
+   >900px 容器若仍封顶 900 渲染（旧 .pc-svg max-width），展开面板 / 详情页右侧
+   留一大块空白（全表 td 跨满 ~1180px，图只占左 900）。改为基准宽恒等于容器实际
+   宽（下限 400 兜底超窄屏、首帧未探测退 680）——viewBox 宽 ≈ 渲染宽，缩放比恒
+   ≈1，任意容器宽下文字都保持像素级大小稳定，图随容器铺满。容器宽经
+   ResizeObserver 跟踪。 */
 const W_BASE = 680
 const W_MIN = 400
 const hostRef = ref(null)
@@ -37,7 +38,11 @@ onMounted(() => {
   ro.observe(el)
 })
 onBeforeUnmount(() => { if (ro) ro.disconnect() })
-const W = computed(() => Math.round(Math.min(Math.max(boxW.value || W_BASE, W_MIN), W_BASE)))
+const W = computed(() => Math.round(Math.max(boxW.value || W_BASE, W_MIN)))
+/* 基准高随基准宽等比走（W/3.4，200 下限 / 340 上限）：铺满宽度后若维持 200 高，
+   图幅明显拉扁（1180×200 ≈ 5.9:1）；按 680×200 的原比例放大到 ~1150×340 封顶，
+   窄容器（≤680）仍落 200 与现状一致。 */
+const H = computed(() => Math.round(Math.min(Math.max(W.value / 3.4, 200), 340)))
 
 /* 首尾/查值时间标签（YYYYMMDDHHmm → MM-DD HH:mm；kkrb 小时档键分钟位为 00，显示不变）。
    提到顶层供 geo 与查值读数共用（原在 geo computed 内部，查值层也要格式化） */
@@ -58,7 +63,7 @@ const geo = computed(() => {
   const max = Math.max(...vals, ...extras)
   const span = (max - min) || 1
   const iw = w - PAD.l - PAD.r
-  const ih = H - PAD.t - PAD.b
+  const ih = H.value - PAD.t - PAD.b
   const x = (i) => PAD.l + (i / (pts.length - 1)) * iw
   const y = (v) => PAD.t + ih - ((v - min) / span) * ih
   const line = pts.map(([, v], i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)} ${y(v).toFixed(1)}`).join(' ')
@@ -79,7 +84,7 @@ const geo = computed(() => {
     anchor: curFlip ? 'end' : 'start',
   }
   // 分位标注防撞取 y：三级回退（线上方 → 线下方 → 再抬高 8px），距避让基线均需 ≥11px
-  const XL_Y = H - 8 // 两条 X 轴时间标签基线
+  const XL_Y = H.value - 8 // 两条 X 轴时间标签基线
   const mid = (max + min) / 2
   const base3 = [y(max) + 4, y(mid) + 4, y(min) + 4] // 三条 Y 轴刻度基线
   const pickY = (v, avoid) => {
@@ -88,7 +93,7 @@ const geo = computed(() => {
     const c1 = y(v) - 5
     if (clear(c1)) return c1
     const c2 = y(v) + 11
-    if (clear(c2) && c2 <= H - PAD.b) return c2 // 不得进入 X 轴标签区
+    if (clear(c2) && c2 <= H.value - PAD.b) return c2 // 不得进入 X 轴标签区
     return Math.max(y(v) - 13, PAD.t + 8)
   }
   // 依次落 P75 / P25 / 官方均价，前者的结果计入避让集后再算下一条，标注互不相撞
@@ -175,16 +180,10 @@ const curReadout = computed(() =>
     ? Math.round(props.current).toLocaleString('zh-CN')
     : '—')
 
-/* 读数条左缘与 Y 轴刻度对齐要按渲染缩放比换算：Y 轴在 viewBox x=PAD.l，但 svg
-   渲染宽受 max-width 封顶（.pc-svg 900px，与 W_CAP 同源手写、改动需两处同步），
-   容器比 viewBox 基准宽时缩放比 >1，Y 轴实际渲染像素 = PAD.l × 缩放比。原先恒
-   取 PAD.l 视图单位，宽屏展开行（渲染 900 / 基准 680 ≈ 1.32×）下读数比 Y 轴
-   缩进 ~15px。boxW 未探测（首帧）时按缩放比 1 兜底，与窄屏行为一致 */
-const W_CAP = 900
-const readoutPad = computed(() => {
-  const renderW = Math.min(boxW.value || W_BASE, W_CAP)
-  return Math.round(PAD.l * (renderW / W.value))
-})
+/* 读数条左缘与 Y 轴刻度对齐要按渲染缩放比换算：基准宽恒等于容器宽（缩放比
+   恒 ≈1，仅超窄屏 boxW < 400 时 <1），首帧 boxW 未探测时按缩放比 1 兜底 */
+const readoutPad = computed(() =>
+  Math.round(PAD.l * ((boxW.value || W_BASE) / W.value)))
 </script>
 
 <template>
@@ -272,12 +271,11 @@ const readoutPad = computed(() => {
   .pc-xh { transition: none; } /* 十字线位置本就瞬跟，淡入也瞬时 */
   .pc-readout, .pc-readout b { transition: none; } /* 读数态切换同样瞬时 */
 }
-/* ≥680 容器：680 基准 viewBox 随容器等比放大，全宽展开行（~1160px）下刻度字会
-   渲染到 ~17px、超过正文基准，与下方脚注字号倒挂；封顶 900px（≈1.32x）让图内
-   文字回到 12~14px 字阶族。<680 容器：脚本按容器实际宽收窄 viewBox 基准
-   （ResizeObserver，下限 400），缩放比恒 ≈1，小屏刻度/标注不再等比缩小难读 */
+/* 宽随容器铺满（基准宽 = 容器宽，缩放比恒 ≈1）：旧版 max-width:900px 会让
+   全表展开面板 / 详情页在 >900px 容器下右侧留白，图不铺满；<680 容器由脚本
+   收窄 viewBox 基准（下限 400），文字两档都像素级稳定 */
 .pc-svg {
-  display: block; width: 100%; max-width: 900px; height: auto;
+  display: block; width: 100%; height: auto;
   /* 触屏横向拖动归查值、纵向手势仍归页面滚动；不支持时整行声明被丢弃、
      行为退回纯展示（图仍完整可读），功能无损 */
   touch-action: pan-y;

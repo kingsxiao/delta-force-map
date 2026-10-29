@@ -670,39 +670,7 @@ onBeforeUnmount(() => {
   background: linear-gradient(90deg, color-mix(in srgb, var(--danger) 45%, transparent), var(--danger));
 }
 
-.sig {
-  display: inline-block; font-family: var(--mono); font-size: var(--fs-2xs);
-  letter-spacing: .1em; padding: 2px 10px; border-radius: var(--radius-pill);
-  border: 1px solid var(--line2); color: var(--dim); background: var(--card);
-  white-space: nowrap;
-}
-.sig.buy {
-  color: var(--ok);
-  border-color: rgba(133, 181, 120, .4); /* 不支持 color-mix 的引擎兜底 */
-  background: rgba(133, 181, 120, .1);
-  border-color: color-mix(in srgb, var(--ok) 40%, transparent);
-  background: color-mix(in srgb, var(--ok) 10%, transparent);
-}
-.sig.sell {
-  color: var(--danger);
-  border-color: rgba(217, 106, 89, .4); /* 同上兜底 */
-  background: rgba(217, 106, 89, .1);
-  border-color: color-mix(in srgb, var(--danger) 40%, transparent);
-  background: color-mix(in srgb, var(--danger) 10%, transparent);
-}
-.sig.watch {
-  color: var(--info);
-  border-color: rgba(97, 159, 206, .4); /* 同上兜底 */
-  background: rgba(97, 159, 206, .1);
-  border-color: color-mix(in srgb, var(--info) 40%, transparent);
-  background: color-mix(in srgb, var(--info) 10%, transparent);
-}
-/* 观望降噪（同子弹页 .sig.wait 口径）：本榜单实测常态是观望（6/10 行）——十行里
-   六行灰胶囊边框，BUY/SELL/WATCH 彩胶囊反而被淹没（「全员徽章等于没有徽章」，
-   与 .cross.anomaly 徽章只给异常态同一条纪律）；去胶囊描边与底、降为素文本，
-   彩色胶囊成为信号列唯一扫读锚点。「数据不足」（rank==null）同为 .wait 一并
-   降噪，缺失态本就不该有徽章实感；色保持 .sig 基底的 dim（≥6.1:1 不降对比） */
-.sig.wait { border-color: transparent; background: none; padding: 2px 0; }
+/* 信号徽章（.sig 家族）收编 base.css：与子弹行情/详情页共用（观望降噪口径在彼处） */
 td.profit { color: var(--ok); font-weight: 600; }
 /* 现价列：行内最重（主数字立权，预赚/区间均为次级档）+ 位宽钉住——列宽原本
    由行集内容决定，筛选掉最贵行（1,083,727 = 9 字符）后列随收窄，榜单小时级

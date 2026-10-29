@@ -308,6 +308,38 @@ input { font-family: inherit; } /* 表单控件默认不吃 body 字阶，兜底
   letter-spacing: .06em;
 }
 
+/* ---- 信号徽章（BUY/SELL/WATCH/WAIT 胶囊；子弹行情 / 异动雷达 / 弹种详情共用。
+     原先 AmmoMarketView 与 MarketRadarView 各持一份 scoped 同款实现，详情页
+     需要第三份时收编至此。色派生用 color-mix、rgba 真值兜底（写法同 ttk
+     PenMatrix）；观望降噪口径：默认态去描边与底，彩色胶囊是唯一扫读锚点 ---- */
+.sig {
+  display: inline-block; font-family: var(--mono); font-size: var(--fs-2xs);
+  letter-spacing: .1em; padding: 2px 10px; border-radius: var(--radius-pill);
+  border: 1px solid var(--line2); color: var(--dim); background: var(--card);
+  white-space: nowrap;
+}
+.sig.buy {
+  color: var(--ok);
+  border-color: rgba(133, 181, 120, .4); background: rgba(133, 181, 120, .1); /* 不支持 color-mix 的引擎兜底 */
+  border-color: color-mix(in srgb, var(--ok) 40%, transparent);
+  background: color-mix(in srgb, var(--ok) 10%, transparent);
+}
+.sig.sell {
+  color: var(--danger);
+  border-color: rgba(217, 106, 89, .4); background: rgba(217, 106, 89, .1); /* 同上兜底 */
+  border-color: color-mix(in srgb, var(--danger) 40%, transparent);
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+}
+.sig.watch {
+  color: var(--info);
+  border-color: rgba(97, 159, 206, .4); background: rgba(97, 159, 206, .1); /* 同上兜底 */
+  border-color: color-mix(in srgb, var(--info) 40%, transparent);
+  background: color-mix(in srgb, var(--info) 10%, transparent);
+}
+/* 观望是默认态（约六成行）与「数据不足」共用的降噪降级：去胶囊描边与底、
+   降为素文本——缺失态本就不该有徽章实感 */
+.sig.wait { border-color: transparent; background: none; padding: 2px 0; }
+
 /* ---- 数据表基座（物资档位表 / 弹药库 / 护甲一览共用）：表头 + 斑马纹 + 数字对齐 ---- */
 .tbl {
   width: 100%;

@@ -8,7 +8,9 @@ const router = useRouter()
 const { user } = useAccount()
 
 // 三个主 tab + 账号入口（登录态显示用户名）；active 高亮按 route.path
-// 精确比对（'/' 不应匹配到所有路由）
+// 精确比对（'/' 不应匹配到所有路由）。详情子页（/ammo/item/:name）归入
+// 父 tab：高亮「子弹行情」——顶栏语义是「你现在在哪个版块」
+const activePath = computed(() => (route.path.startsWith('/ammo/') ? '/ammo' : route.path))
 const tabs = [
   { to: '/ammo', label: '子弹行情' },
   { to: '/radar', label: '异动雷达' },
@@ -176,10 +178,10 @@ onBeforeUnmount(() => {
 <template>
   <header class="site-topbar">
     <div class="wrap bar-inner">
-      <router-link to="/" class="brand" aria-label="三角洲行动 · delta force hub 首页">
+      <router-link to="/" class="brand" aria-label="三角洲行动数据工具 首页">
         <span class="brand-glyph" aria-hidden="true"></span>
-        <span class="brand-mark">DELTA FORCE</span>
-        <span class="brand-sub">delta force hub</span>
+        <span class="brand-mark">三角洲行动</span>
+        <span class="brand-sub">数据工具</span>
       </router-link>
 
       <nav class="tabs" ref="tabsEl" aria-label="站点导航">
@@ -188,7 +190,7 @@ onBeforeUnmount(() => {
           :key="t.to"
           :to="t.to"
           class="tab"
-          :class="{ active: route.path === t.to }"
+          :class="{ active: activePath === t.to }"
         >
           {{ t.label }}
         </router-link>
@@ -200,7 +202,7 @@ onBeforeUnmount(() => {
         <router-link
           to="/account"
           class="tab"
-          :class="{ active: route.path === '/account' }"
+          :class="{ active: activePath === '/account' }"
           :title="user ? user.username : undefined"
         >
           <span class="acct-name">{{ user ? user.username : '登录' }}</span>
@@ -284,7 +286,7 @@ onBeforeUnmount(() => {
 }
 .brand {
   display: flex;
-  flex: none; /* 不参与收缩：窄屏收缩压力全交给 .tabs（否则 DELTA FORCE 会被压折行） */
+  flex: none; /* 不参与收缩：窄屏收缩压力全交给 .tabs（否则「三角洲行动」会被压折行） */
   align-items: center;
   gap: 10px;
   text-decoration: none;

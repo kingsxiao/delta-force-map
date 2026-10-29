@@ -25,7 +25,7 @@
    快照数据链（loadSeq 守卫 / SSE 版本门控 / 分档轮询 / 回前台补拉 /
    fingerprint 协商缓存）在 ../composables/useSnapshotFeed.js（三视图共用）。
    版本展示 / 阈值分档 / 通道门槛等纯逻辑在 ./ammo/marketMeta.js（自测共用）。
-   页尾 PLAYBOOK 倒卖手册（./ammo/Playbook.vue，静态）：社区攻略整理的
+   页尾倒卖手册（./ammo/Playbook.vue，静态）：社区攻略整理的
    买卖时段 / 挂单定价 / 版本窗口 / 卡邮件要点与风险红线，与信号区互补。
    页头之下「我的囤货台账」抽为 ./ammo/PositionLedger.vue（props 传
    items/rules，usePositions + useAccount 内聚；全表展开行「记入囤货」经
@@ -33,9 +33,14 @@
    TTK 联动：全表「穿透」列按弹名映射 TTK 穿透等级（PenBadge；映射与
    「— = 无穿透数据」口径见 src/data/ttk/ammo-market-alias.js）；进入时
    消费 /ammo?q=弹名 深链回填搜索框（TTK 页「现价」入口）。
+   手机端动线（≤680px，--bp-mobile 同源断点）：点行 / 点卖出迷你卡不再
+   就地展开（面板嵌横向滚动容器，窄屏不可用），改跳 /ammo/item/:name
+   独立详情页（AmmoDetailView，返回即回全表）；桌面 ≥681px 保留行内展开。
+   口径脚注组（口径/官方均价/军需处折算/预计卖出）抽为 ./ammo/ItemNotes.vue
+   （文案单一源 ./ammo/etaLine.js），展开行与详情页共用。
    ============================================================ */
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useReveal } from '../composables/useReveal'
 import { useStars } from '../composables/useStars'
 import { usePositions } from '../composables/usePositions'
@@ -46,6 +51,7 @@ import PriceChart from './ammo/PriceChart.vue'
 import Playbook from './ammo/Playbook.vue'
 import MarketClock from './ammo/MarketClock.vue'
 import PositionLedger from './ammo/PositionLedger.vue'
+import ItemNotes from './ammo/ItemNotes.vue'
 import PenBadge from './ttk/PenBadge.vue'
 import SkeletonView from '../components/SkeletonView.vue'
 import { imgReady, hideImg } from '../composables/imgReady'
@@ -56,10 +62,11 @@ import { marketNamePen } from '../data/ttk/ammo-market-alias.js'
 import {
   formatVersionLabel, staleness, methodDataLine, sourceLabel, staleTipText, picThumb,
 } from '@shared/js/marketMeta.js'
-import { predictSellEta, fmtHours, fmtPeak, marketClock, dayTradeEta, isDayTradeItem, DAY_TRADE_MAX_H, DAY_TRADE_MIN_NET_PCT } from '@shared/js/sellEta.js'
+import { fmtHours, marketClock, dayTradeEta, isDayTradeItem, DAY_TRADE_MAX_H, DAY_TRADE_MIN_NET_PCT } from '@shared/js/sellEta.js'
 import { judgeSignals, sendNotifications } from '@shared/js/notify-policy.js'
 
 const route = useRoute()
+const router = useRouter()
 
 const { observeRoot } = useReveal()
 
@@ -463,9 +470,19 @@ const filtered = computed(() => {
    有行→空态的切换会残留 can-scroll（渐隐罩住空态行的「清除全部筛选」按钮） */
 watch(filtered, () => nextTick(syncTblFade))
 
-/* ---------- 行展开 ---------- */
+/* ---------- 行展开（桌面 ≥681px）/ 详情页跳转（手机 ≤680px） ----------
+   展开面板 td 跨满表内容宽（手机 >600px），按钮带与图表半截落在视口外，
+   且嵌在横向滚动容器里、内外滚动方向打架——窄屏点行不再就地展开，改为
+   跳转 /ammo/item/:name 独立详情页（返回即回全表；弹名 encodeURIComponent，
+   实名含引号/空格/斜杠），详情页承载同一套图表与口径脚注。断点与 CSS
+   --bp-mobile 680px 同源（base.css 断点表），matchMedia 变更监听随挂卸 */
+const mqNarrow = matchMedia('(max-width: 680px)')
+const isNarrow = ref(mqNarrow.matches)
+const onMqChange = (e) => { isNarrow.value = e.matches }
+const goToItem = (name) => router.push(`/ammo/item/${encodeURIComponent(name)}`)
 const expanded = ref(null)
 const toggle = (name) => {
+  if (isNarrow.value) { goToItem(name); return }
   expanded.value = expanded.value === name ? null : name
   if (expanded.value) scrollToExpander('nearest')
 }
@@ -494,6 +511,8 @@ const onGlobalKeydown = (e) => { if (e.key === 'Escape') expanded.value = null }
 const searchRef = ref(null)
 const searchArmed = ref(false) // openFromSell 自动写入搜索词后的示意高亮态，手动输入 / ✕ 即解除
 function openFromSell(i) {
+  /* 手机上与点行同动线：直达该弹详情页（就地展开的面板在窄屏不可用） */
+  if (isNarrow.value) { goToItem(i.name); return }
   state.signal = 'all'
   state.grade = 0
   state.q = i.name
@@ -538,26 +557,8 @@ const clockHour = computed(() => clock.value?.dataHour ?? null)
    BUY 信号区在「出货窗」给出等待提示（纯展示层，不改 analyze 的信号判定） */
 const clockVerdict = computed(() => clock.value?.verdict ?? null)
 
-/* ---------- 预计卖出时间（展开行脚注；数据不足返回 null 不渲染） ----------
-   买入/关注：历史到达历时（中位/最快）+ 日内高位时段；卖出：已在挂卖区，
-   只给「今天几点出」的日内高位建议。口径见 ./ammo/sellEta.js 与 METHOD。 */
-function etaLine(i) {
-  const e = predictSellEta(i)
-  if (!e) return null
-  const peak = e.peakStart != null ? fmtPeak(e.peakStart, e.peakEnd) : null
-  if (e.atTarget) {
-    return peak
-      ? `现价已处挂卖区，日内高位通常在 ${peak}，建议在该时段分批挂卖。`
-      : '现价已处挂卖区，建议尽快挂卖。'
-  }
-  // 历时展示门槛：至少 2 次完整上涨样本（单样本中位没有置信度）
-  if (e.medianH == null || e.episodes < 2) return null
-  const clock = e.etaLabel ? `（${e.etaLabel} 前后）` : ''
-  const base =
-    `按近 7 天 ${e.episodes} 次同类上涨，从现价涨到 ${fmt(i.targetSell)}（近 3 天 75 分位）` +
-    `中位约 ${fmtHours(e.medianH)}、最快 ${fmtHours(e.fastestH)}${clock}`
-  return peak ? `${base}；该弹种日内高位通常在 ${peak}。` : `${base}。`
-}
+/* ---------- 预计卖出时间（展开行脚注）：文案单一源 ./ammo/etaLine.js，
+   经 ./ammo/ItemNotes.vue 渲染（详情页同款内容共用同一组件） ---------- */
 
 /* ---------- 表头口径 popover 定位（G 项）：popover API 打开时默认在视口居中，
    读触发按钮 rect 就地落到按钮下方（popover 元素渲染进 top layer，不受
@@ -596,6 +597,7 @@ onMounted(() => {
   const q = typeof route.query.q === 'string' ? route.query.q.trim().slice(0, 40) : ''
   if (q) state.q = q
   clockTimer = setInterval(() => { nowTs.value = Date.now() }, 60 * 1000)
+  mqNarrow.addEventListener('change', onMqChange)
   document.addEventListener('toggle', onThPopToggle, true) // 捕获：toggle 不冒泡
   document.addEventListener('click', onPopInvokerClick, true) // 捕获：popover 触发钮追踪（见 onThPopToggle 注释）
   window.addEventListener('resize', syncTblFade)
@@ -604,6 +606,7 @@ onMounted(() => {
 onUnmounted(() => {
   document.title = prevTitle
   clearInterval(clockTimer)
+  mqNarrow.removeEventListener('change', onMqChange)
   if (notifyTipTimer) clearTimeout(notifyTipTimer)
   if (flashTimer) clearTimeout(flashTimer)
   if (ctlRO) ctlRO.disconnect()
@@ -674,11 +677,11 @@ onUnmounted(() => {
         <!-- 买入信号 -->
         <section v-if="buyList.length" class="block reveal">
           <div class="block-h">
-            <span class="bht">BUY SIGNALS</span><span class="bhline"></span>
+            <span class="bht">买入信号</span><span class="bhline"></span>
             <span class="bhc">{{ buyList.length }} 种 · 按预期收益率排序</span>
           </div>
           <!-- 市场时钟判读为「出货窗」（日内高位）时提示等回落：展示层提示，
-               不改 analyze 信号（信号本身已含企稳/趋势门槛，见 METHOD） -->
+               不改 analyze 信号（信号本身已含企稳/趋势门槛，见「计算口径」） -->
           <p v-if="clockVerdict === 'sell'" class="more-tip buy-clock-tip">
             市场时钟判读：当前处日内高位窗，追高扫货易买在时段顶部——不急可等低位窗（通常 02:00–05:00）再进场。
           </p>
@@ -706,7 +709,7 @@ onUnmounted(() => {
         <!-- 卖出信号（迷你卡，点击直达全表走势） -->
         <section v-if="sellList.length" class="block reveal">
           <div class="block-h">
-            <span class="bht">SELL SIGNALS</span><span class="bhline"></span>
+            <span class="bht">卖出信号</span><span class="bhline"></span>
             <span class="bhc">{{ sellList.length }} 种贴近 7 天高位 · 点击查看走势</span>
           </div>
           <div class="sell-grid">
@@ -724,7 +727,7 @@ onUnmounted(() => {
         <!-- 全量表（控制条吸顶，表容器内滚 + 表头 sticky） -->
         <section ref="allSecRef" class="block reveal">
           <div class="block-h">
-            <span class="bht">ALL AMMO</span><span class="bhline"></span>
+            <span class="bht">全部弹药</span><span class="bhline"></span>
             <span class="bhc">{{ filtered.length }} / {{ items.length }} 种</span>
           </div>
 
@@ -851,7 +854,7 @@ onUnmounted(() => {
                       class="row data-row" :class="{ open: expanded === i.name }"
                       tabindex="0"
                       :aria-expanded="expanded === i.name"
-                      :aria-label="`${i.name}，展开 7 天价格大图`"
+                      :aria-label="`${i.name}，查看 7 天走势详情`"
                       @click="toggle(i.name)"
                       @keydown.enter="onRowKeydown($event, i.name)"
                       @keydown.space="onRowKeydown($event, i.name)"
@@ -958,22 +961,9 @@ onUnmounted(() => {
                                   <button class="exp-close" @click="expanded = null">收起</button>
                                 </div>
                                 <PriceChart :curve="i.curve" :p25="i.p25" :p75="i.p75" :current="i.current" :official="i.official?.avg ?? null" />
-                                <p class="exp-note">
-                                  口径：买入参考 {{ fmt(i.p25) }}（7 天 P25）/ 目标挂卖 {{ fmt(i.targetSell) }}（近 3 天 75 分位，税后到手 {{ fmt(i.netSell) }}）/
-                                  税率 {{ (i.taxRate * 100).toFixed(0) }}%。价格回到目标价即可挂卖<template v-if="i.stopLoss">，破 {{ fmt(i.stopLoss) }} 止损离场</template>；急用钱可按现价直接出。
-                                </p>
-                                <p v-if="i.official" class="exp-note">
-                                  官方均价 {{ fmt(i.official.avg) }}（腾讯官方约 24h 一轮的对账口径，旁路参照不进信号）：现价偏离
-                                  <b :class="Math.abs(i.official.dev) > OFFICIAL_DEV_WARN ? 'off-bad' : ''">{{ pct(i.official.dev) }}</b>；偏离大 = 刚剧烈波动或上游口径暂漂，动手前先看曲线确认。
-                                </p>
-                                <!-- 军需处兑换折算：弹价地板参照（Playbook 01「军需处倒挂」的数据面） -->
-                                <p v-if="i.trade" class="exp-note">
-                                  军需处兑换折算 <b>{{ fmt(i.trade.costPerRound) }}</b>/发（{{ i.trade.materials.map((m) => `${m.count}×${m.name}`).join(' + ') }} → {{ i.trade.perCount }} 发）：
-                                  现价 {{ fmt(i.current) }}<template v-if="i.trade.costPerRound > 0"> 高出折算价 <b>{{ pct(i.current / i.trade.costPerRound - 1) }}</b></template><template v-if="i.current / i.trade.costPerRound - 1 > 0.3">——倒挂明显，先扫军需处再倒，别直接扫交易行</template>。
-                                </p>
-                                <p v-if="etaLine(i)" class="exp-note eta-note">
-                                  <b>预计卖出</b>：{{ etaLine(i) }}（历史统计，不代表未来）。
-                                </p>
+                                <!-- 口径脚注组（口径/官方均价/军需处折算/预计卖出）：
+                                     详情页共用同一组件（./ammo/ItemNotes.vue） -->
+                                <ItemNotes :item="i" />
                               </div>
                             </div>
                           </div>
@@ -993,7 +983,7 @@ onUnmounted(() => {
 
           <!-- 方法与免责（.tbl-zone 之外：常规文档流，不会再钻进吸顶表格背后） -->
           <section class="block reveal">
-            <div class="block-h"><span class="bht">METHOD</span><span class="bhline"></span></div>
+            <div class="block-h"><span class="bht">计算口径</span><span class="bhline"></span></div>
             <ul class="method">
               <li><b>买入条件</b>（多重门槛，缺一不报）：现价处近 7 天曲线 ≤ {{ buyRankPct }}% 分位（≤ {{ watchRankPct }}% 先列「关注」）；已止跌企稳（高于 7 天低点 ≥3%、近 12 小时无新低、近 48 小时趋势斜率 ≥ +0.02%/h）；按近 3 天 75 分位挂卖、扣除交易税后收益率 ≥ {{ buyNetPct }}%；曲线 ≥ 2 天。随信号给止损位（破 7 天低点 3% 或单笔 −5% 风险上限）与建议持有上限（{{ Math.round(ruleNum('MAX_HOLD_H', 168) / 24) }} 天）。门槛数字随快照 <code>rules</code> 字段下发，与服务端 analyze.mjs 同源。</li>
               <li><b>卖出条件</b>：现价处 ≥ {{ sellRankPct }}% 分位且动能转弱（48 小时斜率不陡增）；强势上冲不催卖。</li>
@@ -1444,35 +1434,7 @@ onUnmounted(() => {
   .rank-bar { width: 72px; }
 }
 
-/* 信号徽章：彩色文字 + 同色系淡底（color-mix 派生，rgba 真值兜底，写法同 ttk PenMatrix），
-   扫读时按颜色块成组 */
-.sig {
-  display: inline-block; font-family: var(--mono); font-size: var(--fs-2xs);
-  letter-spacing: .1em; padding: 2px 10px; border-radius: var(--radius-pill);
-  border: 1px solid var(--line2); color: var(--dim); background: var(--card);
-}
-.sig.buy {
-  color: var(--ok);
-  border-color: rgba(133, 181, 120, .4); background: rgba(133, 181, 120, .1);
-  border-color: color-mix(in srgb, var(--ok) 40%, transparent);
-  background: color-mix(in srgb, var(--ok) 10%, transparent);
-}
-.sig.sell {
-  color: var(--danger);
-  border-color: rgba(217, 106, 89, .4); background: rgba(217, 106, 89, .1);
-  border-color: color-mix(in srgb, var(--danger) 40%, transparent);
-  background: color-mix(in srgb, var(--danger) 10%, transparent);
-}
-.sig.watch {
-  color: var(--info);
-  border-color: rgba(97, 159, 206, .4); background: rgba(97, 159, 206, .1);
-  border-color: color-mix(in srgb, var(--info) 40%, transparent);
-  background: color-mix(in srgb, var(--info) 10%, transparent);
-}
-/* 观望是全表默认态（约六成行）：去胶囊描边与底、降为素文本，让 BUY/SELL/WATCH
-   彩色胶囊成为信号列唯一扫读锚点（与 .profit 主数字立权同构——默认态不抢戏）；
-   「数据不足」同为 .wait 一并降噪，缺失态本就不该有徽章实感 */
-.sig.wait { border-color: transparent; background: none; padding: 2px 0; }
+/* 信号徽章（.sig 家族）收编 base.css：与雷达页/详情页共用（观望降噪口径在彼处） */
 /* 主数字立权：预赚（含收益率）才是本表的决策数字——升为行内最重（fs-md + 700，
    .tbl 前缀压过 .tbl .mono 的 fs-xs 特异性）；profit 行有绿底色块成组，扫读锚点唯一 */
 .tbl td.profit { color: var(--ok); font-weight: 700; font-size: var(--fs-md); }
@@ -1546,15 +1508,7 @@ onUnmounted(() => {
   border-color: color-mix(in srgb, var(--ok) 40%, transparent);
   background: color-mix(in srgb, var(--ok) 10%, transparent);
 }
-.exp-note { color: var(--faint); font-size: var(--fs-xs); margin: 10px 2px 2px; line-height: 1.8; }
-.exp-note b { color: var(--dim); }
-/* 官方均价偏离超阈值的数值：danger 实感（数据可疑语义，同 ⚠ 角标） */
-.exp-note b.off-bad { color: var(--danger); }
-/* 预计卖出脚注：--accent 预测语义由 b 着色承担 */
-.eta-note {
-  color: var(--dim);
-}
-.eta-note b { color: var(--accent); }
+/* 口径脚注组样式（.note 等）随段落抽入 ./ammo/ItemNotes.vue（scoped 自持） */
 
 /* 移动端展开面板：td 跨满表格内容宽（横滑容器下 >600px），绝对定位在宽 td
    右缘的按钮带与自适应到 600px 宽的图表右半都会落到视口外，点开行首屏看不到
@@ -1564,7 +1518,7 @@ onUnmounted(() => {
 @media (max-width: 680px) {
   .exp-pad { padding-top: 12px; }
   .exp-actions { position: static; margin: 0 0 10px; max-width: calc(100vw - 56px); }
-  .expander .pchart, .expander .exp-note { max-width: calc(100vw - 56px); }
+  .expander .pchart, .expander :deep(.note) { max-width: calc(100vw - 56px); }
 }
 
 .method {

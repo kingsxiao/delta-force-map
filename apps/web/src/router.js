@@ -10,6 +10,9 @@ const router = createRouter({
   routes: [
     { path: '/', redirect: '/ammo' },
     { path: '/ttk', name: 'ttk', component: () => import('./views/TtkView.vue') },
+    // 弹种详情（手机端点行 / 卖出卡直达，桌面直链亦可开）：弹名作路径参数，
+    // 实名含引号/空格/斜杠，调用方须 encodeURIComponent（vue-router 解析时解码）
+    { path: '/ammo/item/:name', name: 'ammo-item', component: () => import('./views/AmmoDetailView.vue') },
     { path: '/ammo', name: 'ammo', component: () => import('./views/AmmoMarketView.vue') },
     { path: '/radar', name: 'radar', component: () => import('./views/MarketRadarView.vue') },
     { path: '/craft', name: 'craft', component: () => import('./views/CraftView.vue') },

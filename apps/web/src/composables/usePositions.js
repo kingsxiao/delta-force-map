@@ -5,8 +5,9 @@
    跨视图读写，抽为模块级单例：
      · positions 为全站共享的响应式数组（[{name, qty, cost, at?}]，at=记账时刻
        epoch ms 可选，iOS 端同构透传，契约 shared/API.md §6.3）
-     · 视图沿用「直接改 positions.value 再调 save()」的既有写法
-     · 变更统一经 save / replacePositions 收口：持久化 + 订阅通知
+     · 视图沿用「直接改 positions.value 再调 save()」的既有写法；按弹名
+       增改一行走 upsert（字段清洗 + 记账时刻语义收口在此）
+     · 变更统一经 save / upsert / replacePositions 收口：持久化 + 订阅通知
        （source: 'save' = 用户编辑，'replace' = 云合并落地）
    ============================================================ */
 import { ref } from 'vue'
@@ -49,14 +50,34 @@ function emitChange(source) {
   for (const fn of listeners) fn(positions.value, source)
 }
 
+function commit() {
+  persist()
+  emitChange('save')
+}
+
+/** 台账唯一写入口（原 PositionLedger 内部实现上收：详情页「记入囤货」与
+    台账行内编辑/删除共用，不再各自手写落库）。只入账本事实字段——调用方
+    可能传 join 行情后的展示对象（含 item/curve），整体入库会污染 localStorage
+    与云端 ledger.ammo（多次编辑即超 64KB 上限）。at（记账时刻 epoch ms）：
+    显式传入优先；更新已有行不改记账时刻；新行取当下 */
+function upsert(p) {
+  const i = positions.value.findIndex((x) => x.name === p.name)
+  const at = Number.isFinite(p.at) && p.at > 0
+    ? p.at
+    : (i >= 0 ? positions.value[i].at : Date.now())
+  const clean = { name: p.name, qty: p.qty, cost: p.cost, ...(at != null ? { at } : {}) }
+  if (i >= 0) positions.value[i] = clean
+  else positions.value.push(clean)
+  commit()
+}
+
 export function usePositions() {
   return {
     positions,
-    /** 视图改完 positions.value 后调用（持久化 + 通知，source='save' 触发云推送） */
-    save() {
-      persist()
-      emitChange('save')
-    },
+    /** 视图直接改 positions.value 后调用（持久化 + 通知，source='save' 触发云推送）；
+        按弹名增改一行请走 upsert，别绕过字段清洗 */
+    save: commit,
+    upsert,
     /** 云端合并落地（source='replace'，不触发云推送） */
     replacePositions(next) {
       positions.value = loadSanitized(next)

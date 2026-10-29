@@ -30,7 +30,7 @@ const props = defineProps({
   rules: { type: Object, default: () => ({}) },
 })
 
-const { positions, save: savePositions } = usePositions()
+const { positions, save: savePositions, upsert: upsertPosition } = usePositions()
 const { user: accountUser } = useAccount() // 仅用于台账区块的云同步状态标（同步逻辑全在 useAccount 单例内）
 
 const ruleNum = (k, dflt) => (Number.isFinite(props.rules[k]) ? props.rules[k] : dflt)
@@ -79,21 +79,9 @@ const posTotals = computed(() => {
   }
   return { invest, gainNet, gainNow, pct: invest > 0 ? gainNet / invest : null }
 })
-function upsertPosition(p) {
-  const i = positions.value.findIndex((x) => x.name === p.name)
-  // 只入账本事实字段：调用方可能传台账行 join 行情后的展示对象（含 item/curve），
-  // 整体入库会污染 localStorage 与云端 ledger.ammo（多次编辑即超 64KB 上限）。
-  // at（记账时刻 epoch ms）：显式传入优先；更新已有行不改记账时刻；新行取当下。
-  // 首条持仓 0→1 只会经父级全表「记入囤货」发生（本表单仅在有持仓时可见），
-  // 届时区块从无到有的 reveal 补观察（observeRoot）由父级页面侧承接
-  const at = Number.isFinite(p.at) && p.at > 0
-    ? p.at
-    : (i >= 0 ? positions.value[i].at : Date.now())
-  const clean = { name: p.name, qty: p.qty, cost: p.cost, ...(at != null ? { at } : {}) }
-  if (i >= 0) positions.value[i] = clean
-  else positions.value.push(clean)
-  savePositions()
-}
+/* upsertPosition（台账唯一写入口）已上收 usePositions 单例：本组件行内编辑 /
+   删除、添加表单与详情页「记入囤货」共用同一落库路径（字段清洗 + 记账时刻
+   语义在 composable 一处） */
 function removePosition(name) {
   positions.value = positions.value.filter((p) => p.name !== name)
   savePositions()
@@ -192,7 +180,7 @@ onUnmounted(() => {
        从无到有时亦由父级补观察） -->
   <section v-if="positions.length" ref="posSecRef" class="block reveal pos-block" aria-label="我的囤货台账">
     <div class="block-h">
-      <span class="bht">MY POSITIONS</span><span class="bhline"></span>
+      <span class="bht">我的囤货</span><span class="bhline"></span>
       <span class="bhc">{{ positions.length }} 条 · 本机记录{{ accountUser ? ' · 已随账号云同步' : '' }}</span>
     </div>
     <div class="pos-sum">
