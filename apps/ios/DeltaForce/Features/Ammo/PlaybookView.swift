@@ -335,7 +335,7 @@ private struct MarketClockCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Space.sm) {
             HStack(spacing: Theme.Space.xs) {
-                Text("MARKET CLOCK").font(Theme.monoFont(.micro, weight: .bold)).foregroundStyle(Theme.accent)
+                Text("市场时钟").font(Theme.monoFont(.micro, weight: .bold)).foregroundStyle(Theme.accent)
                 // 不限行：特大字号 / 窄屏时自然折行，优于截成「全市场日内节律 · 1…」。
                 // verdict 徽标已并入下方判读行大字（与 web 同源）——头部不再重复一枚 micro 徽标，
                 // 同一结论全卡只出现一次（本轮主题：去掉多余装饰）

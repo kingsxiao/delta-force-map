@@ -1,6 +1,6 @@
 <script setup>
 /* ============================================================
-   MarketClock — 全市场日内节律（/ammo 页 PLAYBOOK 区块上方）
+   MarketClock — 全市场日内节律（/ammo 页倒卖手册区块上方）
    ------------------------------------------------------------
    回答「现在几点，该扫货还是该出货」：把全市场每条 7 天曲线逐弹归一
    （相对自身均价的价格比值，消除 162~6140 的单价量纲差）后按小时跨弹
@@ -89,7 +89,7 @@ const bandLabel = computed(() => {
 <template>
   <section v-if="clock" class="block reveal" aria-label="全市场日内节律">
     <div class="block-h">
-      <span class="bht">MARKET CLOCK</span><span class="bhline"></span>
+      <span class="bht">市场时钟</span><span class="bhline"></span>
       <span class="bhc">全市场日内节律 · {{ clock.counted }} 种弹聚合</span>
     </div>
 

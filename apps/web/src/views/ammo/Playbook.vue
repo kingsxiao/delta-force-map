@@ -42,7 +42,7 @@ const seasonInfo = computed(() => {
 /* 四张卡：买 / 卖 / 版本窗口 / 卡邮件（warn=true 走 --warn 左边条） */
 const CARDS = [
   {
-    idx: '01', en: 'BUY', title: '买什么、去哪买', warn: false,
+    idx: '01', tag: '买', title: '买什么、去哪买', warn: false,
     items: [
       { lead: '流动性优先：', text: '4 级弹是多数对局的主力弹种、进出最快；5 级弹单价高但需求窄，适合大资金慢周转。' },
       { lead: '军需处倒挂：', text: '军需处每日限购（约凌晨 5 点刷新）用材料换弹，材料折算价低于交易行时先扫军需处；可兑换弹种在全表弹名旁有「军」标，展开可看折算价与所需材料。' },
@@ -50,7 +50,7 @@ const CARDS = [
     ],
   },
   {
-    idx: '02', en: 'SELL', title: '挂单定价，卖得快又不贱卖', warn: false,
+    idx: '02', tag: '卖', title: '挂单定价，卖得快又不贱卖', warn: false,
     items: [
       { lead: '删位法（日常清仓）：', text: '把参考价末位删 1 位让面板出现新低价区，选从左数第 4 个价格块——当前仍能快速成交的最高价。' },
       { lead: '柱状图法（急用钱）：', text: '挑最短柱子的档位挂（挂单最少、成交最快）；参考减价幅度：配件 5–6 档、武器 3–4 档、材料 2–3 档。（挂单档位分布没有第三方数据源，需在游戏内查看）' },
@@ -58,7 +58,7 @@ const CARDS = [
     ],
   },
   {
-    idx: '03', en: 'WINDOW', title: '版本与赛季窗口（利润最厚）', warn: false,
+    idx: '03', tag: '窗口', title: '版本与赛季窗口（利润最厚）', warn: false,
     items: [
       { lead: '更新前 3–7 天囤货：', text: '新赛季/大版本前囤热门口径（新枪配套弹、5.56 等主流弹）；赛季末物价低迷同样是囤货窗口。赛季倒计时见下方横幅（由赛季日历数据驱动）。' },
       { lead: '开更后 3 天内出货：', text: '全服补弹需求暴增，是主要抛售窗口（AP6.3 更新后涨至约 4.5 万/格）。' },
@@ -66,7 +66,7 @@ const CARDS = [
     ],
   },
   {
-    idx: '04', en: 'MAIL', title: '卡邮件：邮箱当临时仓库', warn: true,
+    idx: '04', tag: '邮件', title: '卡邮件：邮箱当临时仓库', warn: true,
     items: [
       { lead: '机制：', text: '邮件附件可暂存物资当扩容仓库用；邮件物资 30 天有效，逾期消失。' },
       { lead: '全装包法（半官方机制）：', text: '先用占格杂物把仓库塞满，再打开全装包并勾选「打开后立即装备」——空间冲突后，原身上装备整套转为补偿邮件。' },
@@ -87,8 +87,8 @@ const RISKS = [
 <template>
   <section class="block reveal">
     <div class="block-h">
-      <span class="bht">PLAYBOOK</span><span class="bhline"></span>
-      <span class="bhc">倒卖手册</span>
+      <span class="bht">倒卖手册</span><span class="bhline"></span>
+      <span class="bhc">囤 → 卖 实操动线</span>
     </div>
 
     <p class="pb-lede">
@@ -122,7 +122,7 @@ const RISKS = [
     <div class="pb-grid">
       <article v-for="c in CARDS" :key="c.idx" class="pb-card" :class="{ warn: c.warn, live: c.idx === '03' && seasonInfo && seasonInfo.phase !== 'mid' }">
         <header class="pbc-head">
-          <span class="pbc-idx">{{ c.idx }} {{ c.en }}<i v-if="c.idx === '03' && seasonInfo && seasonInfo.phase !== 'mid'" class="pbc-live">赛季窗口进行中</i></span>
+          <span class="pbc-idx">{{ c.idx }} {{ c.tag }}<i v-if="c.idx === '03' && seasonInfo && seasonInfo.phase !== 'mid'" class="pbc-live">赛季窗口进行中</i></span>
           <h4 class="pbc-title">{{ c.title }}</h4>
         </header>
         <ul>
@@ -133,7 +133,7 @@ const RISKS = [
 
     <!-- 风险与红线 -->
     <div class="pb-risk">
-      <span class="pb-risk-label">RISK · 风险与红线</span>
+      <span class="pb-risk-label">风险与红线</span>
       <ul>
         <li v-for="(r, i) in RISKS" :key="i"><b>{{ r.lead }}</b>{{ r.text }}</li>
       </ul>
@@ -215,7 +215,7 @@ const RISKS = [
 
 /* ---------- 实操四卡：固定 4 张 → 桌面 2×2、窄屏 1 列。刻意不做 hover 提亮：
    卡片是静态阅读内容不可点，hover 反馈是「可点」的错误暗示（MOTION.md 原则 3，
-   删掉无意义动效也是优化；对照：BUY SIGNALS 的 SignalCard 可点才有 hover 上浮） ---------- */
+   删掉无意义动效也是优化；对照：买入信号区的 SignalCard 可点才有 hover 上浮） ---------- */
 .pb-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--sp-4); }
 .pb-card {
   background: var(--card); border: 1px solid var(--line); border-radius: var(--radius-lg);

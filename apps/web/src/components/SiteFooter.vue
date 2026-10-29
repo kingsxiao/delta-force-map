@@ -12,7 +12,7 @@ const showExtend = computed(() => route.path !== '/ttk')
 <template>
   <footer class="site-foot">
     <div class="wrap">
-      <p class="foot-brand">DELTA FORCE · FAN-MADE HUB</p>
+      <p class="foot-brand">三角洲行动 · 非官方数据站</p>
       <p v-if="showExtend" class="foot-line">
         延伸内容：<router-link to="/ttk" class="foot-link">全枪械 TTK 排行</router-link>——弹药穿透等级 ×
         护甲减伤逐发模拟，附弹药库与判定矩阵。

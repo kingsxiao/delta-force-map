@@ -319,7 +319,7 @@ onBeforeUnmount(() => {
         <!-- 榜单板块头（兄弟页 .block-h 惯例）：筛选命中数就地可见——当前页面无任何
              「筛出了几条」的反馈，筛选后只能靠数行数 -->
         <div class="block-h">
-          <span class="bht">ALL RECIPES</span><span class="bhline"></span>
+          <span class="bht">全部配方</span><span class="bhline"></span>
           <span class="bhc">{{ filtered.length }} / {{ items.length }} 条</span>
         </div>
 

@@ -213,7 +213,7 @@ const lastSyncText = computed(() => {
     <section v-else-if="!user" class="auth-stage reveal-group" aria-label="登录或注册">
       <!-- 左：品牌叙事（为什么登录） -->
       <aside class="auth-hero" style="--ri: 0">
-        <p class="hero-kicker">Delta Force · Cloud Sync</p>
+        <p class="hero-kicker">三角洲行动 · 云同步</p>
         <h2 class="hero-title">换台设备，<br>数据随身带</h2>
         <p class="hero-lede">
           一个账号，把自选、台账与买入价同步到每一台设备；登录即自动合并，任何一端的数据都不会丢。
@@ -441,8 +441,7 @@ const lastSyncText = computed(() => {
 .hero-kicker {
   font-family: var(--mono);
   font-size: var(--fs-2xs);
-  letter-spacing: .42em;
-  text-transform: uppercase;
+  letter-spacing: .26em;
   color: var(--accent);
 }
 .hero-title {
