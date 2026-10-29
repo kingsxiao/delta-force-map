@@ -302,7 +302,7 @@ onBeforeUnmount(() => { clearTimeout(scrollTimer); clearTimeout(unmountTimer) })
 /* hover / 键盘 focus-visible 行高亮（规格「可点表格行」：focus-visible 底 --row-hover） */
 .rk-row:hover,
 .rk-row:focus-visible { background: var(--row-hover); }
-/* 冠军行 top1：--accent-bg 渐变底 + 左缘 2px --accent 实色（语义分层：冠军用实色，展开态用 --accent-dim） */
+/* 冠军行 top1：--accent-bg 渐变底（全站规范：卡片/行不带左缘竖条，冠军语义由渐变底+排名色承担） */
 .rk-row.top1 { background: linear-gradient(90deg, var(--accent-bg), transparent 70%); }
 .rk-row.top1:hover,
 .rk-row.top1:focus-visible {
@@ -535,8 +535,7 @@ onBeforeUnmount(() => { clearTimeout(scrollTimer); clearTimeout(unmountTimer) })
   justify-content: center;
   gap: 3px;
   margin: 0;
-  padding: 2px 0 2px 18px;
-  border-left: 1px solid var(--line2);
+  padding: 2px 0;
   list-style: none;
 }
 .dh-note li {
@@ -755,7 +754,6 @@ onBeforeUnmount(() => { clearTimeout(scrollTimer); clearTimeout(unmountTimer) })
   .dh-note {
     flex-basis: 100%;
     align-self: auto;
-    border-left: 0;
     border-top: 1px solid var(--line2);
     padding: 8px 0 0;
   }
@@ -828,7 +826,6 @@ onBeforeUnmount(() => { clearTimeout(scrollTimer); clearTimeout(unmountTimer) })
   }
   .rk-bar { min-width: 30px; }
   .rk-ttv { min-width: 48px; }
-  .rk-row.top1::before { width: 2px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .rk-bar i, .caret, .rk-detail, .rk-row { transition: none; }

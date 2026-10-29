@@ -75,26 +75,15 @@ const MAX_CHIPS = 7
   gap: var(--sp-3);
 }
 .tb-card {
-  position: relative;
   overflow: hidden;
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
   background: var(--card);
   box-shadow: var(--edge-light);
-  padding: 13px 15px 12px 20px;
+  padding: 13px 15px 12px;
 }
-/* 卡片本身不可点击（无 hover 提亮）：可点的只有卡内枪名 chips（.tb-chip 自带 hover） */
-/* 左缘分档色条：分档身份色（T0 金 / T1 主色 / T2 蓝 / T3 灰） */
-.tb-card::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  width: 3px;
-  background: var(--tier);
-  opacity: .9;
-}
+/* 卡片本身不可点击（无 hover 提亮）：可点的只有卡内枪名 chips（.tb-chip 自带 hover）；
+   分档身份色只由 .tb-t 标题色承担（全站规范：卡片不带左缘竖条） */
 .tb-head {
   display: flex;
   align-items: baseline;
