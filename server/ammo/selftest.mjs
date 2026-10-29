@@ -1009,14 +1009,14 @@ check('live 双源失败指数退避：起点起步、连败 ×2 增长、cap �
     }
     await pollUntil(() => live.status.consecutiveFailures >= 5, '第 5 轮失败落定') // 等在飞轮次收口再关服务
     assert(live.status.consecutiveFailures === 5, `五轮应全失败，实际 ${live.status.consecutiveFailures}`)
-    // 退避序列断言：下界按 setTimeout 硬保证（不会提前）留 5ms 观测偏移余量；
-    // 上界留足调度噪声。未翻倍的机器恒 40ms 到不了 80；未封顶的机器第 5 轮
-    // 会翻到 160ms 恒超上界（gap[0] 的观测起点在 start() 返回后，可比定时器
-    // 注册晚零点几毫秒，故下界 35 而非 40——仍远大于无退避的 fastMs=10 档）
+    // 退避序列断言：tEnd/tStart 都靠 pollUntil 轮询观测，可比真实事件晚若干毫秒
+    // （慢机/CI 上更明显），每个下界统一留 5ms 观测余量；上界留足调度噪声。判别
+    // 力不变：未翻倍的机器恒 40ms 到不了 75；未封顶的机器第 5 轮会翻到 160ms 恒
+    // 超上界——仍远大于无退避的 fastMs=10 档
     assert(gaps[0] >= 35 && gaps[0] <= 150, `第 2 轮延时应为起点 40ms，实际 ${gaps[0]}`)
-    assert(gaps[1] >= 40 && gaps[1] <= 150, `第 3 轮延时应仍为 40ms（start 不翻倍），实际 ${gaps[1]}`)
-    assert(gaps[2] >= 80 && gaps[2] <= 150, `第 4 轮延时应翻倍到 80ms，实际 ${gaps[2]}`)
-    assert(gaps[3] >= 80 && gaps[3] <= 150, `第 5 轮延时应封顶 80ms（未封顶将翻到 160ms），实际 ${gaps[3]}`)
+    assert(gaps[1] >= 35 && gaps[1] <= 150, `第 3 轮延时应仍为 40ms（start 不翻倍），实际 ${gaps[1]}`)
+    assert(gaps[2] >= 75 && gaps[2] <= 150, `第 4 轮延时应翻倍到 80ms，实际 ${gaps[2]}`)
+    assert(gaps[3] >= 75 && gaps[3] <= 150, `第 5 轮延时应封顶 80ms（未封顶将翻到 160ms），实际 ${gaps[3]}`)
     await new Promise((r) => setTimeout(r, 50)) // 等第 5 轮尾工收口
   } finally {
     console.error = origErr
@@ -1077,11 +1077,13 @@ check('页面纯逻辑：预计卖出（历史到达历时 / 日内节律 / 时�
   // 手搓 7 天小时曲线：19–21 点 120、02 点挖坑 80、其余 100（10-06 00:00 起，168 点）
   const mkCurve = (days = 7) => {
     const pts = []
-    const t0 = new Date(2026, 9, 6, 0, 0)
+    // 键序列用 UTC 构造 + getUTC* 取值：任何时区（含夏令时切换）的机器上
+    // 生成的时间键字符串完全一致——时间键本身是纯字符串，不该随本地墙钟漂
+    const t0 = Date.UTC(2026, 9, 6)
     for (let k = 0; k < days * 24; k++) {
-      const dt = new Date(t0.getTime() + k * 3600 * 1000)
-      const key = `${dt.getFullYear()}${pad2(dt.getMonth() + 1)}${pad2(dt.getDate())}${pad2(dt.getHours())}00`
-      const price = dt.getHours() >= 19 && dt.getHours() <= 21 ? 120 : dt.getHours() === 2 ? 80 : 100
+      const dt = new Date(t0 + k * 3600 * 1000)
+      const key = `${dt.getUTCFullYear()}${pad2(dt.getUTCMonth() + 1)}${pad2(dt.getUTCDate())}${pad2(dt.getUTCHours())}00`
+      const price = dt.getUTCHours() >= 19 && dt.getUTCHours() <= 21 ? 120 : dt.getUTCHours() === 2 ? 80 : 100
       pts.push([key, price])
     }
     return pts
@@ -1100,8 +1102,10 @@ check('页面纯逻辑：预计卖出（历史到达历时 / 日内节律 / 时�
   const eps2 = reachEpisodes([['a', 80], ['b', 90], ['c', 100], ['d', 110], ['e', 120], ['f', 80], ['g', 120]], 80, 120)
   assert(eps2.length === 2 && eps2[0] === 1 && eps2[1] === 4, `短序列应得 [1,4]，实际 [${eps2.join(',')}]`)
 
-  // predictSellEta：现价 80 / 目标 120，注入时钟 10-13 15:00（晚于曲线末点 10-12 23:00）
-  const now = new Date(2026, 9, 13, 15, 0).getTime()
+  // predictSellEta：现价 80 / 目标 120，注入时钟北京墙钟 10-13 15:00（晚于曲线
+  // 末点 10-12 23:00）。epoch 用 UTC 构造再减 8 小时得到北京墙钟口径——本地时区
+  // 构造 new Date(y,m,d) 在 CI 的 UTC 环境会漂 8 小时，etaLabel 断言随之失败
+  const now = Date.UTC(2026, 9, 13, 15, 0) - 8 * 60 * 60 * 1000
   const e = predictSellEta({ current: 80, targetSell: 120, curve }, now)
   assert(e && e.atTarget === false, '现价低于目标不应判 atTarget')
   assert(e.medianH === 17 && e.fastestH === 17 && e.episodes === 7, `中位/最快应 17 小时 × 7 次，实际 ${e.medianH}/${e.fastestH}/${e.episodes}`)
