@@ -452,11 +452,30 @@ check('端到端 analyze：v2 BUY·SELL 命中 / 接飞刀拒绝 / 止损位', a
     assert(buy.signal === 'BUY', `构造「崩后企稳」弹应 BUY，实际 ${buy.signal}（rank=${buy.rank} slope=${buy.slope48} bounce=${buy.bounceOffLow} lowAge=${buy.lowAgeH} pct=${buy.profitPct}）`)
     assert(sell.signal === 'SELL', `构造「高位横盘」弹应 SELL，实际 ${sell.signal}（rank=${sell.rank} slope=${sell.slope48}）`)
     assert(buy.taxRate === 0.15, `moligod 无税后字段应回退 15% 税率，实际 ${buy.taxRate}`)
+    assert(Array.isArray(buy.buyBlockers) && buy.buyBlockers.length === 0, `BUY 弹 blockers 应为空数组，实际 ${JSON.stringify(buy.buyBlockers)}`)
 
     // 接飞刀回归（旧口径致命伤）：末点崩到 40 贴 7 天新低、幻影利差 >100%，
     // 但未止跌（bounce=0 / lowAge=0 / 斜率深负）→ 必须 WATCH，绝不 BUY
     assert(knife.signal !== 'BUY', `贴底阴跌弹不得 BUY（旧口径缺陷回归），实际 ${knife.signal}`)
     assert(knife.signal === 'WATCH', `贴底但未企稳应 WATCH，实际 ${knife.signal}`)
+
+    // buyBlockers 与信号判定同源一致性（页面「差一步」诊断区的数据契约）：
+    // BUY=空 / 关注带内非空且恰为未过门槛 / 带外不带字段（JSON 省体积）
+    for (const it of analysis.items) {
+      if (it.signal === 'BUY') {
+        assert(it.buyBlockers?.length === 0, `${it.name} BUY 应无 blockers`)
+      } else if (it.signal === 'WATCH') {
+        assert(Array.isArray(it.buyBlockers) && it.buyBlockers.length > 0,
+          `${it.name} WATCH 应至少缺一项买入门槛，实际 ${JSON.stringify(it.buyBlockers)}`)
+      } else if (it.signal === 'SELL' || (it.signal === 'WAIT' && it.rank != null && it.rank > 0.35)) {
+        assert(!('buyBlockers' in it), `${it.name} ${it.signal} 带外不应带 buyBlockers 字段`)
+      }
+    }
+    assert(knife.buyBlockers.includes('bounce') && knife.buyBlockers.includes('lowAge'),
+      `贴底弹 blockers 应含 bounce/lowAge（未离底+刚见新低），实际 ${JSON.stringify(knife.buyBlockers)}`)
+    assert(analysis.rules.BUY_MIN_POINTS === 48 && analysis.rules.BUY_BOUNCE_OFF_LOW === 0.03
+      && analysis.rules.BUY_LOW_AGE_H === 12 && analysis.rules.BUY_SLOPE_MIN === 0.02,
+      `rules 应下发买入门槛展示子集供前端「差一步」文案，实际 ${JSON.stringify(analysis.rules)}`)
 
     // SELL 动量守则：强势上冲的末点（涨势仍陡）不催卖——rank 高但斜率 >0.05%/h
     const rocket = analyzeItem(mkCurveItem(V2_ROCKET_CURVE))

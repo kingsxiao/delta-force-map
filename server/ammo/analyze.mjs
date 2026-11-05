@@ -30,6 +30,8 @@
    倒卖手最先看的两个数，直接从既有小时曲线算、不依赖上游额外字段。
    快照顶层带 rules（RULES 的展示子集）：页面文案 / 刻度线从数据渲染，
    杜绝 UI 与规则参数再次漂移（曾出现页面写 8%/25% 而规则已是 10%/20%）。
+   关注带 item 带 buyBlockers（未过门槛 key 列表，判定与展示同源同数组）：
+   页面「差一步」诊断区渲染逐项差距，空窗期也能看到离 BUY 最近的前几名。
    注意：历史统计不代表未来；生产曲线窗口 7 天，全部特征在窗口内可算。
    ============================================================ */
 
@@ -169,19 +171,29 @@ export function analyzeItem(raw, ctx = {}) {
   // 止损：破 7 天低点 3% 即结构破位；同时单笔价差风险封顶 5%
   const stopLoss = Math.max(weekLow * (1 - RULES.STOP_LOW_PCT), current * (1 - RULES.STOP_MAX_RISK))
 
+  // 买入门槛逐项核对：判定与「差一步」诊断展示同一份数组（buyOK = 全通过）。
+  // 此前 buyOK 是内联长表达式，页面想展示「差哪些门槛」只能再抄一遍条件——
+  // UI 与规则已三次漂移，keys 单一来源自此收敛在此处
+  const buyGates = [
+    ['rank', rank <= RULES.BUY_RANK_MAX],
+    ['profit', profitPct >= RULES.BUY_MIN_NET_PCT],
+    ['points', prices.length >= RULES.BUY_MIN_POINTS],
+    ['bounce', bounceOffLow >= RULES.BUY_BOUNCE_OFF_LOW],
+    ['lowAge', lowAgeH >= RULES.BUY_LOW_AGE_H],
+    ['slope', slope48 >= RULES.BUY_SLOPE_MIN],
+  ]
+  if (mktSlope48 != null) buyGates.push(['mkt', mktOK]) // 单弹调用无 ctx：不设限也不进 blockers
+
   let signal = 'WAIT'
   if (rank >= RULES.SELL_RANK_MIN && !(RULES.SELL_GUARD && slope48 > RULES.SELL_SLOPE_MAX)) signal = 'SELL'
-  else if (rank <= RULES.BUY_RANK_MAX) {
-    const buyOK =
-      profitPct >= RULES.BUY_MIN_NET_PCT &&
-      prices.length >= RULES.BUY_MIN_POINTS &&
-      bounceOffLow >= RULES.BUY_BOUNCE_OFF_LOW &&
-      lowAgeH >= RULES.BUY_LOW_AGE_H &&
-      slope48 >= RULES.BUY_SLOPE_MIN &&
-      mktOK
-    if (buyOK) signal = 'BUY'
-  }
+  else if (rank <= RULES.BUY_RANK_MAX && buyGates.every(([, ok]) => ok)) signal = 'BUY'
   if (signal === 'WAIT' && rank <= RULES.WATCH_RANK_MAX) signal = 'WATCH'
+  // 关注带内（rank≤WATCH_RANK_MAX）未过门槛的 key 列表：BUY 为空数组；带外不带
+  // 字段（JSON 序列化自动省略——162 弹全量携带是白送的体积）。页面据此渲染
+  // 「差一步」候选差距文案，与上方判定永不漂移
+  const buyBlockers = rank <= RULES.WATCH_RANK_MAX
+    ? buyGates.filter(([, ok]) => !ok).map(([k]) => k)
+    : undefined
 
   return {
     ...base,
@@ -202,6 +214,8 @@ export function analyzeItem(raw, ctx = {}) {
     stopLoss,
     maxHoldH: RULES.MAX_HOLD_H,
     signal,
+    // 关注带内才有（条件展开：内存对象与 wire 同形，'buyBlockers' in item 即带内判据）
+    ...(buyBlockers ? { buyBlockers } : {}),
   }
 }
 
@@ -219,6 +233,7 @@ export const SIGNAL_META = {
     杜绝 UI 与规则参数漂移（iOS 此前未解码 rules、门槛写死在文案里，2026-10-28 起对齐） */
 export const RULES_VIEW_KEYS = [
   'BUY_RANK_MAX', 'BUY_MIN_NET_PCT', 'WATCH_RANK_MAX', 'SELL_RANK_MIN',
+  'BUY_MIN_POINTS', 'BUY_BOUNCE_OFF_LOW', 'BUY_LOW_AGE_H', 'BUY_SLOPE_MIN',
   'BUY_MKT_SLOPE_MIN', 'MAX_HOLD_H', 'TARGET_WINDOW_H',
 ]
 

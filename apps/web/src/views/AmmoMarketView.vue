@@ -547,6 +547,37 @@ function showWatch() {
 const buyList = computed(() => items.value.filter((i) => i.signal === 'BUY').sort((a, b) => b.profitPct - a.profitPct))
 const sellList = computed(() => items.value.filter((i) => i.signal === 'SELL').sort((a, b) => b.rank - a.rank))
 
+/* ---------- 「差一步」候选（买入空态诊断区） ----------
+   买入门槛从严（v2 回测 21 天仅 14 笔），空窗是常态而非故障——但空列表只让人
+   疑心系统坏了。这里把「关注」带内离 BUY 最近的候选摊开：每项差哪几道门槛、
+   差多少。数据契约：item.buyBlockers（未过门槛 key 列表）由 analyze.mjs 与信号
+   判定同一数组产出，判定与展示永不漂移；差距文案只做 key → 中文，门槛数值从
+   快照 rules 读（RULES_VIEW_KEYS 已含全部买入门槛）。未知 key 兜底原样展示：
+   analyze 新增门槛而本表未跟时可见，不静默吞。排序：过的门槛多者在前（离 BUY
+   最近），平手比预期利润 */
+const gateTotal = computed(() => 6 + (Number.isFinite(rules.value.BUY_MKT_SLOPE_MIN) ? 1 : 0))
+const mktSlopeLabel = computed(() => {
+  const v = market.value?.stats?.mktSlope48
+  return Number.isFinite(v) ? `${v.toFixed(2)}%/h` : '—'
+})
+const GATE_LABEL = {
+  // 分位留一位小数：取整会让 rank=0.202 显示成「20%（需 ≤20%）」的自相矛盾
+  rank: (i) => `分位 ${(i.rank * 100).toFixed(1)}%（需 ≤${buyRankPct.value}%）`,
+  profit: (i) => `税后利润 ${pct(i.profitPct)}（需 ≥${buyNetPct.value}%）`,
+  points: (i) => `样本 ${i.curve?.length ?? 0} 点（需 ≥${ruleNum('BUY_MIN_POINTS', 48)}）`,
+  bounce: (i) => `离底 ${pct(i.bounceOffLow)}（需 ≥${Math.round(ruleNum('BUY_BOUNCE_OFF_LOW', 0.03) * 100)}%）`,
+  lowAge: (i) => `低点距今 ${i.lowAgeH}h（需 ≥${ruleNum('BUY_LOW_AGE_H', 12)}h）`,
+  slope: (i) => `48h 斜率 ${Number(i.slope48).toFixed(2)}%/h（需 ≥+${ruleNum('BUY_SLOPE_MIN', 0.02)}）`,
+  mkt: () => `市场 48h 斜率中位 ${mktSlopeLabel.value}（体制向下）`,
+}
+const gateLabel = (key, i) => (GATE_LABEL[key]?.(i) ?? key)
+const nearMissList = computed(() =>
+  items.value
+    .filter((i) => i.signal === 'WATCH' && Array.isArray(i.buyBlockers))
+    .sort((a, b) => a.buyBlockers.length - b.buyBlockers.length || (b.profitPct || 0) - (a.profitPct || 0))
+    .slice(0, 5),
+)
+
 /* 数据时刻（快照曲线末点的墙钟小时，不用设备本地时间——口径同 MarketClock）：
    传给页尾 Playbook 点亮「当前所处时段窗」。与 MarketClock 各算一次同源纯函数
    （162 弹 × 小时曲线，computed 缓存、随快照 60s 一算），换取兄弟组件间
@@ -690,20 +721,37 @@ onUnmounted(() => {
           </div>
           <p v-if="buyList.length > 6" class="more-tip">其余 {{ buyList.length - 6 }} 种买入信号见下方全表（筛选「买入」）。</p>
         </section>
-        <!-- 买入空态：从裸虚线段升级为结构化空态卡——左侧信号匣（切角匣同族）+
-             标题句 + 门槛说明，右侧给「低位关注」直达（那正是买入候补名单） -->
-        <div v-else class="no-buy reveal" role="status">
-          <i class="nb-ic" aria-hidden="true">
-            <svg viewBox="0 0 16 16"><rect x="4.9" y="4.9" width="6.2" height="6.2" transform="rotate(45 8 8)" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
-          </i>
-          <div class="nb-body">
-            <b class="nb-t">买入信号静默</b>
-            <span class="nb-d">当前没有弹种满足「7 天 ≤{{ buyRankPct }}% 分位企稳 + 挂卖税后利润 ≥ {{ buyNetPct }}%」的双重门槛；低位「关注」（≤{{ watchRankPct }}%）中的 {{ stats.WATCH }} 个弹种值得留意。</span>
+        <!-- 买入空态：静默 ≠ 坏了——严选纪律下空窗是常态。头行给结论与「低位
+             关注」直达；「差一步」区摊开关注带内离 BUY 最近的候选逐项差距
+             （item.buyBlockers 与判定同源，见脚本 nearMissList 注释） -->
+        <div v-else class="no-buy-wrap reveal" role="status">
+          <div class="no-buy">
+            <i class="nb-ic" aria-hidden="true">
+              <svg viewBox="0 0 16 16"><rect x="4.9" y="4.9" width="6.2" height="6.2" transform="rotate(45 8 8)" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
+            </i>
+            <div class="nb-body">
+              <b class="nb-t">买入信号静默</b>
+              <span class="nb-d">当前没有弹种同时满足「7 天 ≤{{ buyRankPct }}% 分位 · 企稳回升 · 挂卖税后利润 ≥ {{ buyNetPct }}%」。门槛从严是纪律（宁缺毋滥，回测 21 天仅 14 笔），空窗是常态；开启右上角「信号通知」，出现即推送，无需盯页。</span>
+            </div>
+            <button class="nb-go press" @click="showWatch">
+              查看低位关注
+              <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h9M8.5 4.5 12 8l-3.5 3.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
           </div>
-          <button class="nb-go press" @click="showWatch">
-            查看低位关注
-            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h9M8.5 4.5 12 8l-3.5 3.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          </button>
+          <!-- 差一步候选：点击动线与卖出胶囊同族（窄屏直达详情页，宽屏筛到全表展开行） -->
+          <div v-if="nearMissList.length" class="nm-list">
+            <div class="nm-h">离买入最近的候选 · 按达标程度排序（共 {{ gateTotal }} 道门槛）</div>
+            <button v-for="i in nearMissList" :key="i.name" class="nm-row press" @click="openFromSell(i)">
+              <span class="nm-line1">
+                <b class="nm-name">{{ i.name }}</b>
+                <span class="nm-price">{{ fmt(i.current) }}</span>
+                <span class="nm-pass">已过 {{ gateTotal - i.buyBlockers.length }}/{{ gateTotal }}</span>
+              </span>
+              <span class="nm-chips">
+                <span v-for="k in i.buyBlockers" :key="k" class="nm-chip">{{ gateLabel(k, i) }}</span>
+              </span>
+            </button>
+          </div>
         </div>
 
         <!-- 卖出信号（迷你卡，点击直达全表走势） -->
@@ -1100,9 +1148,11 @@ onUnmounted(() => {
 .buy-clock-tip {
   color: var(--dim);
 }
-/* ---------- 买入空态卡：信号匣（切角匣同族）+ 结论句 + 低位关注直达 ---------- */
+/* ---------- 买入空态卡：信号匣（切角匣同族）+ 结论句 + 低位关注直达，
+   下接「差一步」候选列表（nm-*）——静默期最常被问「那现在买什么」，把
+   离达标最近的候选与差距直接摊在空态里，不用去全表逐行猜 */
+.no-buy-wrap { margin-top: var(--sp-6); }
 .no-buy {
-  margin-top: var(--sp-6);
   display: flex; align-items: center; gap: var(--sp-4);
   padding: var(--sp-4) var(--sp-5);
   background: linear-gradient(180deg, var(--card2) 0%, var(--card) 80%);
@@ -1137,6 +1187,29 @@ onUnmounted(() => {
   .no-buy { flex-wrap: wrap; row-gap: 10px; }
   .nb-body { flex: 1 1 calc(100% - 42px - var(--sp-4)); }
   .nb-go { margin-left: calc(42px + var(--sp-4)); }
+}
+/* 差一步候选列表：头行同 more-tip 弱化；行卡贴 .no-buy 同族（细边圆角），
+   第一行 名称/现价/已过数，第二行未过门槛差距 chips（warn 淡底描边） */
+.nm-list { margin-top: var(--sp-3); display: flex; flex-direction: column; gap: var(--sp-2); }
+.nm-h { color: var(--faint); font-size: var(--fs-xs); padding: 0 var(--sp-1) 2px; }
+.nm-row {
+  display: flex; flex-direction: column; gap: 6px;
+  padding: var(--sp-3) var(--sp-4);
+  background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
+  cursor: pointer; text-align: left; color: inherit;
+  transition: border-color var(--t-med) var(--ease), transform var(--t-fast) var(--ease);
+}
+.nm-row:hover { border-color: var(--accent-dim); }
+.nm-line1 { display: flex; align-items: baseline; gap: var(--sp-3); min-width: 0; }
+.nm-name { font-size: var(--fs-sm); font-weight: 600; color: var(--tx-strong); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nm-price { font-size: var(--fs-xs); color: var(--dim); flex: none; }
+.nm-pass { margin-left: auto; flex: none; font-size: var(--fs-xs); color: var(--ok); }
+.nm-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.nm-chip {
+  font-size: var(--fs-xs); color: var(--dim); line-height: 1.5;
+  padding: 2px 8px; border-radius: 999px;
+  background: color-mix(in srgb, var(--warn) 9%, transparent);
+  border: 1px solid color-mix(in srgb, var(--warn) 28%, transparent);
 }
 
 /* ---------- 卖出迷你卡网格（卡片本体样式在 SellCard.vue；此处只管排布）。

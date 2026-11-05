@@ -44,6 +44,10 @@
         "BUY_MIN_NET_PCT": { "type": ["number", "null"] },
         "WATCH_RANK_MAX": { "type": ["number", "null"] },
         "SELL_RANK_MIN": { "type": ["number", "null"] },
+        "BUY_MIN_POINTS": { "type": ["number", "null"] },
+        "BUY_BOUNCE_OFF_LOW": { "type": ["number", "null"] },
+        "BUY_LOW_AGE_H": { "type": ["number", "null"] },
+        "BUY_SLOPE_MIN": { "type": ["number", "null"] },
         "BUY_MKT_SLOPE_MIN": { "type": ["number", "null"] },
         "MAX_HOLD_H": { "type": ["number", "null"] },
         "TARGET_WINDOW_H": { "type": ["number", "null"] }
@@ -357,6 +361,11 @@
             "number",
             "null"
           ]
+        },
+        "buyBlockers": {
+          "description": "关注带内（rank ≤ WATCH_RANK_MAX）未满足的买入门槛 key 列表（rank/profit/points/bounce/lowAge/slope/mkt，与 analyze.mjs buyGates 同一数组产出，页面「差一步」诊断区渲染）；BUY 为空数组，带外字段不出现",
+          "type": "array",
+          "items": { "type": "string" }
         },
         "official": {
           "description": "官方均价参照（腾讯 AMS 352246 avg_buyprice，fetch-once 从 data/ammo/official-anchor.json join，旁路参照不进任何信号）；无锚时字段不出现",
