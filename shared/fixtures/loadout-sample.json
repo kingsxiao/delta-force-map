@@ -1,0 +1,76 @@
+{
+  "version": "202611050736",
+  "fetchedAt": "2026-11-05T05:30:18.054Z",
+  "source": "moligod-preparedness",
+  "items": [
+    {
+      "objectId": "15080050142",
+      "name": "海洋之泪",
+      "category": "props",
+      "categoryCn": "收集品",
+      "subcategory": "工艺藏品",
+      "grade": 6,
+      "pic": "https://playerhub.df.qq.com/playerhub/60004/object/15080050142.png",
+      "current": 29378958,
+      "system": 32234568,
+      "diff": 2855610,
+      "lastUpdate": "2026-11-05 07:36"
+    },
+    {
+      "objectId": "15050400006",
+      "name": "旅店用餐间",
+      "category": "props",
+      "categoryCn": "钥匙",
+      "subcategory": "巴克什",
+      "grade": 6,
+      "pic": "https://playerhub.df.qq.com/playerhub/60004/object/key/巴克什白卡.png",
+      "current": 1235119,
+      "system": 1874076,
+      "diff": 638957,
+      "lastUpdate": "2026-11-05 07:36"
+    },
+    {
+      "objectId": "15080050123",
+      "name": "“纵横”",
+      "category": "props",
+      "categoryCn": "收集品",
+      "subcategory": "工艺藏品",
+      "grade": 6,
+      "pic": "https://playerhub.df.qq.com/playerhub/60004/object/15080050123.png",
+      "current": 2327402,
+      "system": 2824615,
+      "diff": 497213,
+      "lastUpdate": "2026-11-05 07:36"
+    },
+    {
+      "objectId": "15050200004",
+      "name": "黑室服务器室",
+      "category": "props",
+      "categoryCn": "钥匙",
+      "subcategory": "航天基地",
+      "grade": 6,
+      "pic": "https://playerhub.df.qq.com/playerhub/60004/object/key/航天基地白卡.png",
+      "current": 2091300,
+      "system": 2585613,
+      "diff": 494313,
+      "lastUpdate": "2026-11-05 07:36"
+    },
+    {
+      "objectId": "15050400001",
+      "name": "地下金库储藏间",
+      "category": "props",
+      "categoryCn": "钥匙",
+      "subcategory": "巴克什",
+      "grade": 6,
+      "pic": "https://playerhub.df.qq.com/playerhub/60004/object/key/巴克什金卡.png",
+      "current": 2332965,
+      "system": 2804531,
+      "diff": 471566,
+      "lastUpdate": "2026-11-05 07:36"
+    }
+  ],
+  "stats": {
+    "total": 100,
+    "diffSum": 15382231
+  }
+}

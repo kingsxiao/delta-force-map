@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://delta-force-map/shared/schema/loadout-snapshot.schema.json",
+  "title": "LoadoutSnapshot",
+  "description": "GET /market/loadout.json — 战备值差价快照。口径见 shared/API.md §1.7；实现 server/market/tradehouse.mjs（上游 moligod preparedness-valuation，免登录明文 JSON，小时级，上游已过滤只回正差价条目）。",
+  "type": "object",
+  "required": ["version", "fetchedAt", "source", "items", "stats"],
+  "properties": {
+    "version": { "$ref": "tradehouse-snapshot.schema.json#/$defs/versionKey" },
+    "fetchedAt": { "type": "string", "format": "date-time" },
+    "source": { "const": "moligod-preparedness" },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["objectId", "name", "category", "categoryCn", "subcategory", "grade", "pic", "current", "system", "diff", "lastUpdate"],
+        "properties": {
+          "objectId": { "type": "string", "minLength": 1 },
+          "name": { "type": "string", "minLength": 1 },
+          "category": { "type": ["string", "null"] },
+          "categoryCn": { "description": "大类中文名（收集品/钥匙/头盔/枪管…）", "type": ["string", "null"] },
+          "subcategory": { "description": "上游 item_subtype（工艺藏品/航天基地/巴克什…地图钥匙名等）", "type": ["string", "null"] },
+          "grade": { "type": ["integer", "null"], "minimum": 0, "maximum": 7 },
+          "pic": { "type": ["string", "null"] },
+          "current": { "description": "市场现价", "type": ["number", "null"], "minimum": 0 },
+          "system": { "description": "系统折算价（游戏内按此计战备值）", "type": ["number", "null"], "minimum": 0 },
+          "diff": { "description": "差价 = system − current（上游缺失时服务端现算）；上游只回正差价", "type": ["number", "null"] },
+          "lastUpdate": { "type": ["string", "null"] }
+        }
+      }
+    },
+    "stats": {
+      "type": "object",
+      "required": ["total", "diffSum"],
+      "properties": {
+        "total": { "type": "integer", "minimum": 0 },
+        "diffSum": { "description": "正差价合计", "type": "number", "minimum": 0 }
+      }
+    }
+  }
+}

@@ -1,6 +1,6 @@
 # 三角洲行动 · 数据工具
 
-多端 monorepo：**网页端**（Vite + Vue 3，`apps/web`）+ **iOS 原生端**（Swift 6 + SwiftUI，`apps/ios`）+ **Node 后端**（`server/`，静态托管 + 行情抓取 + SSE）+ **跨端契约与共享逻辑**（`shared/`）。内容：**子弹行情实时监控**页（交易行子弹的买卖点与税后利润，主源分钟级 + SSE 实时通道）、**全品类异动雷达**页（子弹以外的钥匙 / 护甲 / 配件 / 物资涨幅榜 + 分位信号 + 双源交叉验证）、**枪械 TTK 击杀时间排行**页（全枪械 7 兵种 × 各级弹药与护甲），以及**特勤处制造**页（工作台 / 防具台 / 技术中心 / 制药台全量配方的实时利润估算与时利最佳推荐）。`legacy/` 旧单文件页已整体完成组件化迁移，仅作只读留档。
+多端 monorepo：**网页端**（Vite + Vue 3，`apps/web`）+ **iOS 原生端**（Swift 6 + SwiftUI，`apps/ios`）+ **Node 后端**（`server/`，静态托管 + 行情抓取 + SSE）+ **跨端契约与共享逻辑**（`shared/`）。内容：**子弹行情实时监控**页（交易行子弹的买卖点与税后利润，主源分钟级 + SSE 实时通道）、**全品类异动雷达**页（子弹以外的钥匙 / 护甲 / 配件 / 物资涨幅榜 + 分位信号 + 双源交叉验证）、**交易行全览**页（全市场 ~1750 件现价 / 昨日均价 / 7 日区间浏览）、**市场指数**页（五大市场指数 + 24h 涨跌 + 自积累小时曲线 + 集市物品预测）、**枪械 TTK 击杀时间排行**页（全枪械 7 兵种 × 各级弹药与护甲）、**特勤处制造**页（全量配方实时利润与时利最佳）、**战备值差价**页（战备折算价 vs 市场现价）、**子弹模拟盘**页（本地纸面交易）与**每日地图密码**页（官方 AMS 六图密码 + 位置图）。`legacy/` 旧单文件页已整体完成组件化迁移，仅作只读留档。
 
 ## 多端架构
 
@@ -43,9 +43,11 @@ cd apps/ios && xcodegen generate                    # 改 project.yml 后重新�
 线上为自托管实时服务（页面代码自动探测实时通道）：
 
 - **自托管实时服务（SSE 实时）**：`npm run build && npm run serve`（默认 `0.0.0.0:8080`，
-  `PORT` / `HOST` 环境变量可改）。一个进程四件事：定时抓上游（弹药 fast/slow 双循环 +
-  雷达循环与特勤处制造循环默认各 10 分钟；弹药带 kkrb 兜底）→ 原子写快照 → 静态托管
-  `apps/web/dist` + `/events` SSE 推送（`market` / `radar` / `craft` 三个事件，页面实时），
+  `PORT` / `HOST` 环境变量可改）。一个进程五件事：定时抓上游（弹药 fast/slow 双循环 +
+  雷达循环、特勤处制造循环、交易行/指数/战备差价循环默认各 10 分钟 + 每日密码循环
+  30 分钟（日更，内容不变不写盘）；弹药带 kkrb 兜底、密码带 moligod 镜像兜底、
+  交易行三上游各自降级）→ 原子写快照 → 静态托管
+  `apps/web/dist` + `/events` SSE 推送（`market` / `radar` / `craft` / `secrets` / `tradehouse` 五个事件，页面实时），
   页面端到端延迟 = 源分钟粒度 +
   60s 快轮询 + 5s。站点与 SSE 同源，https 反代（nginx / caddy）即可上线；系统通知默认
   关闭，`--notify` 开启；雷达节奏 `--radar-interval N` 可调。iOS 端连的也是这同一个服务。
@@ -54,7 +56,7 @@ cd apps/ios && xcodegen generate                    # 改 project.yml 后重新�
   `deploy/update.sh` 即可完成本次 monorepo 迁移（脚本会自动同步 systemd 单元里的
   `ExecStart=node server/server.mjs` 并 daemon-reload）。
 
-- 路由为 **hash 模式**（五个入口：`/#/ammo`、`/#/radar`、`/#/craft`、`/#/ttk`、`/#/account`，`/` 重定向到 `/#/ammo`），静态托管零配置；页内锚点一律 `scrollIntoView`，禁止向 hash 写入裸锚点。
+- 路由为 **hash 模式**（十个入口：`/#/ammo`、`/#/radar`、`/#/trade`、`/#/index`、`/#/craft`、`/#/loadout`、`/#/paper`、`/#/secrets`、`/#/ttk`、`/#/account`，`/` 重定向到 `/#/ammo`），静态托管零配置；页内锚点一律 `scrollIntoView`，禁止向 hash 写入裸锚点。
 - 旧单文件页（`index.html`、`ttk.html`、`shaders.iife.js`）已挪到 **`legacy/`** 留档（只读，不再维护）；地图时代特效库的运行时副本 `apps/web/src/vendor/shaders.iife.js` 已随地图模块删除（零引用死资源，`legacy/` 留档逐字节相同）。
 - 静态目录为默认的 **`apps/web/public/`**（dev 于 `/` 下访问、build 原样拷入 dist 根）；仓库根 `assets/` 原图为制作期留档，运行时不引用。
 
@@ -66,7 +68,7 @@ cd apps/ios && xcodegen generate                    # 改 project.yml 后重新�
 node server/smoke.mjs http://localhost:4173/ shots/vue-smoke
 ```
 
-逐页截图并断言五个入口（`/#/ammo`、`/#/radar`、`/#/craft`、`/#/ttk`、`/#/account`）的骨架 DOM（顶栏 5 个 tab、页头与各页 loading 终态）。随地图模块（commit 14c938e 全端移除）一并删除了旧特效层验证脚本 `verify-effects.mjs`（其 DOM 契约指向已删的 `.map-section`/`#fxHero`/灯箱，对现站点必然假阳性报「SITE BROKEN」）。
+逐页截图并断言十个入口的骨架 DOM（顶栏 10 个 tab、页头与各页 loading 终态）。随地图模块（commit 14c938e 全端移除）一并删除了旧特效层验证脚本 `verify-effects.mjs`（其 DOM 契约指向已删的 `.map-section`/`#fxHero`/灯箱，对现站点必然假阳性报「SITE BROKEN」）。
 
 ## 功能
 
@@ -122,6 +124,38 @@ npm run radar:selftest  # 纯逻辑离线自测（不打外网）
 
 - **扩品类数据源（2026-10-14 实测验证）**：异动清单来自 kkrb `getHIPriceCurveData`（免登录免配额，自带 7 天小时曲线）；曲线主源 moligod `/api/market/history?lookup=name` **不限品类**（航天冷却剂 / 雷达侧门钥匙等均返回 168 点小时曲线，`interval=1m` 可拿到分钟级现价）。moligod 的全物品快照 `trade-house-snapshot` 为前端加密接口，未使用；kkrb 单物品曲线查询未登录配额为 0，同样未使用。榜单物品名另经**官方物品目录**（`server/official/object-directory.mjs`：腾讯 AMS `object.list` 缓存，TTL 24h，仅 gun/ammo/protect 三类）做存在性校验并登记 objectID 与官方均价，审计落 `data/market/radar-name-audit.json`（`{fetchedAt, hits:[{name,objectID,officialAvgPrice}], misses:[name], retried:[{from,to,points}]}`，随 `data/` 已 gitignore）；仅当 moligod 1h 曲线为空且官方名与榜单名归一化同名而写法不同（如官方 `7.62*39mm` ↔ 社区 `7.62x39mm`）时用官方名重查一次曲线，其余查询仍用榜单原名；目录不可用整轮跳过校验，`radar.json` 契约、双源异常判定与通知行为零变化，雷达自身零新增官方请求。注意目录域（枪/弹/甲）窄于涨幅榜的全品类，物资 / 配件 / 钥匙类未命中属预期
 
+## 交易行全览 / 市场指数 / 战备值差价（/#/trade · /#/index · /#/loadout）
+
+三个页面同一条数据链（复刻自 moligod「交易行 / 市场指数 / 战备值差价」，2026-11-05 逆向其前端 bundle 定稿）：`server/market/tradehouse.mjs` 一轮抓三个上游（均免登录、每轮共 3 请求、默认 10 分钟一轮），产出三份快照：
+
+```bash
+npm run tradehouse:fetch     # 单轮抓取 + 三份快照落盘（public + dist 联动）
+npm run tradehouse:selftest  # 纯逻辑离线自测（14 项：解码往返 / 指数口径 / 历史追加 / 降级）
+```
+
+- **交易行全量快照** `market/tradehouse.json`：moligod `trade-house-snapshot`，全市场 ~1750 件（props 610 / 配件 ~580 / 防具 ~250 / 弹药 ~130 / 枪械 ~69…）的现价 / 昨日滚动均价与高低 / 7 日高低 / 品类 / 品级（0–7，7 = 炫彩收集品）/ 官方图标。响应体为公开传输编码（与特勤处快照同族：AES-256-GCM + gzip，密钥随响应头 `x-trade-house-key` 下发，**AAD `trade-house-snapshot-v1`**，服务端解码）。页面：品类 segmented + 子品类 chips + 品级 + 搜索 + 排序 + 分页（120/页），行内 7 日区间位置条
+- **市场指数** `market/index.json`：五大市场（子弹 / 配件 / 枪械 / 物品 / 防具）+ 总览。**口径如实标注在页面**：篮子 = 现价与昨日均价双全的物品，`指数 = 1000 × Σ现价 / Σ昨日均价`（即「昨日均价合计 = 1000」），24h = 指数/1000 − 1；绝对值与其它站点不可比（基期不同），方向与相对强弱可比。`history` 为本服务**自积累**的逐版本指数点（封顶 720 档，首次部署从零起算、`historySince` 如实展示）；`prediction` 为集市物品预测（上游透传，非本站计算）
+- **战备值差价** `market/loadout.json`：moligod `preparedness-valuation`（小时级，上游已过滤只回正差价，实测 100 项）。口径：`system` = 游戏内系统折算价（带入对局按此计战备值），`差价 = 战备价 − 现价`；页面按差价 / 收益率（本站派生 = 差价/现价）排序。小时级数据走轮询、不挂 SSE
+- 三上游各自隔离：交易行为主产物（失败整轮抛出），预测 / 战备差价失败降级（快照字段 null / 保留旧档），不互相拖垮
+
+## 子弹模拟盘（/#/paper）
+
+复刻自 moligod「子弹模拟盘」的**本地化版本**（它要登录存云端；我们纯本地）：本金 1000 万哈夫币，价格与税率实时吃子弹行情快照（逐弹自带 taxRate），买入按现价全额、卖出按现价 × (1 − 税率)（模拟挂单即时成交，无滑点无深度，快照分钟级滞后——页脚如实标注）。持仓均价成本法、浮盈 / 已实现盈亏、权益曲线（随快照版本逐档积累）、最近 200 笔成交记录；账户态存 localStorage（`df-paper-account-v1`，不上云不用登录），两步确认重置。标的表按信号优先排序（BUY → SELL → WATCH），点行展开交易面板（数量 + 买入 / 卖出 / 清仓）。
+
+## 每日地图密码页（/#/secrets）
+
+六张地图（零号大坝 / 长弓溪谷 / 巴克什 / 航天基地 / 潮汐监狱 / AZ3）的每日密码门密码 + 官方位置图，点击密码一键复制（clipboard API + http 明文部署 execCommand 兜底）。来源是 2026-11-05 从 B站 moligod 攻略站逆向借鉴的功能——并且比它更上游一层：**直连腾讯官方 AMS** `dfm/center.day.secret`（WeGame 三角洲助手同款免登录接口，`shared/API.md` §7.1 已登记），moligod 只是其转发。
+
+```bash
+npm run secrets:fetch     # 单轮抓取 + 落盘 apps/web/public/secrets/secrets.json
+npm run secrets:selftest  # 纯逻辑离线自测（12 项，网络全走注入桩）
+```
+
+- **数据链路**：主源官方 AMS → 兜底 moligod 镜像（source 如实切换）→ 原子写盘（public + dist 联动）。密码北京时间每天 0 点轮换、**日期即版本**（8 位 `YYYYMMDD`）；`npm run serve` 常驻时 30 分钟兜一轮接住轮换，**内容不变的轮次不写盘、不广播**（SSE `secrets` 事件只在真变化时发）
+- **位置图**：官方 WeGame 助手静态资源已下载打包进 `apps/web/public/secrets/img/`（原 PNG 共 ~18MB，转 1600px JPEG 共 ~1.9MB）；season 更新可能换图（带内容哈希的 CDN 文件名会变），届时从助手页重新导出替换即可
+- **页面新鲜度口径**：日更数据没有「10 分钟变灰」——快照 `date` ≠ 北京今天才变灰提示「今日密码尚未更新」（0 点后服务端下一轮自然追上）
+- 契约 `shared/API.md` §1.4 + `schema/secrets-snapshot.schema.json` + `fixtures/secrets-sample.json`，`npm run contract:check` 已纳入门禁；iOS 端消费为后续项（契约已就位）
+
 ## 特勤处制造页（/#/craft）
 
 工作台 / 防具台 / 技术中心 / 制药台全量配方（当前 230 条）的实时利润估算：材料与产出按分钟级现价、上游算好「材料现价买入 → 产出按现价 × 数量挂卖 → 扣手续费」的预估成本 / 收入 / 净利润，服务端再派生**时利**（每小时利润）与**成本回报率**。页面给出「时利最佳」主推荐（价格完整的配方中时利最大——制造台同一时间只能跑一条，时利才是真实约束）+ 各台最佳速览 + 可排序 / 筛选 / 搜索的利润榜单（行展开看材料明细与利润拆解公式）。iOS 端为第五个 Tab「制造」（榜单 + 最佳卡 + 配方详情）。
@@ -147,8 +181,9 @@ npm run craft:selftest  # 纯逻辑离线自测（不打外网）
 - `apps/ios/` — iOS 原生端（Swift 6 + SwiftUI）：`project.yml`（xcodegen）、`DeltaForce/`（App 壳）、`Packages/DeltaForceCore/`（纯逻辑内核 + Swift Testing 单测）；说明见 [apps/ios/README.md](apps/ios/README.md)
 - `server/` — Node 后端（零 npm 依赖）：`server.mjs` 同源站点（静态托管 + 抓取循环 + SSE）、`refresh-data.mjs`、`export-ios-data.mjs`（跨端数据导出）、`smoke.mjs`（构建产物浏览器冒烟）、`extract-*.mjs`（一次性抽取留档）
   - `server/ammo/` — 子弹行情抓取 / 分析 / 监控：moligod-client（主源）/ kkrb-client（兜底源）/ analyze / notify / fetch-once / monitor / live（SSE 本地服务）/ selftest（离线自测）；通知去抖用 `shared/js/notify-policy.js`
-  - `server/market/` — 全品类异动雷达：radar（kkrb 涨幅榜 + moligod 全品类曲线 + 双源交叉）/ selftest（离线自测）；复用 `server/ammo/` 的 analyze / moligod-client / kkrb-client，去抖同引 `shared/js/notify-policy.js`
+  - `server/market/` — 全品类异动雷达 + 交易行全量/指数/战备差价：radar（kkrb 涨幅榜 + moligod 全品类曲线 + 双源交叉）/ tradehouse（moligod trade-house 全量快照解码 + 指数派生 + 自积累历史 + 战备差价，三上游隔离）/ selftest ×2（离线自测）；复用 `server/ammo/` 的 analyze / moligod-client / kkrb-client，去抖同引 `shared/js/notify-policy.js`
   - `server/craft/` — 特勤处制造：snapshot（moligod special-ops 快照解码 + 整形 + 时利派生 + 落盘）/ selftest（离线自测，含传输编码往返）
+  - `server/secrets/` — 每日地图密码：secrets（官方 AMS `dfm/center.day.secret` 主源 + moligod 兜底 + 不变不写盘）/ selftest（离线自测，注入桩）
   - `server/auth/` — 账号与云同步：store（scrypt 密码 + HMAC 无状态令牌 + 原子落盘 `data/auth/`）/ api（`/api/auth/*`、`/api/account/data`，挂 server.mjs 同进程）/ selftest（离线自测）
 - `shared/` — 跨端共享层：`API.md` 接口契约、`schema/`（market / radar 快照与 SSE 事件的 JSON Schema）、`js/`（sellEta / marketMeta / liveChannel 纯函数，网页端与后端共用）、`data/ttk.json` 与 `fixtures/*.json`（`npm run export:ios` 产出，iOS 捆绑 + 单测样本）
 - `deploy/` — systemd 单元、nginx 示例、`update.sh` 一键更新（含单元文件自动同步）、阿里云部署文档

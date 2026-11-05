@@ -6,7 +6,7 @@
 //   node server/smoke.mjs                     # 默认 http://localhost:4173/，截图到 shots/vue-smoke/
 //   node server/smoke.mjs <baseUrl> <shotsDir>
 // 注意：src/router.js 用 createWebHashHistory（hash 路由，静态托管免 SPA fallback），
-//       当前五个入口：/#/ammo、/#/radar、/#/craft、/#/ttk、/#/account（'/' 重定向到 /#/ammo）。
+//       当前十个入口：/#/ammo radar craft secrets index trade loadout paper ttk account（'/'→/#/ammo）。
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -37,7 +37,7 @@ const ROUTES = [
     // 特勤处制造（CraftView）：断言口径同雷达——离开 loading 到任一终态即可
     // （.hero/.ctl-bar=ready、.state-card=empty/error），不设行数门槛。
     route: '/craft', file: 'craft.png', expectActive: '特勤处制造',
-    ready: `document.querySelectorAll('.site-topbar .tab').length === 5
+    ready: `document.querySelectorAll('.site-topbar .tab').length === 10
             && !!document.querySelector('.wrap.page .compact-head h1')
             && (document.querySelectorAll('.page .hero').length >= 1 || document.querySelectorAll('.page .state-card').length >= 1)`,
     assert: `JSON.stringify({
@@ -49,11 +49,11 @@ const ROUTES = [
       tblRows: document.querySelectorAll('.page .tbl tbody tr').length,
       stateCards: document.querySelectorAll('.page .state-card').length
     })`,
-    ok: s => s.tabs === 5 && s.activeTab === '特勤处制造' && (s.h1 || '').includes('特勤处制造') && (s.hero >= 1 || s.stateCards >= 1),
+    ok: s => s.tabs === 10 && s.activeTab === '特勤处制造' && (s.h1 || '').includes('特勤处制造') && (s.hero >= 1 || s.stateCards >= 1),
   },
   {
     route: '/ttk', file: 'ttk.png', expectActive: 'TTK 排行',
-    ready: `document.querySelectorAll('.site-topbar .tab').length === 5
+    ready: `document.querySelectorAll('.site-topbar .tab').length === 10
             && document.querySelectorAll('.ttk-page').length === 1
             && document.querySelectorAll('.rk-row').length >= 1
             && document.querySelectorAll('.seg-btn').length >= 1`,
@@ -65,13 +65,13 @@ const ROUTES = [
       segBtns: document.querySelectorAll('.seg-btn').length,
       segOnBtns: document.querySelectorAll('.seg-btn.on').length
     })`,
-    ok: s => s.tabs === 5 && s.activeTab === 'TTK 排行' && s.rankRows >= 1 && s.segBtns >= 1,
+    ok: s => s.tabs === 10 && s.activeTab === 'TTK 排行' && s.rankRows >= 1 && s.segBtns >= 1,
   },
   {
     // 账号（AccountView）：未登录态显示登录/注册表单（.auth-stage/.auth-card），
     // 已登录态显示账号面板——冒烟环境（preview/serve 未登录）预期走 auth-stage。
     route: '/account', file: 'account.png', expectActive: '账号',
-    ready: `document.querySelectorAll('.site-topbar .tab').length === 5
+    ready: `document.querySelectorAll('.site-topbar .tab').length === 10
             && !!document.querySelector('.compact-head h1')
             && (document.querySelectorAll('.auth-stage').length >= 1 || document.querySelectorAll('.auth-card').length >= 1)`,
     assert: `JSON.stringify({
@@ -82,14 +82,14 @@ const ROUTES = [
       authForm: document.querySelectorAll('.auth-card form').length,
       submitBtn: document.querySelectorAll('.auth-card .submit').length
     })`,
-    ok: s => s.tabs === 5 && (s.activeTab === '账号' || s.activeTab === '登录') && (s.h1 || '') === '账号' && s.authStage >= 1 && s.authForm >= 1,
+    ok: s => s.tabs === 10 && (s.activeTab === '账号' || s.activeTab === '登录') && (s.h1 || '') === '账号' && s.authStage >= 1 && s.authForm >= 1,
   },
   {
     // 子弹行情：loadState 四态（loading/ready/empty/error，AmmoMarketView.vue），
     // 断言只要求离开 loading 到达任一终态（.block=ready、.state-card=empty/error
     // 健康骨架页），不设行数门槛——无数据部署时 empty 也不应误报失败。
     route: '/ammo', file: 'ammo.png', expectActive: '子弹行情',
-    ready: `document.querySelectorAll('.site-topbar .tab').length === 5
+    ready: `document.querySelectorAll('.site-topbar .tab').length === 10
             && !!document.querySelector('.wrap.page .compact-head h1')
             && (document.querySelectorAll('.page .block').length >= 1 || document.querySelectorAll('.page .state-card').length >= 1)`,
     assert: `JSON.stringify({
@@ -99,13 +99,13 @@ const ROUTES = [
       blocks: document.querySelectorAll('.page .block').length,
       stateCards: document.querySelectorAll('.page .state-card').length
     })`,
-    ok: s => s.tabs === 5 && s.activeTab === '子弹行情' && (s.h1 || '').includes('子弹价格监控') && (s.blocks >= 1 || s.stateCards >= 1),
+    ok: s => s.tabs === 10 && s.activeTab === '子弹行情' && (s.h1 || '').includes('子弹价格监控') && (s.blocks >= 1 || s.stateCards >= 1),
   },
   {
     // 异动雷达（MarketRadarView）：断言口径同子弹行情——离开 loading 到任一
     // 终态即可（.ctl-bar/.tbl-scroll=ready、.state-card=empty/error），不设行数门槛。
     route: '/radar', file: 'radar.png', expectActive: '异动雷达',
-    ready: `document.querySelectorAll('.site-topbar .tab').length === 5
+    ready: `document.querySelectorAll('.site-topbar .tab').length === 10
             && !!document.querySelector('.wrap.page .compact-head h1')
             && (document.querySelectorAll('.page .ctl-bar').length >= 1 || document.querySelectorAll('.page .state-card').length >= 1)`,
     assert: `JSON.stringify({
@@ -115,7 +115,92 @@ const ROUTES = [
       ctlBars: document.querySelectorAll('.page .ctl-bar').length,
       stateCards: document.querySelectorAll('.page .state-card').length
     })`,
-    ok: s => s.tabs === 5 && s.activeTab === '异动雷达' && (s.h1 || '').includes('全品类异动雷达') && (s.ctlBars >= 1 || s.stateCards >= 1),
+    ok: s => s.tabs === 10 && s.activeTab === '异动雷达' && (s.h1 || '').includes('全品类异动雷达') && (s.ctlBars >= 1 || s.stateCards >= 1),
+  },
+  {
+    // 每日密码（SecretsView）：断言口径同上——离开 loading 到任一终态
+    // （.sec-grid=ready、.state-card=empty/error）。preview 静态环境吃 public/
+    // 里已落盘的 secrets 快照，ready（密码卡 + 复制按钮）应为常态。
+    route: '/secrets', file: 'secrets.png', expectActive: '每日密码',
+    ready: `document.querySelectorAll('.site-topbar .tab').length === 10
+            && !!document.querySelector('.wrap.page .compact-head h1')
+            && (document.querySelectorAll('.page .sec-grid').length >= 1 || document.querySelectorAll('.page .state-card').length >= 1)`,
+    assert: `JSON.stringify({
+      tabs: document.querySelectorAll('.site-topbar .tab').length,
+      activeTab: (document.querySelector('.site-topbar .tab.active') || {textContent: null}).textContent?.trim() ?? null,
+      h1: (document.querySelector('.compact-head h1') || {textContent: null}).textContent?.trim() ?? null,
+      cards: document.querySelectorAll('.page .sec-card').length,
+      copyBtns: document.querySelectorAll('.page .sec-copy').length,
+      figs: document.querySelectorAll('.page .sec-fig img').length,
+      stateCards: document.querySelectorAll('.page .state-card').length
+    })`,
+    ok: s => s.tabs === 10 && s.activeTab === '每日密码' && (s.h1 || '').includes('每日密码') && ((s.cards >= 1 && s.copyBtns >= 1) || s.stateCards >= 1),
+  },
+  {
+    // 市场指数（MarketIndexView）：总览 hero（.all-level）+ 五市场卡（.mk-card）；
+    // preview 静态环境吃 public/market/index.json，ready 应为常态。
+    route: '/index', file: 'index.png', expectActive: '市场指数',
+    ready: `document.querySelectorAll('.site-topbar .tab').length === 10
+            && !!document.querySelector('.wrap.page .compact-head h1')
+            && (document.querySelectorAll('.page .mk-card').length >= 1 || document.querySelectorAll('.page .state-card').length >= 1)`,
+    assert: `JSON.stringify({
+      tabs: document.querySelectorAll('.site-topbar .tab').length,
+      activeTab: (document.querySelector('.site-topbar .tab.active') || {textContent: null}).textContent?.trim() ?? null,
+      h1: (document.querySelector('.compact-head h1') || {textContent: null}).textContent?.trim() ?? null,
+      heroLevel: (document.querySelector('.page .all-level') || {textContent: null}).textContent?.trim() ?? null,
+      mkCards: document.querySelectorAll('.page .mk-card').length,
+      stateCards: document.querySelectorAll('.page .state-card').length
+    })`,
+    ok: s => s.tabs === 10 && s.activeTab === '市场指数' && (s.h1 || '').includes('市场指数') && ((s.mkCards >= 1 && !!s.heroLevel) || s.stateCards >= 1),
+  },
+  {
+    // 交易行全览（TradeHouseView）：筛选条 + 榜单行（120/页）；数据 ~1750 件。
+    route: '/trade', file: 'trade.png', expectActive: '交易行',
+    ready: `document.querySelectorAll('.site-topbar .tab').length === 10
+            && !!document.querySelector('.wrap.page .compact-head h1')
+            && (document.querySelectorAll('.page .tbl tbody tr').length >= 1 || document.querySelectorAll('.page .state-card').length >= 1)`,
+    assert: `JSON.stringify({
+      tabs: document.querySelectorAll('.site-topbar .tab').length,
+      activeTab: (document.querySelector('.site-topbar .tab.active') || {textContent: null}).textContent?.trim() ?? null,
+      h1: (document.querySelector('.compact-head h1') || {textContent: null}).textContent?.trim() ?? null,
+      rows: document.querySelectorAll('.page .tbl tbody tr').length,
+      segBtns: document.querySelectorAll('.page .seg-btn').length,
+      pager: document.querySelectorAll('.page .pager').length,
+      stateCards: document.querySelectorAll('.page .state-card').length
+    })`,
+    ok: s => s.tabs === 10 && s.activeTab === '交易行' && (s.h1 || '').includes('交易行全览') && ((s.rows >= 1 && s.segBtns >= 1) || s.stateCards >= 1),
+  },
+  {
+    // 战备值差价（LoadoutView）：榜单行；小时级数据 preview 吃已落盘快照。
+    route: '/loadout', file: 'loadout.png', expectActive: '战备差价',
+    ready: `document.querySelectorAll('.site-topbar .tab').length === 10
+            && !!document.querySelector('.wrap.page .compact-head h1')
+            && (document.querySelectorAll('.page .tbl tbody tr').length >= 1 || document.querySelectorAll('.page .state-card').length >= 1)`,
+    assert: `JSON.stringify({
+      tabs: document.querySelectorAll('.site-topbar .tab').length,
+      activeTab: (document.querySelector('.site-topbar .tab.active') || {textContent: null}).textContent?.trim() ?? null,
+      h1: (document.querySelector('.compact-head h1') || {textContent: null}).textContent?.trim() ?? null,
+      rows: document.querySelectorAll('.page .tbl tbody tr').length,
+      stateCards: document.querySelectorAll('.page .state-card').length
+    })`,
+    ok: s => s.tabs === 10 && (s.activeTab === '战备差价') && (s.h1 || '').includes('战备值差价') && (s.rows >= 1 || s.stateCards >= 1),
+  },
+  {
+    // 子弹模拟盘（PaperView）：账户总览 hero（.acc-equity）+ 标的表；纯本地纸面
+    // 交易，账户态在 localStorage（冒烟环境恒为新户，总权益 = 本金）。
+    route: '/paper', file: 'paper.png', expectActive: '模拟盘',
+    ready: `document.querySelectorAll('.site-topbar .tab').length === 10
+            && !!document.querySelector('.wrap.page .compact-head h1')
+            && (document.querySelectorAll('.page .acc-equity').length >= 1 || document.querySelectorAll('.page .state-card').length >= 1)`,
+    assert: `JSON.stringify({
+      tabs: document.querySelectorAll('.site-topbar .tab').length,
+      activeTab: (document.querySelector('.site-topbar .tab.active') || {textContent: null}).textContent?.trim() ?? null,
+      h1: (document.querySelector('.compact-head h1') || {textContent: null}).textContent?.trim() ?? null,
+      equity: (document.querySelector('.page .acc-equity') || {textContent: null}).textContent?.trim() ?? null,
+      bullets: document.querySelectorAll('.page .tbl tbody tr').length,
+      stateCards: document.querySelectorAll('.page .state-card').length
+    })`,
+    ok: s => s.tabs === 10 && s.activeTab === '模拟盘' && (s.h1 || '').includes('子弹模拟盘') && ((s.equity === '10,000,000' && s.bullets >= 1) || s.stateCards >= 1),
   },
 ];
 

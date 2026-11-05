@@ -7,14 +7,19 @@ const route = useRoute()
 const router = useRouter()
 const { user } = useAccount()
 
-// 三个主 tab + 账号入口（登录态显示用户名）；active 高亮按 route.path
+// 主 tab + 账号入口（登录态显示用户名）；active 高亮按 route.path
 // 精确比对（'/' 不应匹配到所有路由）。详情子页（/ammo/item/:name）归入
 // 父 tab：高亮「子弹行情」——顶栏语义是「你现在在哪个版块」
 const activePath = computed(() => (route.path.startsWith('/ammo/') ? '/ammo' : route.path))
 const tabs = [
   { to: '/ammo', label: '子弹行情' },
   { to: '/radar', label: '异动雷达' },
+  { to: '/trade', label: '交易行' },
+  { to: '/index', label: '市场指数' },
   { to: '/craft', label: '特勤处制造' },
+  { to: '/loadout', label: '战备差价' },
+  { to: '/paper', label: '模拟盘' },
+  { to: '/secrets', label: '每日密码' },
   { to: '/ttk', label: 'TTK 排行' },
 ]
 
@@ -31,7 +36,12 @@ const tabs = [
 const BASE_ENTRIES = [
   { k: 'p-ammo', label: '子弹行情', hint: '页面', to: '/ammo' },
   { k: 'p-radar', label: '异动雷达', hint: '页面', to: '/radar' },
+  { k: 'p-trade', label: '交易行全览', hint: '页面', to: '/trade' },
+  { k: 'p-index', label: '市场指数', hint: '页面', to: '/index' },
   { k: 'p-craft', label: '特勤处制造', hint: '页面', to: '/craft' },
+  { k: 'p-loadout', label: '战备值差价', hint: '页面', to: '/loadout' },
+  { k: 'p-paper', label: '子弹模拟盘', hint: '页面', to: '/paper' },
+  { k: 'p-secrets', label: '每日密码', hint: '页面', to: '/secrets' },
   { k: 'p-ttk', label: 'TTK 排行', hint: '页面', to: '/ttk' },
   { k: 'p-acc', label: '账号', hint: '页面', to: '/account' },
   { k: 's-rank', label: '枪械排行榜', hint: 'TTK · 小节', to: '/ttk', hash: 'rank' },

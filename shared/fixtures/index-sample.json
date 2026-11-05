@@ -1,0 +1,395 @@
+{
+  "version": "202611051324",
+  "fetchedAt": "2026-11-05T05:30:18.054Z",
+  "source": "moligod-tradehouse",
+  "anchor": "昨日均价合计 = 1000",
+  "markets": [
+    {
+      "id": "ammo",
+      "label": "子弹",
+      "level": 964.1129529708917,
+      "change24h": -0.03588704702910828,
+      "universe": 90,
+      "subs": [
+        {
+          "id": "ammo12",
+          "label": "12 Gauge",
+          "universe": 9,
+          "level": 996.1004143309773,
+          "change24h": -0.0038995856690227093
+        },
+        {
+          "id": "ammo5.7x28",
+          "label": "5.7x28mm",
+          "universe": 8,
+          "level": 1048.2438831886345,
+          "change24h": 0.048243883188634484
+        },
+        {
+          "id": "ammo5.56x45",
+          "label": "5.56x45mm",
+          "universe": 6,
+          "level": 961.38302649304,
+          "change24h": -0.03861697350696003
+        },
+        {
+          "id": "ammo5.45x39",
+          "label": "5.45x39mm",
+          "universe": 6,
+          "level": 921.168051708218,
+          "change24h": -0.07883194829178208
+        },
+        {
+          "id": "ammo.45",
+          "label": ".45 ACP",
+          "universe": 6,
+          "level": 1043.602840413604,
+          "change24h": 0.04360284041360418
+        },
+        {
+          "id": "ammo4.6x30",
+          "label": "4.6x30mm",
+          "universe": 6,
+          "level": 1041.9401417694933,
+          "change24h": 0.041940141769493344
+        },
+        {
+          "id": "ammo7.62x39",
+          "label": "7.62x39mm",
+          "universe": 5,
+          "level": 1024.9895295267347,
+          "change24h": 0.02498952952673461
+        },
+        {
+          "id": "ammo7.62x51",
+          "label": "7.62x51mm",
+          "universe": 5,
+          "level": 918.0985915492957,
+          "change24h": -0.08190140845070426
+        },
+        {
+          "id": ".300",
+          "label": ".300",
+          "universe": 5,
+          "level": 857.4826875297351,
+          "change24h": -0.1425173124702649
+        },
+        {
+          "id": "ammo9x19",
+          "label": "9x19mm",
+          "universe": 5,
+          "level": 1108.836574547936,
+          "change24h": 0.10883657454793583
+        },
+        {
+          "id": "ammo5.8x42",
+          "label": "5.8x42mm",
+          "universe": 4,
+          "level": 970.4446496899327,
+          "change24h": -0.029555350310067285
+        },
+        {
+          "id": "ammo12.7x55",
+          "label": "12.7x55mm",
+          "universe": 4,
+          "level": 963.758913744261,
+          "change24h": -0.036241086255738963
+        },
+        {
+          "id": "ammo.357",
+          "label": ".357 Magnum",
+          "universe": 4,
+          "level": 932.0895522388059,
+          "change24h": -0.06791044776119404
+        },
+        {
+          "id": "ammo9x39",
+          "label": "9x39mm",
+          "universe": 3,
+          "level": 978.4568372803667,
+          "change24h": -0.021543162719633302
+        },
+        {
+          "id": "ammo7.62x54",
+          "label": "7.62x54mm",
+          "universe": 3,
+          "level": 972.7076849413455,
+          "change24h": -0.02729231505865448
+        },
+        {
+          "id": "ammoArrow",
+          "label": "复合弓箭矢",
+          "universe": 3,
+          "level": 897.7562810694612,
+          "change24h": -0.10224371893053874
+        },
+        {
+          "id": "ammo.45-70",
+          "label": ".45-70mm",
+          "universe": 3,
+          "level": 1001.3619339462036,
+          "change24h": 0.0013619339462036528
+        },
+        {
+          "id": "ammo.50",
+          "label": ".50 AE",
+          "universe": 3,
+          "level": 884.6447669977082,
+          "change24h": -0.11535523300229178
+        },
+        {
+          "id": "ammo6.8x51",
+          "label": "6.8x51mm",
+          "universe": 2,
+          "level": 908.8715400993613,
+          "change24h": -0.09112845990063878
+        }
+      ]
+    },
+    {
+      "id": "acc",
+      "label": "配件",
+      "level": 1069.7578281060526,
+      "change24h": 0.06975782810605247,
+      "universe": 577,
+      "subs": [
+        {
+          "id": "accBarrel",
+          "label": "枪管",
+          "universe": 156,
+          "level": 1080.1185934867312,
+          "change24h": 0.08011859348673123
+        },
+        {
+          "id": "accStock",
+          "label": "枪托",
+          "universe": 83,
+          "level": 1090.5708005352408,
+          "change24h": 0.0905708005352408
+        },
+        {
+          "id": "accMagazine",
+          "label": "弹匣",
+          "universe": 79,
+          "level": 1065.5733069418916,
+          "change24h": 0.06557330694189156
+        },
+        {
+          "id": "accFunctional",
+          "label": "功能性配件",
+          "universe": 59,
+          "level": 973.3735543377782,
+          "change24h": -0.02662644566222183
+        },
+        {
+          "id": "accScope",
+          "label": "瞄具",
+          "universe": 47,
+          "level": 990.6573844000461,
+          "change24h": -0.009342615599953863
+        },
+        {
+          "id": "accBackGrip",
+          "label": "后握把",
+          "universe": 44,
+          "level": 1169.3676903165078,
+          "change24h": 0.16936769031650778
+        },
+        {
+          "id": "accHandGuard",
+          "label": "护木",
+          "universe": 44,
+          "level": 1086.359596911882,
+          "change24h": 0.086359596911882
+        },
+        {
+          "id": "accMuzzle",
+          "label": "枪口",
+          "universe": 42,
+          "level": 1102.717289902437,
+          "change24h": 0.10271728990243689
+        },
+        {
+          "id": "accForeGrip",
+          "label": "前握把",
+          "universe": 23,
+          "level": 1065.4833510470562,
+          "change24h": 0.06548335104705627
+        }
+      ]
+    },
+    {
+      "id": "gun",
+      "label": "枪械",
+      "level": 958.5248980262097,
+      "change24h": -0.04147510197379034,
+      "universe": 68,
+      "subs": [
+        {
+          "id": "gunRifle",
+          "label": "步枪",
+          "universe": 24,
+          "level": 986.0416678331271,
+          "change24h": -0.013958332166872922
+        },
+        {
+          "id": "gunSMG",
+          "label": "冲锋枪",
+          "universe": 12,
+          "level": 867.0290267983872,
+          "change24h": -0.13297097320161277
+        },
+        {
+          "id": "gunMP",
+          "label": "精确射手步枪",
+          "universe": 10,
+          "level": 850.3512706713024,
+          "change24h": -0.14964872932869766
+        },
+        {
+          "id": "gunPistol",
+          "label": "手枪",
+          "universe": 7,
+          "level": 900.3219839693088,
+          "change24h": -0.09967801603069115
+        },
+        {
+          "id": "gunShotgun",
+          "label": "霰弹枪",
+          "universe": 5,
+          "level": 1038.4251183653128,
+          "change24h": 0.038425118365312816
+        },
+        {
+          "id": "gunSniper",
+          "label": "狙击步枪",
+          "universe": 5,
+          "level": 843.3138046707826,
+          "change24h": -0.15668619532921746
+        },
+        {
+          "id": "gunLMG",
+          "label": "轻机枪",
+          "universe": 4,
+          "level": 1397.986763507402,
+          "change24h": 0.3979867635074019
+        },
+        {
+          "id": "special ",
+          "label": "特殊武器",
+          "universe": 1,
+          "level": 893.0028902566663,
+          "change24h": -0.10699710974333365
+        }
+      ]
+    },
+    {
+      "id": "props",
+      "label": "物品",
+      "level": 959.4625015187961,
+      "change24h": -0.040537498481203915,
+      "universe": 470,
+      "subs": [
+        {
+          "id": "collection",
+          "label": "收集品",
+          "universe": 360,
+          "level": 972.9828834210864,
+          "change24h": -0.02701711657891359
+        },
+        {
+          "id": "key",
+          "label": "钥匙",
+          "universe": 80,
+          "level": 942.6726657895507,
+          "change24h": -0.05732733421044933
+        },
+        {
+          "id": "consume",
+          "label": "消耗品",
+          "universe": 30,
+          "level": 848.6120421476232,
+          "change24h": -0.1513879578523768
+        }
+      ]
+    },
+    {
+      "id": "protect",
+      "label": "防具",
+      "level": 896.9967811406898,
+      "change24h": -0.10300321885931019,
+      "universe": 175,
+      "subs": [
+        {
+          "id": "helmet",
+          "label": "头盔",
+          "universe": 69,
+          "level": 949.8722273234328,
+          "change24h": -0.050127772676567206
+        },
+        {
+          "id": "armor",
+          "label": "护甲",
+          "universe": 66,
+          "level": 845.5303505390677,
+          "change24h": -0.15446964946093222
+        },
+        {
+          "id": "bag",
+          "label": "背包",
+          "universe": 24,
+          "level": 944.8498199079937,
+          "change24h": -0.05515018009200623
+        },
+        {
+          "id": "chest",
+          "label": "胸挂",
+          "universe": 16,
+          "level": 996.8417683681665,
+          "change24h": -0.0031582316318334858
+        }
+      ]
+    }
+  ],
+  "all": {
+    "level": 961.6273,
+    "change24h": -0.038373,
+    "universe": 1380
+  },
+  "history": [
+    {
+      "t": "202611051324",
+      "all": 961.6273,
+      "ammo": 964.113,
+      "acc": 1069.7578,
+      "gun": 958.5249,
+      "props": 959.4625,
+      "protect": 896.9968
+    }
+  ],
+  "historySince": "202611051324",
+  "prediction": [
+    {
+      "objectId": "15080050011",
+      "name": "古老的海盗望远镜",
+      "grade": 3,
+      "pic": "https://playerhub.df.qq.com/playerhub/60004/object/15080050011.png",
+      "current": 40185,
+      "maxSellProfit": 80173.5,
+      "lastUpdate": "2026-11-05 13:19"
+    },
+    {
+      "objectId": "15040010012",
+      "name": "插座",
+      "grade": 2,
+      "pic": "https://playerhub.df.qq.com/playerhub/60004/object/15040010012.png",
+      "current": 14353,
+      "maxSellProfit": 14294.5,
+      "lastUpdate": "2026-11-05 13:19"
+    }
+  ],
+  "stats": {
+    "total": 1753,
+    "priced": 1441
+  }
+}

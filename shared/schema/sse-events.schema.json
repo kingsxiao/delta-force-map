@@ -50,6 +50,29 @@
         "complete": { "type": "integer", "minimum": 0 },
         "profitable": { "type": "integer", "minimum": 0 }
       }
+    },
+    {
+      "title": "secrets",
+      "description": "每日密码快照内容变化时广播（日更数据，内容不变的轮次不广播）",
+      "type": "object",
+      "required": ["version", "total", "source"],
+      "properties": {
+        "version": { "type": "string", "pattern": "^\\d{8}$", "description": "北京日期 YYYYMMDD（密码每天 0 点轮换，日期即版本）" },
+        "total": { "type": "integer", "minimum": 0 },
+        "source": { "type": "string", "enum": ["official-ams", "moligod-mirror"] }
+      }
+    },
+    {
+      "title": "tradehouse",
+      "description": "交易行全量 / 指数快照落盘后广播（交易行全览与市场指数两页共用版本门控；战备差价页小时级走轮询不挂此事件）",
+      "type": "object",
+      "required": ["version", "total"],
+      "properties": {
+        "version": { "$ref": "market-snapshot.schema.json#/$defs/versionKey" },
+        "total": { "type": "integer", "minimum": 0 },
+        "indexAll": { "description": "总览指数 level（可空：篮子为空）", "type": ["number", "null"] },
+        "loadoutTotal": { "description": "本轮战备差价条数；null = 上游失败保留旧档", "type": ["integer", "null"], "minimum": 0 }
+      }
     }
   ]
 }

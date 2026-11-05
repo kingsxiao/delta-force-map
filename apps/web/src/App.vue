@@ -55,9 +55,9 @@ onBeforeUnmount(() => window.removeEventListener('popstate', onPop))
 </script>
 
 <template>
-  <!-- 跳过导航出路（WCAG 2.4.1）：顶栏有 7 个可聚焦项（brand + 5 tab + ⌘K），键盘 /
-       读屏器用户每换一页都得先把它们走一遍。链接默认移出视口、仅 Tab 聚焦时在顶栏
-       左上现身（样式 base.css .skip-link），鼠标用户永远看不到它。
+  <!-- 跳过导航出路（WCAG 2.4.1）：顶栏可聚焦项随 tab 数增长（brand + 10 tab + ⌘K），
+       键盘 / 读屏器用户每换一页都得先把它们走一遍。链接默认移出视口、仅 Tab 聚焦时
+       在顶栏左上现身（样式 base.css .skip-link），鼠标用户永远看不到它。
        href 保留 #main 让它是合法可聚焦链接（无 href 的 a 不进 Tab 序），跳转由
        skipToMain 接管（见 script 注释） -->
   <a class="skip-link" href="#main" @click="skipToMain">跳到主内容</a>

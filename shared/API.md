@@ -142,6 +142,57 @@ Item 字段：
 
 **最佳口径（三端一致）**：`missingPriceCount === 0` 且 `profitPerHour` 最大的配方（制造台同一时间只能跑一条，时利才是真实约束）；单次利润最高可作次序展示。
 
+### GET `/secrets/secrets.json` — 每日地图密码快照
+
+Schema：[schema/secrets-snapshot.schema.json](schema/secrets-snapshot.schema.json)
+
+数据源（2026-11-05 双源实测对齐）：主源**腾讯官方 AMS** 免登录接口 `comm.ams.game.qq.com/ide/?iChartId=430437&sIdeToken=xXpyy2&method=dfm/center.day.secret`（WeGame 三角洲助手同款请求，§7.1 已登记）；兜底 moligod `/api/daily-secrets`（官方源的社区转发）。密码**北京时间每天 0 点轮换、日期即版本**；位置图为官方 WeGame 助手静态资源，本地打包于 `apps/web/public/secrets/img/password{1..6}.jpg`（season 更新可能换图，届时重新导出替换本地文件）。日更数据 30 分钟兜一轮（接住 0 点轮换），**内容不变的轮次不写盘、不广播**。
+
+顶层：
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `version` | string | 8 位日期档 `YYYYMMDD`（北京墙钟） |
+| `fetchedAt` | ISO-8601 | 本服务抓取时刻 |
+| `date` | string | `YYYY-MM-DD` 北京日期（= version 连字形式；页面「今日密码」判定用它，不依赖设备时区） |
+| `source` | `"official-ams" \| "moligod-mirror"` | 实际服务的源，如实切换 |
+| `items` | Item[] | 各地图密码，按 `mapId` 升序 |
+| `stats` | `{total}` | 条目计数 |
+
+Item 字段：
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `mapId` | int | 上游地图编号（1..6 与本地位置图编号一致；新增地图开放集） |
+| `mapName` | string | 地图官方中文名（零号大坝 / 长弓溪谷 / 巴克什 / 航天基地 / 潮汐监狱 / AZ3） |
+| `secret` | string | 密码（当前为 4 位数字；字符串透传保留前导零余地） |
+| `img` | string \| null | 本地位置图相对路径 `secrets/img/passwordN.jpg`（客户端拼 BASE_URL）；mapId 1..6 之外为 null（暂无图） |
+
+### GET `/market/tradehouse.json` — 交易行全量快照
+
+Schema：[schema/tradehouse-snapshot.schema.json](schema/tradehouse-snapshot.schema.json)
+
+数据源：moligod `trade-house-snapshot`（**全市场 ~1750 件**，公开传输编码与特勤处同族：AES-256-GCM + gzip，密钥随响应头 `x-trade-house-key` 下发，AAD `trade-house-snapshot-v1`，`server/market/tradehouse.mjs` 内解码）。条目 = 现价 / 昨日滚动均价与高低 / 7 日高低 / 大类与子类 / 品级（0–7，7 = 炫彩收集品）/ 官方图标。顶层 `version`（12 位分钟档，取条目 `lastUpdate` 最大值）/ `fetchedAt` / `generatedAt` / `source: "moligod-tradehouse"` / `items[]` / `stats{total, priced}`。Item 字段见 schema；`base` 为上游基准价仅透传（语义未实证，不参与任何口径）。消费方：交易行全览页（`/#/trade`）。
+
+### GET `/market/index.json` — 市场指数快照
+
+Schema：[schema/index-snapshot.schema.json](schema/index-snapshot.schema.json)
+
+由交易行全量快照派生（同一循环产出）。**口径（页面必须原文展示 `anchor` 字段）**：篮子 = 现价与昨日均价双全的物品，`level = 1000 × Σ现价 / Σ昨日均价`（即「昨日均价合计 = 1000」），`change24h = level/1000 − 1`。绝对值与其它站点不可比（基期不同），方向与相对强弱可比。
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `all` | `{level, change24h, universe} \| null` | 总览；篮子为空如实 null |
+| `markets` | `{id, label, level, change24h, universe, subs}[]` | 五大市场（ammo 子弹 / acc 配件 / gun 枪械 / props 物品 / protect 防具，固定展示序）；`subs` = 子市场分层（按篮子数降序） |
+| `history` | `{t, all, <市场id>}[]` | **本服务自积累**的逐版本指数点（一版本一档、封顶 720 档、时间升序；首次部署从零起算，`historySince` 如实标注） |
+| `prediction` | `{objectId, name, current, maxSellProfit, …}[] \| null` | 集市物品预测（上游 one-flow-market-prediction 透传，非本站计算）；失败降级 null |
+
+### GET `/market/loadout.json` — 战备值差价快照
+
+Schema：[schema/loadout-snapshot.schema.json](schema/loadout-snapshot.schema.json)
+
+数据源：moligod `preparedness-valuation`（免登录明文 JSON，小时级，上游已过滤只回正差价条目，实测 100 项）。口径：`system` = 游戏内系统折算价（物品带入对局按此计战备值），`diff = system − current`（上游缺失时服务端现算）——现价低于战备折算价即「买入手赚」。顶层 `stats{total, diffSum}`；`source: "moligod-preparedness"`。数据小时级，页面轮询不吃 SSE。消费方：战备值差价页（`/#/loadout`）。
+
 ### GET `/health` — 服务健康
 
 ```json
@@ -165,6 +216,8 @@ Item 字段：
 | `market` | `{version, source, generatedAt}` | 弹药快照落盘后 |
 | `radar` | `{version, total, anomaly, buy, sell}` | 雷达快照落盘后 |
 | `craft` | `{version, total, complete, profitable}` | 特勤处制造快照落盘后 |
+| `secrets` | `{version, total, source}` | 每日密码快照**内容变化**时（日更数据，不变轮次不广播） |
+| `tradehouse` | `{version, total, indexAll, loadoutTotal}` | 交易行全量 / 指数快照落盘后（交易行与指数两页共用版本门控；战备差价页轮询不挂此事件） |
 
 **事件是轻量 ping，不带全量数据**：客户端收到后比较 `version`，版本前进才重新 GET 对应快照（复用既有数据路径，与网页端行为一致）。
 
@@ -191,7 +244,7 @@ Item 字段：
 
 ## 5. fixtures
 
-`fixtures/market-sample.json`、`fixtures/radar-sample.json`、`fixtures/craft-sample.json`：真实快照全量留档样本（`server/export-ios-data.mjs` 逐字拷贝线上快照，含 `fingerprint` / `officialAnchor` / `season` 等元信息字段，非脱敏），供 iOS 单测断言口径移植与解码（iOS 端无演示模式）；后端自测另有自己的注入桩。契约变化时同步更新 fixtures。
+`fixtures/market-sample.json`、`fixtures/radar-sample.json`、`fixtures/craft-sample.json`、`fixtures/secrets-sample.json`：真实快照全量留档样本（`server/export-ios-data.mjs` 逐字拷贝线上快照，含 `fingerprint` / `officialAnchor` / `season` 等元信息字段，非脱敏），供 iOS 单测断言口径移植与解码（iOS 端无演示模式）；后端自测另有自己的注入桩。契约变化时同步更新 fixtures。
 
 ## 6. 账号与云同步（`server/auth/`，实现方 = 后端）
 
@@ -231,6 +284,24 @@ Item 字段：
 - 数据落盘：`data/auth/accounts.json`（账号表）+ `data/auth/account-data/<uid>.json`（每用户文档），原子写（tmp+rename），随 `/data/` 整体 gitignore。
 - 隐私边界：文档内容不做加密（自托管单机、明文 http 合法形态下 TLS 由部署侧负责）；不要往里放任何敏感信息，见键名约定。
 
+### 6.4 Bark 推送注册（`server/push/`，2026-11-05 契约先行）
+
+服务端判出 BUY/SELL 信号（§4 去抖口径，live.mjs 循环）后经 **Bark** 推到 iPhone 锁屏——App 无需运行、无需开发者账号（推送由 Bark app 接收，DeltaForce App 只做设置 UI 与偏好注册）。本节是「设备 ↔ 服务端」的服务端状态，**不进 §6.3 云文档**（设备偏好不云同步的口径不变：Bark key 只注册在服务端注册表里，换设备重新注册）。
+
+| 方法 | 路径 | 鉴权 | 成功 | 失败 |
+| --- | --- | --- | --- | --- |
+| PUT | `/api/push/bark` | Bearer | `200 {ok:true, savedAt}` | `400` key/server 不合规（`BAD_KEY` / `BAD_SERVER`）；`401` |
+| GET | `/api/push/bark` | Bearer | `200 {registered:false}` 或 `{registered:true, server, key, buys, sells, savedAt}` | `401` |
+| DELETE | `/api/push/bark` | Bearer | `204`（幂等：未注册也 204） | `401` |
+| POST | `/api/push/bark/test` | Bearer | `200 {ok:true}`（已发测试推送） | `400` 未注册（`NOT_REGISTERED`）；`502` Bark 服务不可达（`BARK_FAILED`，附上游状态码）；`401` |
+
+- 请求体（PUT）：`{server?, key, buys, sells}`。`key` = Bark app「复制URL」里那段设备 key（`^[A-Za-z0-9]{10,80}$`）；`server` 可省（默认 `https://api.day.app`，自建 Bark 填其 https 源）；`buys` / `sells` = 是否推送对应信号（boolean，必填）。客户端也可整段粘贴样例 URL 自行解析（两端同构 `parseBarkUrl`，见下）。
+- 限速：PUT/DELETE/test 共 10 次/分钟（按 IP，同 §6.2 口径），超限 `429 {code:"RATE_LIMITED"}`。
+- 数据落盘：`data/push/bark.json` `{devices:{<uid>:{server,key,buys,sells,savedAt}}}`，原子写 0600，随 `/data/` 整体 gitignore；迁移部署需与 `data/auth/` 一并保留。
+- `parseBarkUrl` 两端同构（JS `server/push/bark.mjs` / Swift `DeltaForceCore`）：接受整段样例 URL（`https://api.day.app/<key>/推送内容`）、`bark://` scheme、或裸 key，解析出 `{server, key}`；解析不出合法 key 即报 `BAD_KEY`。
+- 推送过滤：服务端只对 `kind`（buy/sell）匹配偏好 `buys`/`sells` 的注册投递；去抖/冷却完全由 §4 judgeSignals 上游负责，本层不去重。
+- 隐私边界：信号文案经 Bark 服务器（公共 `api.day.app` 为第三方服务）中转，内容仅「买入/卖出信号 ×N + 弹名价格」级别；在意可自建 Bark server 填自己的源。
+
 ## 7. 静态附属数据与官方源基础设施（实现方 = 后端）
 
 直连腾讯官方 AMS 的基础设施与静态附属产物：基础库 `server/official/`（`ams-client` 请求客户端 + `object-directory` 物品目录缓存），以及建在其上的 TTK 官方对账 CLI（`server/ttk/official-audit.mjs`）与子弹官方均价锚（`server/official/ammo-anchor.mjs`）——**纯库 / 纯脚本、零 npm 依赖、不起服务**。本节全部内容**不是快照契约变更**（§1 各快照形状不变，不动 schema 与 SSE 事件），**iOS 端无消费方**（不进 `export:ios` 导出面）：目录缓存与均价锚是纯后端 sidecar；TTK 对账报告虽落 `apps/web/public/data/`，但当前前端 / iOS 均不消费，仅供人工复核。
@@ -241,6 +312,7 @@ Item 字段：
 | --- | --- | --- |
 | 物品目录 `dfm/object.list` | `POST https://comm.ams.game.qq.com/ide/`（chartId 352143，token `YWRywA`） | 表单 `source=1` + `param={primary,second,third,objectID}`，primary 逐类单独传（gun/ammo/protect/acc/props）；取值路径 `jData.data.data.list`；实测 gun 68 条全带 gunDetail、ammo 113 条 |
 | 小时均价 | `POST https://dfm.ams.game.qq.com/ide/`（chartId 352246，token `Zek01X`） | 表单直传 `propid=<id,…>` 与 `stat_hour=YYYYMMDDHH`（北京墙钟，必填但值被忽略）；单次 ≤5 个 id；**实测** `jData.data` 为 `{<objectID>:{avg_buyprice:Number}}` 直接映射（并兼容累计数组取末元素口径，两种形状自测均覆盖） |
+| 每日密码 `dfm/center.day.secret` | `GET https://comm.ams.game.qq.com/ide/?iChartId=430437&sIdeToken=xXpyy2&method=dfm%2Fcenter.day.secret`（2026-11-05 实测，WeGame 三角洲助手同款请求） | 纯 GET 免登录；取值路径 `jData.data.data.list`（`{mapID, mapName, secret}`，北京 0 点轮换）；消费方 `server/secrets/secrets.mjs`（§1.4） |
 
 - 响应 Content-Type 是 `text/html` 但正文 JSON——按 `text()` 读回再解析，不信 Content-Type；`ret≠0` 时错误文案在 `sMsg`（`ret=-11009` = 流程未发布），错误对象带 `.ret` / `.sMsg`
 - 请求带浏览器 UA 与 `Origin/Referer: https://df.qq.com/`，20s 超时；**不登录、不绕风控、不保存任何凭据**

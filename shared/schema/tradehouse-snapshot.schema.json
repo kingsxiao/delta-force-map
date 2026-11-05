@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://delta-force-map/shared/schema/tradehouse-snapshot.schema.json",
+  "title": "TradehouseSnapshot",
+  "description": "GET /market/tradehouse.json — 交易行全量快照。口径见 shared/API.md §1.5；实现 server/market/tradehouse.mjs（上游 moligod trade-house-snapshot，公开传输编码 AES-256-GCM + gzip，AAD trade-house-snapshot-v1，服务端解码后整形）。",
+  "type": "object",
+  "required": ["version", "fetchedAt", "generatedAt", "source", "items", "stats"],
+  "properties": {
+    "version": {
+      "$ref": "#/$defs/versionKey"
+    },
+    "fetchedAt": { "type": "string", "format": "date-time" },
+    "generatedAt": { "type": "string", "format": "date-time" },
+    "source": { "const": "moligod-tradehouse" },
+    "items": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/tradeItem" }
+    },
+    "stats": {
+      "type": "object",
+      "required": ["total", "priced"],
+      "properties": {
+        "total": { "type": "integer", "minimum": 1 },
+        "priced": { "type": "integer", "minimum": 0 }
+      }
+    }
+  },
+  "$defs": {
+    "versionKey": {
+      "description": "12 位分钟档 YYYYMMDDHHmm（北京墙钟，= 全部条目 lastUpdate 最大值）",
+      "type": "string",
+      "pattern": "^[0-9]{12}$"
+    },
+    "tradeItem": {
+      "type": "object",
+      "required": ["objectId", "name", "category", "categoryCn", "subcategory", "grade", "pic", "current", "base", "yesterdayAvg", "sevenDayHigh", "sevenDayLow", "lastUpdate"],
+      "properties": {
+        "objectId": { "type": "string", "minLength": 1 },
+        "name": { "type": "string", "minLength": 1 },
+        "alias": { "type": ["string", "null"] },
+        "category": { "description": "大类（ammo/acc/gun/props/protect）；上游缺失时 null", "type": ["string", "null"] },
+        "categoryCn": { "description": "大类中文名（子弹/配件/枪械/收集品/头盔…）", "type": ["string", "null"] },
+        "subcategory": { "description": "子类 id（helmet/accBarrel/key…）；上游缺失时 null", "type": ["string", "null"] },
+        "grade": { "description": "品级 0–7；0 = 无品级（枪械本体等），7 = 炫彩收集品，null = 上游缺失（如实透传）", "type": ["integer", "null"], "minimum": 0, "maximum": 7 },
+        "pic": { "type": ["string", "null"] },
+        "current": { "description": "现价；缺价为 null（上游覆盖率高，实测 1753 件全有价）", "type": ["number", "null"], "minimum": 0 },
+        "base": { "description": "上游基准价（语义未实证，仅透传，不参与任何口径）", "type": ["number", "null"] },
+        "yesterdayAvg": { "description": "昨日滚动均价（涨跌参照）", "type": ["number", "null"], "minimum": 0 },
+        "yesterdayHigh": { "type": ["number", "null"], "minimum": 0 },
+        "yesterdayLow": { "type": ["number", "null"], "minimum": 0 },
+        "sevenDayHigh": { "type": ["number", "null"], "minimum": 0 },
+        "sevenDayLow": { "type": ["number", "null"], "minimum": 0 },
+        "lastUpdate": { "description": "北京墙钟 'YYYY-MM-DD HH:mm'；缺失 null", "type": ["string", "null"] }
+      }
+    }
+  }
+}

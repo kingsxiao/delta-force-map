@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://delta-force-map/shared/schema/index-snapshot.schema.json",
+  "title": "IndexSnapshot",
+  "description": "GET /market/index.json — 市场指数快照。口径见 shared/API.md §1.6；实现 server/market/tradehouse.mjs：篮子 = 现价与昨日均价双全的物品，level = 1000 × Σ现价 / Σ昨日均价（昨日均价合计 = 1000），history 为本服务自积累的逐版本指数点。",
+  "type": "object",
+  "required": ["version", "fetchedAt", "source", "anchor", "markets", "history"],
+  "properties": {
+    "version": { "$ref": "tradehouse-snapshot.schema.json#/$defs/versionKey" },
+    "fetchedAt": { "type": "string", "format": "date-time" },
+    "source": { "const": "moligod-tradehouse" },
+    "anchor": { "description": "归一口径说明（客户端应原文展示，不得另立文案）", "const": "昨日均价合计 = 1000" },
+    "all": {
+      "description": "总览指数；篮子为空时 null（如实缺席）",
+      "type": ["object", "null"],
+      "required": ["level", "change24h", "universe"],
+      "properties": {
+        "level": { "type": "number" },
+        "change24h": { "type": "number" },
+        "universe": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "markets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "label", "level", "change24h", "universe", "subs"],
+        "properties": {
+          "id": { "enum": ["ammo", "acc", "gun", "props", "protect"] },
+          "label": { "type": "string" },
+          "level": { "type": ["number", "null"] },
+          "change24h": { "type": ["number", "null"] },
+          "universe": { "type": "integer", "minimum": 0 },
+          "subs": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["id", "label", "universe", "level", "change24h"],
+              "properties": {
+                "id": { "type": "string" },
+                "label": { "type": "string" },
+                "universe": { "type": "integer", "minimum": 0 },
+                "level": { "type": ["number", "null"] },
+                "change24h": { "type": ["number", "null"] }
+              }
+            }
+          }
+        }
+      }
+    },
+    "history": {
+      "description": "本服务自积累的指数点（逐版本一档、封顶 720 档；时间升序）",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["t", "all"],
+        "properties": {
+          "t": { "$ref": "tradehouse-snapshot.schema.json#/$defs/versionKey" },
+          "all": { "type": ["number", "null"] },
+          "additionalProperties": { "description": "各大市场 id（ammo/acc/…）→ 指数；null = 该篮子当时为空", "type": ["number", "null"] }
+        }
+      }
+    },
+    "historySince": { "description": "历史首档版本（起算时点，页面如实展示）", "type": ["string", "null"] },
+    "prediction": {
+      "description": "集市物品预测（上游 one-flow-market-prediction 透传）；抓取失败降级 null",
+      "type": ["array", "null"],
+      "items": {
+        "type": "object",
+        "required": ["objectId", "name", "current", "maxSellProfit"],
+        "properties": {
+          "objectId": { "type": "string" },
+          "name": { "type": "string" },
+          "grade": { "type": ["integer", "null"], "minimum": 0, "maximum": 7 },
+          "pic": { "type": ["string", "null"] },
+          "current": { "type": ["number", "null"], "minimum": 0 },
+          "maxSellProfit": { "type": ["number", "null"] },
+          "lastUpdate": { "type": ["string", "null"] }
+        }
+      }
+    },
+    "stats": {
+      "type": "object",
+      "required": ["total", "priced"],
+      "properties": {
+        "total": { "type": "integer", "minimum": 1 },
+        "priced": { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}

@@ -29,9 +29,17 @@ const CONTRACTS = [
   { doc: 'shared/fixtures/market-sample.json', schema: 'shared/schema/market-snapshot.schema.json' },
   { doc: 'shared/fixtures/radar-sample.json', schema: 'shared/schema/radar-snapshot.schema.json' },
   { doc: 'shared/fixtures/craft-sample.json', schema: 'shared/schema/craft-snapshot.schema.json' },
+  { doc: 'shared/fixtures/secrets-sample.json', schema: 'shared/schema/secrets-snapshot.schema.json' },
+  { doc: 'shared/fixtures/tradehouse-sample.json', schema: 'shared/schema/tradehouse-snapshot.schema.json' },
+  { doc: 'shared/fixtures/index-sample.json', schema: 'shared/schema/index-snapshot.schema.json' },
+  { doc: 'shared/fixtures/loadout-sample.json', schema: 'shared/schema/loadout-snapshot.schema.json' },
   { doc: 'apps/web/public/ammo/market.json', schema: 'shared/schema/market-snapshot.schema.json' },
   { doc: 'apps/web/public/market/radar.json', schema: 'shared/schema/radar-snapshot.schema.json' },
   { doc: 'apps/web/public/craft/craft.json', schema: 'shared/schema/craft-snapshot.schema.json' },
+  { doc: 'apps/web/public/secrets/secrets.json', schema: 'shared/schema/secrets-snapshot.schema.json' },
+  { doc: 'apps/web/public/market/tradehouse.json', schema: 'shared/schema/tradehouse-snapshot.schema.json' },
+  { doc: 'apps/web/public/market/index.json', schema: 'shared/schema/index-snapshot.schema.json' },
+  { doc: 'apps/web/public/market/loadout.json', schema: 'shared/schema/loadout-snapshot.schema.json' },
 ]
 
 const FIXTURE_DIR = rel('shared/fixtures')
@@ -358,4 +366,4 @@ if (failed) {
   console.log(`\n契约校验失败：${failed} 份`)
   process.exit(1)
 }
-console.log('\n契约校验通过：fixtures + 静态快照 共 6 份全部符合 schema')
+console.log(`\n契约校验通过：fixtures + 静态快照 共 ${CONTRACTS.length} 份全部符合 schema`)

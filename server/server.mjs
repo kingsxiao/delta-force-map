@@ -1,10 +1,10 @@
 /* ============================================================
    server.mjs — 同源部署服务：静态站 + 实时行情（node:http 零依赖）
    ------------------------------------------------------------
-   一个进程四件事：定时抓上游（弹药 fast/slow 双循环 + 雷达循环 + 特勤处
-   制造循环，均复用既有抓取器与 kkrb 兜底）→ 原子写快照（apps/web/public
-   与其 dist 联动）→ SSE 推送（event:market / event:radar / event:craft）
-   → 静态托管 apps/web/dist。
+   一个进程五件事：定时抓上游（弹药 fast/slow 双循环 + 雷达循环 + 特勤处
+   制造循环 + 每日密码循环，均复用既有抓取器与兜底源）→ 原子写快照
+   （apps/web/public 与其 dist 联动）→ SSE 推送（event:market / event:radar /
+   event:craft / event:secrets）→ 静态托管 apps/web/dist。
    另挂一个日级 sidecar：官方均价锚（server/official/ammo-anchor.mjs，默认
    24h 一轮、启动 2 分钟后首跑、每轮 ≤15 请求）只拿官方均价校验 moligod
    现价并落 data/ammo/official-anchor.json——不改口径、不写快照、不广播。
@@ -37,8 +37,12 @@ import http from 'node:http'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createLiveServer } from './ammo/live.mjs'
+import { notify as osascriptNotify } from './ammo/notify.mjs'
+import { openBarkRegistry, createBarkOutlet } from './push/bark.mjs'
 import { runRadarCycle } from './market/radar.mjs'
 import { runCraftCycle } from './craft/snapshot.mjs'
+import { runTradehouseCycle } from './market/tradehouse.mjs'
+import { runSecretsCycle } from './secrets/secrets.mjs'
 import { runAnchorCycle } from './official/ammo-anchor.mjs'
 import { createAuthApi } from './auth/api.mjs'
 
@@ -85,6 +89,12 @@ export function createSiteServer({
   radarMs = 10 * 60 * 1000,
   craftCycle = runCraftCycle,
   craftMs = 10 * 60 * 1000,
+  /** 每日密码：日更数据 30 分钟兜一轮；内容不变模块内自动跳过写盘与广播 */
+  secretsCycle = runSecretsCycle,
+  secretsMs = 30 * 60 * 1000,
+  /** 交易行全量快照 + 指数 + 战备差价：上游 ttl 分钟级，10 分钟一轮 */
+  tradehouseCycle = runTradehouseCycle,
+  tradehouseMs = 10 * 60 * 1000,
   /** 官方均价锚 sidecar：日级只读校验；默认延迟 2 分钟首跑，离线自测在 close()
       前不会打网（selftest 不注入也安全） */
   anchorCycle = runAnchorCycle,
@@ -94,7 +104,17 @@ export function createSiteServer({
   trustProxy = false,
 } = {}) {
   const distDir = path.join(webDir, 'dist')
-  const live = createLiveServer({ rootDir, webDir, noNotify, statePath, trustProxyHops: typeof trustProxy === 'number' ? trustProxy : 1 })
+  // 组合投递器（契约 shared/API.md §6.4）：osascript 桌面通知受 noNotify
+  // （--notify 开关）门控；Bark 推送与该开关解耦——有设备注册即推（手机锁屏
+  // 收信号不依赖桌面通知开关；ECS Linux 上 osascript 本来就是 noop）。
+  // 传给 live 的 noNotify 恒 false：门控移入本 dispatcher，否则 --notify 关闭
+  // 时 Bark 会被一起关掉。selftest 环境无注册 → bark 出口零网络开销。
+  const barkNotify = createBarkOutlet(openBarkRegistry({ rootDir }))
+  const notifyFn = async (msg) => {
+    if (!noNotify) await osascriptNotify(msg)
+    await barkNotify(msg)
+  }
+  const live = createLiveServer({ rootDir, webDir, noNotify: false, statePath, trustProxyHops: typeof trustProxy === 'number' ? trustProxy : 1, notifyFn })
   // 账号 API（注册 / 登录 / 登出 / me + 账号云数据，契约 shared/API.md §6）：
   // 与站点同进程同源；POST/PUT 只进这一支，静态托管仍保持只读 GET/HEAD。
   // trustProxy：nginx 反代形态下显式开启才采信 X-Forwarded-For 做限速
@@ -102,6 +122,8 @@ export function createSiteServer({
   const auth = createAuthApi({ rootDir, trustProxy })
   let radarTimer = null
   let craftTimer = null
+  let secretsTimer = null
+  let tradehouseTimer = null
   let anchorTimer = null
   let closing = false
 
@@ -155,6 +177,55 @@ export function createSiteServer({
     await cycleCraft()
     if (closing) return
     craftTimer = setTimeout(craftLoop, craftMs)
+  }
+
+  /* 每日密码循环（同雷达范式）：官方 AMS 日更数据，内容不变时模块内已跳过
+     写盘；只在真变化（0 点轮换 / 兜底源切换）时广播，SSE 不被空转刷屏 */
+  async function cycleSecrets() {
+    try {
+      const out = await secretsCycle({ webDir })
+      if (out.changed) {
+        live.broadcast('secrets', { version: out.version, total: out.total, source: out.source })
+        log(`[secrets] version ${out.version} · ${out.total} 张图 · 源 ${out.source}`)
+      }
+      return out
+    } catch (e) {
+      console.error(`[${new Date().toLocaleString('zh-CN')}] [secrets] 抓取失败：${e.message}`)
+      return null
+    }
+  }
+
+  async function secretsLoop() {
+    if (closing) return
+    await cycleSecrets()
+    if (closing) return
+    secretsTimer = setTimeout(secretsLoop, secretsMs)
+  }
+
+  /* 交易行全量 + 指数 + 战备差价循环（同雷达范式）：失败只记日志，下一轮自然补；
+     广播 tradehouse 事件（交易行 / 指数两页共用版本门控；战备差价页小时级走轮询） */
+  async function cycleTradehouse() {
+    try {
+      const out = await tradehouseCycle({ webDir, rootDir })
+      live.broadcast('tradehouse', {
+        version: out.version,
+        total: out.total,
+        indexAll: out.indexAll,
+        loadoutTotal: out.loadoutTotal,
+      })
+      log(`[tradehouse] version ${out.version} · 全市场 ${out.total} 件 · 总指数 ${out.indexAll?.toFixed(1) ?? '—'} · 战备差价 ${out.loadoutTotal ?? '保留旧档'}`)
+      return out
+    } catch (e) {
+      console.error(`[${new Date().toLocaleString('zh-CN')}] [tradehouse] 抓取失败：${e.message}`)
+      return null
+    }
+  }
+
+  async function tradehouseLoop() {
+    if (closing) return
+    await cycleTradehouse()
+    if (closing) return
+    tradehouseTimer = setTimeout(tradehouseLoop, tradehouseMs)
   }
 
   /* 官方均价锚（日级 sidecar，同雷达范式）：只读校验、失败只记日志；不广播、不写快照 */
@@ -268,17 +339,21 @@ export function createSiteServer({
     closing = true
     clearTimeout(radarTimer)
     clearTimeout(craftTimer)
+    clearTimeout(secretsTimer)
+    clearTimeout(tradehouseTimer)
     clearTimeout(anchorTimer)
     await live.close()
     await new Promise((resolve) => server.close(resolve))
   }
-  /** 启动序列：弹药（live.start 自带冷启动 + 双循环）与雷达 / 特勤处初始轮并行；
-      雷达 / 特勤处失败不阻塞（catch 在各自 cycle 内），下一轮计时照常；
+  /** 启动序列：弹药（live.start 自带冷启动 + 双循环）与雷达 / 特勤处 / 每日密码 /
+      交易行初始轮并行；各循环失败不阻塞（catch 在各自 cycle 内），下一轮计时照常；
       官方均价锚不参与启动并行，延迟 anchorDelayMs 后首跑再按 anchorMs 循环 */
   async function start() {
-    await Promise.all([live.start(), cycleRadar(), cycleCraft()])
+    await Promise.all([live.start(), cycleRadar(), cycleCraft(), cycleSecrets(), cycleTradehouse()])
     radarTimer = setTimeout(radarLoop, radarMs)
     craftTimer = setTimeout(craftLoop, craftMs)
+    secretsTimer = setTimeout(secretsLoop, secretsMs)
+    tradehouseTimer = setTimeout(tradehouseLoop, tradehouseMs)
     if (anchorCycle) anchorTimer = setTimeout(anchorLoop, anchorDelayMs)
   }
   return {
@@ -288,6 +363,8 @@ export function createSiteServer({
     close,
     triggerRadarCycle: cycleRadar,
     triggerCraftCycle: cycleCraft,
+    triggerSecretsCycle: cycleSecrets,
+    triggerTradehouseCycle: cycleTradehouse,
     triggerAnchorCycle: cycleAnchor,
   }
 }
@@ -306,6 +383,14 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   )
   const craftIntervalMin = Number(
     argOf('craft-interval') || process.env.CRAFT_INTERVAL_MIN || 10
+  )
+  // 每日密码：日更数据，默认 30 分钟兜一轮（只为接住 0 点轮换）
+  const secretsIntervalMin = Number(
+    argOf('secrets-interval') || process.env.SECRETS_INTERVAL_MIN || 30
+  )
+  // 交易行全量 + 指数 + 战备差价：上游分钟级，默认 10 分钟一轮
+  const tradehouseIntervalMin = Number(
+    argOf('tradehouse-interval') || process.env.TRADEHOUSE_INTERVAL_MIN || 10
   )
   // 官方均价锚：--no-anchor 关闭；小时数非法回落 24，并钳在 [1, 500]——
   // setTimeout 上限 2^31-1 ms（≈596h），超出会被 Node 当 1ms 立即触发
@@ -331,13 +416,15 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     noNotify: !notify,
     radarMs: Math.max(1, radarIntervalMin) * 60 * 1000,
     craftMs: Math.max(1, craftIntervalMin) * 60 * 1000,
+    secretsMs: Math.max(1, secretsIntervalMin) * 60 * 1000,
+    tradehouseMs: Math.max(1, tradehouseIntervalMin) * 60 * 1000,
     anchorCycle: noAnchor ? null : runAnchorCycle,
     anchorMs: anchorHours * 60 * 60 * 1000,
     trustProxy,
   })
   site.server.listen(port, host, () => {
     log(`站点已启动：http://${host}:${port}/ · SSE /events · health /health（Ctrl+C 退出）`)
-    log(`静态目录 apps/web/dist/ · 雷达每 ${radarIntervalMin} 分钟 · 特勤处制造每 ${craftIntervalMin} 分钟 · 官方均价锚${noAnchor ? '关闭' : `每 ${anchorHours} 小时（启动 2 分钟后首跑）`} · 系统通知${notify ? '开启' : '关闭（--notify 可开启）'} · 上游抓取循环随服务常驻`)
+    log(`静态目录 apps/web/dist/ · 雷达每 ${radarIntervalMin} 分钟 · 特勤处制造每 ${craftIntervalMin} 分钟 · 每日密码每 ${secretsIntervalMin} 分钟 · 交易行/指数每 ${tradehouseIntervalMin} 分钟 · 官方均价锚${noAnchor ? '关闭' : `每 ${anchorHours} 小时（启动 2 分钟后首跑）`} · 系统通知${notify ? '开启' : '关闭（--notify 可开启）'} · 上游抓取循环随服务常驻`)
   })
   await site.start()
   const shutdown = (sig) => {
