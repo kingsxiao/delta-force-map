@@ -45,7 +45,7 @@ import {
   CURVE_TTL_MS, beijingParts,
 } from './moligod-client.mjs'
 import { fetchOnce, writeJsonAtomic, writeSnapshotPair, joinOfficialAnchor, HEARTBEAT_MS } from './fetch-once.mjs'
-import { judgeSignals, emptyState, POLICY, buyLine, sellLine } from '../../shared/js/notify-policy.js'
+import { judgeSignals, emptyState, POLICY, buyLine, sellLine, sendNotifications } from '../../shared/js/notify-policy.js'
 import { analyzeItem, analyzeMarket } from './analyze.mjs'
 import { createLiveServer } from './live.mjs'
 import { createSiteServer } from '../server.mjs'
@@ -897,8 +897,58 @@ check('SSE：连接即收 event:hello；落盘广播 event:market（wire 格式�
   }
 })
 
-/* ---------- live 状态机观测工具：轮询等待 + 首次观测时刻（⑩b/⑩c 计时口径） ---------- */
-/** 轮询直到 cond() 成立；返回首次观测为真的时刻（ms 时间戳）。
+check('live→notifyFn：BUY 触发投递 kind:buy / 去抖不重发 / sendNotifications kind 标注', async () => {
+  clearCurveCache()
+  const root = await mkdtemp(path.join(tmpdir(), 'ammo-selftest-bark-'))
+  const stub = installStub({
+    catalog: catalogFixture({ priceOf: (i) => (i === 0 ? 40 : i === 1 ? 160 : i === 2 ? 74 : 100 + i) }),
+    histories: (name) => {
+      const i = NAMES.indexOf(name)
+      if (i === 2) return curveFnFixture(V2_BUY_CURVE) // 崩后底部企稳缓升 → BUY
+      return historyFixture()
+    },
+  })
+  // notifyFn 注入（server.mjs 组合 osascript+Bark 的同一接缝）：collector 收全量
+  const delivered = []
+  const live = createLiveServer({
+    rootDir: root,
+    statePath: path.join(root, 'data', 'ammo', 'monitor-state.json'),
+    noNotify: false,
+    notifyFn: async (msg) => { delivered.push(msg) },
+  })
+  try {
+    // mode 'auto'：快模式下缺失曲线不补抓（test ③ 口径），全弹「数据不足」
+    // 出不了 BUY——本用例要真实信号，必须让 fetchOnce 补抓 history（桩上游）
+    await live.triggerCycle('auto')
+    const buys = delivered.filter((m) => m.kind === 'buy')
+    assert(buys.length === 1, `首轮 BUY 应投递一条 kind:buy，实际 ${JSON.stringify(delivered.map((m) => m.kind))}`)
+    assert(/买入信号/.test(buys[0].title), `标题应含「买入信号」，实际 ${buys[0].title}`)
+    assert(buys[0].body.includes(NAMES[2]), `正文应含 BUY 弹名 ${NAMES[2]}`)
+    const afterFirst = delivered.length
+    // 第二轮内容未变：冷却未到、runNotified 已记 → 不得重发任何消息
+    // （推送端去重在上游 judgeSignals；目录价高于全平曲线的弹首轮即 SELL，
+    // 也一并被冷却压住）
+    await live.triggerCycle('auto')
+    assert(delivered.length === afterFirst, `第二轮内容不变不应重发，实际 ${delivered.length} 条（首轮 ${afterFirst}）`)
+  } finally {
+    await live.close()
+    stub.restore()
+    await rm(root, { recursive: true, force: true })
+  }
+  // kind 字段纯函数口径：buys/sells 各自标注，投递器（osascript/浏览器通知）
+  // 只解构 title/body/sound 不受多余字段影响
+  {
+    const got = []
+    await sendNotifications(
+      [{ name: 'A', current: 100, targetSell: 120, netSell: 102, netHigh: 130, profitPerRound: 2, profitPct: 0.02, rank: 0.1 }],
+      [{ name: 'B', current: 200, rank: 0.9 }],
+      async (m) => got.push(m),
+    )
+    assert(got.length === 2 && got[0].kind === 'buy' && got[1].kind === 'sell', `sendNotifications 应标注 kind buy/sell，实际 ${JSON.stringify(got.map((m) => m.kind))}`)
+  }
+})
+
+/* ---------- live 状态机观测工具：轮询等待 + 首次观测时刻（⑩b/⑩c 计时口径） ---------- *//** 轮询直到 cond() 成立；返回首次观测为真的时刻（ms 时间戳）。
  *  live 的调度全部走真实 setTimeout——多轮状态机用例注入毫秒级节奏参数，
  *  用 2ms 轮询观测 status / 桩计数的变化时刻来测轮间距 */
 async function pollUntil(cond, what, timeoutMs = 20000, stepMs = 2) {

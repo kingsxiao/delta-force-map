@@ -19,6 +19,14 @@ struct SettingsView: View {
     @State private var refreshOkTick = 0
     @State private var refreshErrTick = 0
     @State private var notifyTick = 0
+    // Bark 推送区（动作回声 / 开关切换触感，口径同上方刷新与通知 tick）
+    @State private var barkInput = ""
+    @State private var barkBusy = false
+    @State private var barkMsg: String?
+    @State private var barkMsgGood = false
+    @State private var barkOkTick = 0
+    @State private var barkErrTick = 0
+    @State private var barkTick = 0
 
     var body: some View {
         @Bindable var settings = app.settings
@@ -195,6 +203,88 @@ struct SettingsView: View {
                 }
                 .listRowBackground(Theme.card)
 
+                // ---- Bark 推送（契约 API.md §6.4）：服务端判出信号 → Bark → 锁屏。
+                // 与上方本地通知互补：这条链路 App 不运行也送达（服务端 7×24 判定）。
+                // 调用收口在 AuthStore（token 不出 State 层），本区只做解析回显与开关
+                Section {
+                    if app.auth.user == nil {
+                        Text("登录后可开启：服务端判出买入 / 卖出信号时，经 Bark 推送到 iPhone 锁屏，App 无需运行。")
+                            .font(Theme.font(.xs))
+                            .foregroundStyle(Theme.faint)
+                    } else if settings.settings.isBarkRegistered {
+                        LabeledContent {
+                            // 设备 key 只回显掩码（完整 key 属设备凭据，截图场景不外泄）
+                            Text(BarkPush.keyMask(settings.settings.barkKey))
+                                .font(Theme.font(.md, weight: .semibold))
+                                .monospacedDigit()
+                                .foregroundStyle(Theme.dim)
+                        } label: {
+                            rowTitle("Bark 设备")
+                        }
+                        Toggle(isOn: $settings.settings.barkBuys) {
+                            rowTitle("推买入信号")
+                        }
+                        .onChange(of: settings.settings.barkBuys) { _, _ in
+                            barkTick += 1
+                            Task { await syncBarkPrefs() }
+                        }
+                        Toggle(isOn: $settings.settings.barkSells) {
+                            rowTitle("推卖出信号")
+                        }
+                        .onChange(of: settings.settings.barkSells) { _, _ in
+                            barkTick += 1
+                            Task { await syncBarkPrefs() }
+                        }
+                        Button {
+                            guard !barkBusy else { return }
+                            Task { await testBarkAction() }
+                        } label: {
+                            Label(barkBusy ? "发送中…" : "发送测试推送", systemImage: "bell.badge")
+                                .font(Theme.font(.md, weight: .semibold))
+                                .symbolEffect(.pulse, options: .repeating, isActive: barkBusy && !reduceMotion)
+                                .motion(Theme.animFast, value: barkBusy)
+                        }
+                        Button(role: .destructive) {
+                            guard !barkBusy else { return }
+                            Task { await unregisterBarkAction() }
+                        } label: {
+                            Label("解除注册", systemImage: "bell.slash")
+                                .font(Theme.font(.md, weight: .semibold))
+                        }
+                        .disabled(barkBusy)
+                    } else {
+                        TextField("粘贴 Bark 的推送 URL", text: $barkInput)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .font(Theme.font(.md))
+                        Button {
+                            guard !barkBusy else { return }
+                            Task { await registerBarkAction() }
+                        } label: {
+                            Label(barkBusy ? "注册中…" : "注册并开启", systemImage: "bell.and.waves.left.and.right")
+                                .font(Theme.font(.md, weight: .semibold))
+                                .symbolEffect(.pulse, options: .repeating, isActive: barkBusy && !reduceMotion)
+                                .motion(Theme.animFast, value: barkBusy)
+                        }
+                        .disabled(barkBusy || barkInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    }
+                    if let msg = barkMsg {
+                        // 动作结果回声行（注册 / 测试 / 解除共用；§1.5 闭环「看得见的回声」）
+                        Text(msg)
+                            .font(Theme.font(.xs))
+                            .foregroundStyle(barkMsgGood ? Theme.accent : Theme.danger)
+                            .transition(.opacity)
+                            .motion(Theme.animSwap, value: barkMsg)
+                    }
+                } header: {
+                    sectionHeader("Bark 推送")
+                } footer: {
+                    Text("iPhone 安装 Bark（App Store 免费）→ 打开复制它的推送 URL → 粘贴到这里注册。去抖口径与本地通知相同（6 小时冷却）；推送偏好按此设备注册生效，信号文案经 Bark 服务器中转。")
+                        .font(Theme.font(.xs))
+                        .foregroundStyle(Theme.faint)
+                }
+                .listRowBackground(Theme.card)
+
                 Section {
                     NavigationLink {
                         AccountView()
@@ -266,6 +356,11 @@ struct SettingsView: View {
             // 通知开关是「切换」不是「任务结果」：触感语义分层（思路库）—— .success/.error 只留给刷新成败类
             // 结果，切换一律 .selection；与雷达 / 制造页 toggleTick 同款，原先 .success 让开关与刷新成功同声
             .sensoryFeedback(.selection, trigger: notifyTick)
+            // Bark 动作（注册 / 测试 / 解除 / 偏好切换）同款二分：结果成败 .success/.error，
+            // 开关切换 .selection（barkTick 在 toggle onChange 自增）
+            .sensoryFeedback(.success, trigger: barkOkTick)
+            .sensoryFeedback(.error, trigger: barkErrTick)
+            .sensoryFeedback(.selection, trigger: barkTick)
         }
     }
 
@@ -277,6 +372,80 @@ struct SettingsView: View {
     /// Section 眉题（§4.5-1）：micro accent 小节题，对齐各页「口径」标题心智
     private func sectionHeader(_ s: String) -> some View {
         Text(s).font(Theme.font(.micro, weight: .bold)).foregroundStyle(Theme.accent)
+    }
+
+    // MARK: Bark 推送动作（HTTP 收口 AuthStore；本页只做解析、回显与触感）
+
+    private func setBarkMsg(_ s: String, good: Bool) {
+        barkMsg = s
+        barkMsgGood = good
+        if good { barkOkTick += 1 } else { barkErrTick += 1 }
+    }
+
+    /// 粘贴 URL → 解析 → PUT 注册；成功回填本地缓存（ServerSettings.bark*）
+    private func registerBarkAction() async {
+        guard let parsed = BarkPush.parseURL(barkInput) else {
+            setBarkMsg("解析失败：贴入 Bark App 复制的推送 URL 或设备 key", good: false)
+            return
+        }
+        barkBusy = true
+        defer { barkBusy = false }
+        do {
+            try await app.auth.registerBark(BarkPutRequest(
+                server: parsed.server == BarkPush.defaultServer ? nil : parsed.server,
+                key: parsed.key,
+                buys: app.settings.settings.barkBuys,
+                sells: app.settings.settings.barkSells
+            ))
+            app.settings.settings.barkServer = parsed.server
+            app.settings.settings.barkKey = parsed.key
+            barkInput = ""
+            setBarkMsg("已注册：服务端判出信号后会推到这台设备", good: true)
+        } catch {
+            setBarkMsg("注册失败：\(error.localizedDescription)", good: false)
+        }
+    }
+
+    /// 偏好开关变更：带缓存 key 整体重提（服务端 PUT 是按 uid upsert 全量）
+    private func syncBarkPrefs() async {
+        guard let key = app.settings.settings.barkKey, let server = app.settings.settings.barkServer else { return }
+        barkBusy = true
+        defer { barkBusy = false }
+        do {
+            try await app.auth.registerBark(BarkPutRequest(
+                server: server == BarkPush.defaultServer ? nil : server,
+                key: key,
+                buys: app.settings.settings.barkBuys,
+                sells: app.settings.settings.barkSells
+            ))
+            setBarkMsg("推送偏好已更新", good: true)
+        } catch {
+            setBarkMsg("更新失败：\(error.localizedDescription)", good: false)
+        }
+    }
+
+    private func testBarkAction() async {
+        barkBusy = true
+        defer { barkBusy = false }
+        do {
+            _ = try await app.auth.testBark()
+            setBarkMsg("测试推送已发出，看一眼 iPhone 锁屏", good: true)
+        } catch {
+            setBarkMsg("测试失败：\(error.localizedDescription)", good: false)
+        }
+    }
+
+    private func unregisterBarkAction() async {
+        barkBusy = true
+        defer { barkBusy = false }
+        do {
+            try await app.auth.unregisterBark()
+            app.settings.settings.barkServer = nil
+            app.settings.settings.barkKey = nil
+            setBarkMsg("已解除注册", good: true)
+        } catch {
+            setBarkMsg("解除失败：\(error.localizedDescription)", good: false)
+        }
     }
 
     /// 数据区页脚 = 刷新动作的可见结果（§1.5 闭环「可见结果 + 可触结果」缺前者）：

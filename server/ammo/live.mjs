@@ -33,6 +33,7 @@ import { fetchOnce, writeJsonAtomic } from './fetch-once.mjs'
 import { primeCurveCache } from './moligod-client.mjs'
 import { judgeSignals, sendNotifications, emptyState } from '../../shared/js/notify-policy.js'
 import { notify } from './notify.mjs'
+import { openBarkRegistry, createBarkOutlet } from '../push/bark.mjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 /** 网页端目录（多端 monorepo；rootDir 留作 data/ 状态与留档的仓库根） */
@@ -60,14 +61,16 @@ async function loadState(statePath) {
  * @param {{noNotify?:boolean, noDist?:boolean, rootDir?:string, webDir?:string,
  *          statePath?:string, fastMs?:number, slowMs?:number,
  *          kkrbCadenceMs?:number, failBackoffStartMs?:number, failBackoffCapMs?:number,
- *          trustProxyHops?:number}} opts
+ *          trustProxyHops?:number, notifyFn?:Function}} opts
  *   rootDir 仓库根（state 默认挂 data/ammo）；webDir 网页端目录（public/dist
  *   写入与预热读取，默认 = rootDir，selftest 注入临时目录即原行为）；
  *   fastMs / slowMs / kkrbCadenceMs / failBackoffStartMs / failBackoffCapMs
  *   为各档节奏与失败退避参数（生产默认 60s / 30min / 10min / 60s / 10min，
  *   均可注入缩短值——selftest 以毫秒级参数多轮驱动兜底状态机用例）；
  *   trustProxyHops 反代信任跳数（/events 单 IP 计数从右数第 N 跳，
- *   单层 nginx = 1 = 末段；多级反代由 server.mjs --trust-proxy=N 传入）
+ *   单层 nginx = 1 = 末段；多级反代由 server.mjs --trust-proxy=N 传入）；
+ *   notifyFn 投递器（radar.mjs 同款 DI）：默认 osascript notify，server.mjs
+ *   注入组合投递器（osascript + Bark 推送），selftest 注入 collector 断言
  * @returns {{server:http.Server, triggerCycle:Function, status:object, close:Function}}
  */
 export function createLiveServer({
@@ -82,6 +85,7 @@ export function createLiveServer({
   failBackoffStartMs = 60 * 1000,
   failBackoffCapMs = 10 * 60 * 1000,
   trustProxyHops = 1,
+  notifyFn = notify,
 } = {}) {
   const clients = new Set()
   /** 单 IP 并发 SSE 计数（key 口径见 /events handler） */
@@ -154,7 +158,7 @@ export function createLiveServer({
       // 去抖 state 无论如何逐轮记录（静默期也推进冷却/切换确认）——否则静默跑
       // ≥6h 后恢复通知时，全部现存信号冷却到期会一次性爆发；仅发送受 --no-notify 控制
       const { buys, sells } = judgeSignals(state, r.analysis.items)
-      if (!noNotify) await sendNotifications(buys, sells, notify)
+      if (!noNotify) await sendNotifications(buys, sells, notifyFn)
       await saveState()
     } catch (e) {
       status.consecutiveFailures++
@@ -316,10 +320,18 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     const i = argv.indexOf('--port')
     return i >= 0 && argv[i + 1] ? Number(argv[i + 1]) : 8787
   })()
+  // CLI 形态与 monitor.mjs 同款组合投递：osascript + Bark（有注册才发）；
+  // 模块形态（server.mjs / selftest）保持默认纯 osascript，DI 口径不变
+  const barkNotify = createBarkOutlet(openBarkRegistry({ rootDir: ROOT }))
+  const notifyAll = async (msg) => {
+    await notify(msg)
+    await barkNotify(msg)
+  }
   const live = createLiveServer({
     noNotify: argv.includes('--no-notify'),
     noDist: argv.includes('--no-dist'),
     webDir: WEB_DIR,
+    notifyFn: notifyAll,
   })
   live.server.listen(port, '127.0.0.1', () => {
     log(`live 服务已启动：SSE http://127.0.0.1:${port}/events · health /health（Ctrl+C 退出）`)

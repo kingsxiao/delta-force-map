@@ -112,12 +112,16 @@ export function judgeSignals(state, items, now = Date.now()) {
 }
 
 /** 通知发送（通知正文与条数上限沿用 monitor 原口径：最多报 3 条，其余进页面）。
-    notifyFn 为注入投递器：服务端传 osascript 通知、网页端传浏览器 Notification。 */
+    notifyFn 为注入投递器：服务端传 osascript 通知 / 组合 Bark 推送、网页端传
+    浏览器 Notification。消息带 kind（'buy'|'sell'）：推送出口按设备注册偏好
+    （只推买入 / 只推卖出）过滤用；osascript / 浏览器通知只解构 title/body/sound，
+    多余字段无副作用。 */
 export async function sendNotifications(buys, sells, notifyFn) {
   if (buys.length) {
     const top = buys.slice(0, 3)
     const body = top.map((i) => `🎯 ${buyLine(i)}`).join('\n')
     await notifyFn({
+      kind: 'buy',
       title: `三角洲子弹买入信号 ×${buys.length}`,
       body: buys.length > top.length ? body + `\n…还有${buys.length - top.length}种见 #/ammo 页` : body,
       sound: 'Glass',
@@ -127,6 +131,7 @@ export async function sendNotifications(buys, sells, notifyFn) {
     const top = sells.slice(0, 3)
     const body = top.map((i) => `📈 ${sellLine(i)}`).join('\n')
     await notifyFn({
+      kind: 'sell',
       title: `三角洲子弹卖出信号 ×${sells.length}`,
       body: sells.length > top.length ? body + `\n…还有${sells.length - top.length}种见 #/ammo 页` : body,
       sound: 'Hero',

@@ -13,6 +13,7 @@
        cookie，无凭证面）
    ============================================================ */
 import { createRateLimiter, openAuthStore, AuthError } from './store.mjs'
+import { openBarkRegistry, parseBarkUrl, sendBark, BarkError, DEFAULT_BARK_SERVER } from '../push/bark.mjs'
 
 /** 请求体读取上限（账号数据文档本身 64KB，留 JSON 包装余量） */
 const BODY_MAX = 128 * 1024
@@ -110,6 +111,10 @@ export function createAuthApi({ rootDir = process.cwd(), trustProxy = false } = 
   // 账号数据读写（GET/PUT /api/account/data）：独立宽松限速——PUT 每次都触发
   // 整文档 normalize+原子写盘，无限速时持有合法 token 者可无限放大磁盘 I/O
   const dataLimiter = createRateLimiter(30, 60_000)
+  // Bark 推送注册（PUT/GET/DELETE/test，契约 shared/API.md §6.4）：写盘 +
+  // 对外打网（test），比账号数据更该限——10 次/分钟
+  const pushLimiter = createRateLimiter(10, 60_000)
+  const bark = openBarkRegistry({ rootDir })
 
   async function requireUser(req) {
     const token = bearer(req)
@@ -125,7 +130,7 @@ export function createAuthApi({ rootDir = process.cwd(), trustProxy = false } = 
     if (req.method === 'OPTIONS') {
       res.writeHead(204, {
         'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'GET, POST, PUT, OPTIONS',
+        'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
         'Access-Control-Allow-Headers': 'Content-Type, Authorization',
         'Access-Control-Max-Age': '86400',
       })
@@ -187,10 +192,70 @@ export function createAuthApi({ rootDir = process.cwd(), trustProxy = false } = 
         sendJson(res, 200, await store.putData(user.uid, body))
         return true
       }
+      /* ---- Bark 推送注册（契约 shared/API.md §6.4）----
+         key 接受裸 key 或整段样例 URL（KEY_RE 不中时走 parseBarkUrl 兜底，
+         客户端解析失误也有一次服务端纠偏）；buys/sells 必须是严格 boolean
+         （字符串 "true" 一类剔除，防两端清洗口径漂移） */
+      if (pathname === '/api/push/bark' && req.method === 'PUT') {
+        if (!pushLimiter.take(clientIp(req, trustProxy))) {
+          throw new AuthError('RATE_LIMITED', '操作太频繁，请稍后再试', 429)
+        }
+        const user = await requireUser(req)
+        const body = await readBody(req, res)
+        if (typeof body?.buys !== 'boolean' || typeof body?.sells !== 'boolean') {
+          throw new AuthError('BAD_BODY', 'buys / sells 须为布尔值', 400)
+        }
+        let parsed = typeof body.key === 'string' && /^[A-Za-z0-9]{10,80}$/.test(body.key)
+          ? { server: DEFAULT_BARK_SERVER, key: body.key }
+          : parseBarkUrl(body.key)
+        if (!parsed) throw new AuthError('BAD_KEY', 'Bark key 不合法：贴入 Bark 复制的推送 URL 或设备 key', 400)
+        if (body.server != null) {
+          if (!/^https:\/\//.test(body.server)) throw new AuthError('BAD_SERVER', 'Bark 服务器须为 https 地址', 400)
+          parsed = { ...parsed, server: body.server.replace(/\/+$/, '') }
+        }
+        const savedAt = await bark.put(user.uid, { ...parsed, buys: body.buys, sells: body.sells })
+        sendJson(res, 200, { ok: true, savedAt })
+        return true
+      }
+      if (pathname === '/api/push/bark' && req.method === 'GET') {
+        if (!pushLimiter.take(clientIp(req, trustProxy))) {
+          throw new AuthError('RATE_LIMITED', '操作太频繁，请稍后再试', 429)
+        }
+        const user = await requireUser(req)
+        const reg = await bark.get(user.uid)
+        sendJson(res, 200, reg
+          ? { registered: true, server: reg.server, key: reg.key, buys: reg.buys, sells: reg.sells, savedAt: reg.savedAt }
+          : { registered: false })
+        return true
+      }
+      if (pathname === '/api/push/bark' && req.method === 'DELETE') {
+        if (!pushLimiter.take(clientIp(req, trustProxy))) {
+          throw new AuthError('RATE_LIMITED', '操作太频繁，请稍后再试', 429)
+        }
+        const user = await requireUser(req)
+        await bark.del(user.uid)
+        res.writeHead(204, { 'Cache-Control': 'no-store', 'Access-Control-Allow-Origin': '*' })
+        res.end()
+        return true
+      }
+      if (pathname === '/api/push/bark/test' && req.method === 'POST') {
+        if (!pushLimiter.take(clientIp(req, trustProxy))) {
+          throw new AuthError('RATE_LIMITED', '操作太频繁，请稍后再试', 429)
+        }
+        const user = await requireUser(req)
+        const reg = await bark.get(user.uid)
+        if (!reg) throw new AuthError('NOT_REGISTERED', '尚未注册 Bark 推送', 400)
+        await sendBark(reg, {
+          title: 'DeltaForce 推送链路',
+          body: '✅ Bark 测试推送：服务端判出信号后会推到这里',
+        })
+        sendJson(res, 200, { ok: true })
+        return true
+      }
       sendJson(res, 404, { error: '接口不存在', code: 'NOT_FOUND' })
       return true
     } catch (e) {
-      if (e instanceof AuthError) {
+      if (e instanceof AuthError || e instanceof BarkError) {
         if (!e.responded) sendJson(res, e.status, { error: e.message, code: e.code })
         return true
       }

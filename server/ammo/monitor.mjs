@@ -6,7 +6,8 @@
    每轮抓取按曲线缓存状态自动选模式：冷启动 / 缓存过期时自动补抓缺失
    曲线（mode 'auto' 内核），缓存新鲜时每轮只打 1 次 catalog——不会把
    过期缓存当新数据，也不会产出全「数据不足」的快照。
-   出现新的买入/卖出信号时发 macOS 系统通知，通知内容具体到：
+   出现新的买入/卖出信号时发 macOS 系统通知 + Bark 推送（iPhone 锁屏，
+   偏好注册在 data/push/bark.json，shared/API.md §6.4），通知内容具体到：
      · 哪种子弹 / 多少价格可以买入（当前价）
      · 什么时候卖出（目标挂单价 + 到手价）
      · 能赚多少（每发利润 + 收益率，已扣交易税）
@@ -26,6 +27,7 @@ import { fileURLToPath } from 'node:url'
 import { fetchOnce, writeJsonAtomic } from './fetch-once.mjs'
 import { judgeSignals, sendNotifications, emptyState } from '../../shared/js/notify-policy.js'
 import { notify } from './notify.mjs'
+import { openBarkRegistry, createBarkOutlet } from '../push/bark.mjs'
 import { primeCurveCache } from './moligod-client.mjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
@@ -58,6 +60,14 @@ async function saveState(state) {
 
 const state = await loadState()
 
+// 组合投递器：osascript（macOS 桌面通知）+ Bark 推送（iPhone 锁屏，按设备
+// 注册偏好过滤 buy/sell；无注册时零开销）。契约 shared/API.md §6.4
+const barkNotify = createBarkOutlet(openBarkRegistry({ rootDir: ROOT }))
+const notifyAll = async (msg) => {
+  await notify(msg)
+  await barkNotify(msg)
+}
+
 // 启动预热：现有 market.json 的曲线进缓存，冷启动第一轮不必全量打 history
 {
   const marketPath = path.join(WEB_DIR, 'public', 'ammo', 'market.json')
@@ -87,7 +97,7 @@ async function runCycle() {
   // 去抖 state 无论如何逐轮记录（静默期也推进冷却/切换确认）——否则静默跑
   // ≥6h 后恢复通知时，全部现存信号冷却到期会一次性爆发；仅发送受 --no-notify 控制
   const { buys, sells } = judgeSignals(state, r.analysis.items)
-  if (!NO_NOTIFY) await sendNotifications(buys, sells, notify)
+  if (!NO_NOTIFY) await sendNotifications(buys, sells, notifyAll)
   // state 写失败只记日志不炸循环（口径同 live.mjs 的 saveState：磁盘满 / 目录
   // 被删也不断调度链——去抖 state 下一轮重记，顶多多发一轮通知）
   try {

@@ -51,6 +51,7 @@ async function writeAtomic(filePath, text) {
     throw e
   }
 }
+export { writeAtomic } // push 注册表（server/push/bark.mjs）同款落盘口径，不抄两份
 
 /**
  * 固定窗口限速器（按 IP；服务单进程，内存态即持久口径）。

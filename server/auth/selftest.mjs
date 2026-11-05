@@ -10,6 +10,8 @@
      ④ 云数据：put/get 往返 / 不合规文档拒绝 / 各用户隔离
      ⑤ api HTTP 层（mock req/res）：状态码与错误 code、鉴权头、
         OPTIONS 预检、未知路径 404、限速 429
+     ⑤push /api/push/bark：注册往返 / 校验拒绝 / test 打桩 / parseBarkUrl
+        三形态（API.md §6.4 契约）
      ⑥ 站点集成：createSiteServer 挂载后 register/login/me/logout 走
         真实 HTTP 往返；GET 静态行为不受影响
    全部通过 exit 0；任何失败把原因写 stderr 后 exit 1。
@@ -23,6 +25,7 @@ import { Readable } from 'node:stream'
 import { normalizeAccountDoc, mergeStars, mergePositions, mergeLocalWins, ACCOUNT_DOC_MAX_BYTES } from '../../shared/js/accountData.js'
 import { openAuthStore, createRateLimiter, AuthError } from './store.mjs'
 import { createAuthApi } from './api.mjs'
+import { openBarkRegistry, parseBarkUrl } from '../push/bark.mjs'
 import { createSiteServer } from '../server.mjs'
 
 function assert(cond, msg) {
@@ -265,6 +268,100 @@ check('⑤ api：状态码 / 错误 code / 鉴权 / 预检 / 404 / 限速', asyn
   } finally {
     await rm(root, { recursive: true, force: true })
   }
+})
+
+/* ============================================================
+   ⑤push /api/push/bark（API.md §6.4）：CRUD / 校验 / test 打桩 / parseBarkUrl
+   限速共享窗口 10 次/分钟：CRUD 控制在 9 次内；test 与限速各用独立实例
+   ============================================================ */
+check('⑤push bark：PUT/GET/DELETE 往返 + 校验拒绝（≤9 次调用不触限速）', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'df-bark-'))
+  try {
+    const api = createAuthApi({ rootDir: root })
+    const { token, user } = (await call(api, 'POST', '/api/auth/register', { body: { username: 'pusher', password: 'password123' } })).json
+
+    const noAuth = await call(api, 'GET', '/api/push/bark')
+    assert(noAuth.status === 401 && noAuth.json.code === 'NO_TOKEN', '未登录 401')
+    const empty = await call(api, 'GET', '/api/push/bark', { token })
+    assert(empty.status === 200 && empty.json.registered === false, '未注册如实返回')
+    const badBody = await call(api, 'PUT', '/api/push/bark', { body: { key: 'aBcDeFgHiJkLm', buys: 'yes', sells: false }, token })
+    assert(badBody.status === 400 && badBody.json.code === 'BAD_BODY', 'buys/sells 非布尔 400')
+    const badKey = await call(api, 'PUT', '/api/push/bark', { body: { key: 'short', buys: true, sells: false }, token })
+    assert(badKey.status === 400 && badKey.json.code === 'BAD_KEY', '坏 key 400')
+    const badServer = await call(api, 'PUT', '/api/push/bark', { body: { key: 'aBcDeFgHiJkLm', server: 'http://bark.example.com', buys: true, sells: false }, token })
+    assert(badServer.status === 400 && badServer.json.code === 'BAD_SERVER', 'http 源拒绝')
+
+    const put = await call(api, 'PUT', '/api/push/bark', { body: { key: 'https://api.day.app/aBcDeFgHiJkLm/推送内容', buys: true, sells: false }, token })
+    assert(put.status === 200 && put.json.ok && put.json.savedAt, '整段样例 URL 注册 200')
+    const got = await call(api, 'GET', '/api/push/bark', { token })
+    assert(got.json.registered === true && got.json.key === 'aBcDeFgHiJkLm' && got.json.server === 'https://api.day.app' && got.json.buys === true && got.json.sells === false, 'GET 回读解析产物')
+    const put2 = await call(api, 'PUT', '/api/push/bark', { body: { key: 'ZzYyXwVuTsRq', server: 'https://bark.example.com/', buys: false, sells: true }, token })
+    assert(put2.status === 200, '裸 key + 自建 server 200')
+    const got2 = await call(api, 'GET', '/api/push/bark', { token })
+    assert(got2.json.server === 'https://bark.example.com' && got2.json.key === 'ZzYyXwVuTsRq' && got2.json.sells === true, '自建 server 去尾斜杠回读')
+
+    const del = await call(api, 'DELETE', '/api/push/bark', { token })
+    assert(del.status === 204, 'DELETE 204')
+    // 删除已落盘：新开注册表实例按 uid 重读应为空（uid 从 me 端点取，不假设内部形状）
+    const me = await call(api, 'GET', '/api/auth/me', { token })
+    const reread = await openBarkRegistry({ rootDir: root }).get(user.uid ?? me.json.uid)
+    assert(reread === null, '删除后重开注册表实例回读为空')
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+check('⑤push bark test：未注册 400 / 打桩抓请求 / Bark 不可达 502', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'df-bark-t-'))
+  const realFetch = globalThis.fetch
+  try {
+    const api = createAuthApi({ rootDir: root })
+    const { token } = (await call(api, 'POST', '/api/auth/register', { body: { username: 'tester2', password: 'password123' } })).json
+    const testNone = await call(api, 'POST', '/api/push/bark/test', { token })
+    assert(testNone.status === 400 && testNone.json.code === 'NOT_REGISTERED', '未注册 test 400')
+    await call(api, 'PUT', '/api/push/bark', { body: { key: 'aBcDeFgHiJkLm', buys: true, sells: true }, token })
+    // 落盘正向回读：新开注册表实例能读到注册（uid 经 me 端点取）
+    const me2 = await call(api, 'GET', '/api/auth/me', { token })
+    const persisted = await openBarkRegistry({ rootDir: root }).get(me2.json.uid)
+    assert(persisted && persisted.key === 'aBcDeFgHiJkLm' && persisted.buys === true && persisted.sells === true, '注册落盘可重开回读')
+    const posts = []
+    globalThis.fetch = async (url, opts) => { posts.push({ url, body: JSON.parse(opts.body) }); return { ok: true, status: 200 } }
+    const testOk = await call(api, 'POST', '/api/push/bark/test', { token })
+    assert(testOk.status === 200 && testOk.json.ok, 'test 200')
+    assert(posts.length === 1 && posts[0].url === 'https://api.day.app/push' && posts[0].body.device_key === 'aBcDeFgHiJkLm' && posts[0].body.group === 'ammo-signal' && /DeltaForce/.test(posts[0].body.title), 'test 打到注册的 Bark（device_key/group 对）')
+    globalThis.fetch = async () => { throw new Error('boom') }
+    const testFail = await call(api, 'POST', '/api/push/bark/test', { token })
+    assert(testFail.status === 502 && testFail.json.code === 'BARK_FAILED', 'Bark 不可达 502')
+  } finally {
+    globalThis.fetch = realFetch
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+check('⑤push bark 限速：10 次/分钟共享窗口，超限 429', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'df-bark-rl-'))
+  try {
+    const api = createAuthApi({ rootDir: root })
+    const { token } = (await call(api, 'POST', '/api/auth/register', { body: { username: 'tester3', password: 'password123' } })).json
+    let last = null
+    for (let i = 0; i < 11; i++) {
+      last = await call(api, 'PUT', '/api/push/bark', { body: { key: 'aBcDeFgHiJkLm', buys: true, sells: false }, token })
+    }
+    assert(last.status === 429 && last.json.code === 'RATE_LIMITED', '第 11 次 429')
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+check('⑤push parseBarkUrl：裸 key / 样例 URL / bark scheme / 拒绝面', () => {
+  const eq = (a, b) => JSON.stringify(a) === JSON.stringify(b)
+  assert(eq(parseBarkUrl('aBcDeFgHiJkLm'), { server: 'https://api.day.app', key: 'aBcDeFgHiJkLm' }), '裸 key')
+  assert(eq(parseBarkUrl('https://api.day.app/aBcDeFgHiJkLm/这里改成你的推送内容'), { server: 'https://api.day.app', key: 'aBcDeFgHiJkLm' }), '样例 URL')
+  assert(eq(parseBarkUrl('bark://api.day.app/aBcDeFgHiJkLm/xxx'), { server: 'https://api.day.app', key: 'aBcDeFgHiJkLm' }), 'bark scheme 带域名')
+  assert(eq(parseBarkUrl('bark:///aBcDeFgHiJkLm'), { server: 'https://api.day.app', key: 'aBcDeFgHiJkLm' }), 'bark scheme 无域名')
+  assert(parseBarkUrl('http://api.day.app/aBcDeFgHiJkLm/x') === null, 'http 拒绝')
+  assert(parseBarkUrl('https://api.day.app/short/x') === null, '过短 key 拒绝')
+  assert(parseBarkUrl('') === null && parseBarkUrl('not a url') === null && parseBarkUrl(null) === null, '空 / 乱串 / null 拒绝')
 })
 
 /* ============================================================

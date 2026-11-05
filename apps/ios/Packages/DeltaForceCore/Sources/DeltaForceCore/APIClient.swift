@@ -158,6 +158,35 @@ public struct APIClient: Sendable {
         )
         return try? JSONDecoder.deltaForce().decode(SavedAtMessage.self, from: data).savedAt
     }
+
+    // MARK: - Bark 推送注册（契约 §6.4；形状与解析镜像见 BarkPush.swift）
+
+    /// 注册 / 更新 Bark 推送（按登录用户 upsert）；返回 savedAt。
+    /// 400 = key/server 不合法（BAD_KEY / BAD_SERVER）
+    @discardableResult
+    public func putBarkPush(_ reg: BarkPutRequest, token: String) async throws -> String? {
+        let data = try await requestJSON("api/push/bark", method: "PUT", body: reg, token: token)
+        return try? JSONDecoder.deltaForce().decode(BarkOkMessage.self, from: data).savedAt
+    }
+
+    /// 当前注册状态（registered=false = 未注册）
+    public func barkPushStatus(token: String) async throws -> BarkStatusMessage {
+        let data = try await requestJSON("api/push/bark", method: "GET", token: token)
+        return try JSONDecoder.deltaForce().decode(BarkStatusMessage.self, from: data)
+    }
+
+    /// 注销 Bark 推送（幂等：未注册也 204）
+    public func deleteBarkPush(token: String) async throws {
+        _ = try await requestJSON("api/push/bark", method: "DELETE", token: token)
+    }
+
+    /// 发一条测试推送；未注册 400（NOT_REGISTERED）、Bark 不可达 502（BARK_FAILED）
+    @discardableResult
+    public func testBarkPush(token: String) async throws -> Bool {
+        let data = try await requestJSON("api/push/bark/test", method: "POST", token: token)
+        let msg = try? JSONDecoder.deltaForce().decode(BarkOkMessage.self, from: data)
+        return msg?.ok ?? false
+    }
 }
 
 /// 注册 / 登录请求体 {username, password}

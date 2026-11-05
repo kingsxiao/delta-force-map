@@ -311,4 +311,33 @@ final class AuthStore {
             syncState = .error(message: error.localizedDescription)
         }
     }
+
+    // MARK: - Bark 推送注册（契约 API.md §6.4；token 收口在 AuthStore，
+    // 与云同步同模式——SettingsView 只调方法不摸令牌）
+
+    /// 注册 / 更新（PUT，按登录用户 upsert）；返回 savedAt
+    @discardableResult
+    func registerBark(_ req: BarkPutRequest) async throws -> String? {
+        guard let token else { throw APIError.server(code: "NO_TOKEN", message: "未登录") }
+        return try await client.putBarkPush(req, token: token)
+    }
+
+    /// 当前服务端注册状态（回显校正本地缓存）
+    func barkStatus() async throws -> BarkStatusMessage {
+        guard let token else { throw APIError.server(code: "NO_TOKEN", message: "未登录") }
+        return try await client.barkPushStatus(token: token)
+    }
+
+    /// 注销（幂等）
+    func unregisterBark() async throws {
+        guard let token else { throw APIError.server(code: "NO_TOKEN", message: "未登录") }
+        try await client.deleteBarkPush(token: token)
+    }
+
+    /// 发一条测试推送（服务端 → Bark → iPhone 锁屏）
+    @discardableResult
+    func testBark() async throws -> Bool {
+        guard let token else { throw APIError.server(code: "NO_TOKEN", message: "未登录") }
+        return try await client.testBarkPush(token: token)
+    }
 }

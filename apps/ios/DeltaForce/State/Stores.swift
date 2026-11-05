@@ -6,6 +6,16 @@ import Observation
 struct ServerSettings: Codable, Equatable, Sendable {
     /// 信号本地通知（买入 / 卖出，去抖口径同后端 notify-policy）
     var notificationsEnabled: Bool = false
+    /// Bark 推送注册缓存（服务端真身在 data/push/bark.json，API.md §6.4；
+    /// 本地只缓存「上次注册的内容」用于回显与开关变更时整体重提——设备本地
+    /// 状态不上云，§6.3 口径不变）
+    var barkServer: String?
+    var barkKey: String?
+    var barkBuys: Bool = true
+    var barkSells: Bool = true
+
+    /// 已注册（本地缓存视角；服务端状态以 GET /api/push/bark 为准）
+    var isBarkRegistered: Bool { barkServer != nil && barkKey != nil }
 
     static let storageKey = "settings.v1"
 }

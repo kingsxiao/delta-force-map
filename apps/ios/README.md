@@ -94,3 +94,6 @@ bash deploy/ios-archive.sh --ipa --team <团队ID>      # 真机归档并导出 
   改口径三端同步，单测用同一份样本对账。
 - 后端固定 https（nginx 443 反代），`Info.plist` 不含 ATS 明文例外；如日后更换后端形态再按需加按域例外。
 - iOS 没有常驻后台：通知只在 App 前台拉到新快照时判定；7×24 推送在服务端跑 `npm run serve -- --notify`。
+  **Bark 推送（2026-11 起，API.md §6.4）不受该限制**：服务端判出 BUY/SELL 后经 Bark 服务器推到 iPhone
+  锁屏，App 无需运行、无需开发者账号；设置页「Bark 推送」注册（粘贴 Bark app 的推送 URL）+ 分别开关
+  推买入 / 推卖出。信号判定与去抖完全在服务端（shared/js/notify-policy.js），iOS 端只做注册与偏好。
