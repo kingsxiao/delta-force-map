@@ -29,7 +29,12 @@ function skipToMain(e) {
      scrollRestoration 保持 auto（vue-router 仅在配置了 scrollBehavior 才置
      manual，源码 vue-router.mjs:1169），「回到上次浏览位置」正是后退的预期；
    · 首次导航跳过：初始 '/' 重定向发生在挂载后，若不跳过会在刷新时抢在浏览器
-     的滚动恢复之前压回顶部（首航时页面本就在顶部，跳过零损失）。
+     的滚动恢复之前压回顶部（首航时页面本就在顶部，跳过零损失）；
+   · 同页仅 query 变更不回顶：换页判据是 route.path 前后对比（TTK 页
+     筛选/键入 router.replace 同步 query、⌘K 站内搜索等，内容还是那一页，
+     拽回顶部会打断用户浏览位置）。watch 源仍带 fullPath——每次导航（含后退
+     只改 query 的 popstate）都要过一遍守卫把 navByPop 消费掉，否则标志滞留，
+     下一跳跨页回顶会被误吞。
    scrollTo 必须强制瞬时：html 有全局 scroll-behavior:smooth（base.css:138），
    两参 scrollTo 与 behavior:'auto' 都会跟随它——临时内联置 auto、滚完还原 */
 let navByPop = false
@@ -43,10 +48,11 @@ function jumpTop() {
   el.style.scrollBehavior = prev
 }
 watch(
-  () => route.fullPath,
-  () => {
+  () => [route.path, route.fullPath],
+  ([path], [prevPath]) => {
     if (firstNav) { firstNav = false; return }
     if (navByPop) { navByPop = false; return }
+    if (path === prevPath) return // 同页 query 变更：不回顶
     jumpTop()
   }
 )

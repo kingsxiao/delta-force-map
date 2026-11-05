@@ -23,7 +23,9 @@ Wants=network-online.target
 Type=simple
 User=root
 WorkingDirectory=/root/delta-force-map
-ExecStart=/root/.nvm/versions/node/v24.15.0/bin/node server/server.mjs
+# nginx 反代形态必开 --trust-proxy：限速按 XFF 取真实客户端 IP（shared/API.md §6.2）；
+# 需安全组确保 8080 仅 nginx/本机可达，否则 XFF 可伪造绕限速
+ExecStart=/root/.nvm/versions/node/v24.15.0/bin/node server/server.mjs --trust-proxy
 Environment=PORT=8080
 Environment=HOST=0.0.0.0
 Environment=PATH=/root/.nvm/versions/node/v24.15.0/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin

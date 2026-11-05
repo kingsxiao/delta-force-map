@@ -20,6 +20,10 @@ const BASE = 'https://www.kkrb.net'
 const UA =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
 
+/** data 低于该条数视为上游半故障（现网实测 88 种；口径对齐 moligod-client
+ *  的 CATALOG_MIN_ITEMS=50）——空/残缺快照不许整包覆盖 market.json 清空弹价 */
+export const AMMO_MIN_ITEMS = 50
+
 /** 从响应 Set-Cookie 头解析出 "k=v" 映射（Node ≥ 20 的 getSetCookie） */
 function pickCookies(res) {
   const jar = {}
@@ -111,15 +115,17 @@ export async function kkrbRequest(path, { body = {}, referer, retries = 2 } = {}
  * @returns {Promise<{code:number, version:string, data:Array, fetchedAt:string}>}
  *   data 每项字段：itemName / pic / grade / currectPrice / thisWeekHighestPrice(±AfterTax) /
  *   thisWeekLowestPrice / lastWeek* / yesterday* / priceCurve({"YYYYMMDDHHmm": price})
- * @throws {Error} 网络失败 / 业务 code !== 1 / data 非数组 / version 不合规
+ * @throws {Error} 网络失败 / 业务 code !== 1 / data 非数组或条数 < AMMO_MIN_ITEMS / version 不合规
  */
 export async function fetchAmmoMarket({ retries = 2 } = {}) {
   const json = await kkrbRequest('getAmmoPLData', {
     referer: BASE + '/?viewpage=view%2Fmarket%2Fammo_price_pl',
     retries,
   })
-  if (!Array.isArray(json.data)) {
-    throw new Error(`getAmmoPLData 形状异常（data 非数组）: ${JSON.stringify(json.data).slice(0, 60)}`)
+  if (!Array.isArray(json.data) || json.data.length < AMMO_MIN_ITEMS) {
+    throw new Error(
+      `getAmmoPLData 形状异常（data 非数组或条数 ${Array.isArray(json.data) ? json.data.length : '—'} < ${AMMO_MIN_ITEMS}）: ${JSON.stringify(json.data).slice(0, 60)}`
+    )
   }
   // version 会被拼进留档文件路径（fetch-once: data/ammo/history/<version>.json），
   // 只放行纯数字串（上游实为 YYYYMMDDHH 共 10 位；moligod 侧同性质校验 12 位；

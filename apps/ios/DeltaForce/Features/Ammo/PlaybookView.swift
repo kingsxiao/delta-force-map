@@ -83,10 +83,34 @@ struct PlaybookView: View {
             .accessibilityLabel("当前所处窗（按行情数据时刻判定）")
     }
 
+    /// 卡 03 实时赛季行（快照顶层 season 驱动，MarketMeta.seasonPhase 三端同构口径）：
+    /// 读数序对齐 web Playbook .pb-season 横幅——名称 → 倒计时 → 阶段标签（tone 语义色：
+    /// buy=ok / sell=danger / warn=warn / dim=dim）；days = nil（已到点）改显「赛季已到点」。
+    /// 样式与卡内其余 lead+text 条目同族；快照无 season 时 phase 为 nil、整行不渲染
+    @ViewBuilder
+    private func seasonRow(_ p: MarketMeta.SeasonPhase, _ name: String?) -> some View {
+        let tint: Color = switch p.tone {
+        case .buy: Theme.ok
+        case .sell: Theme.danger
+        case .warn: Theme.warn
+        case .dim: Theme.dim
+        }
+        (Text("实时阶段：").foregroundStyle(Theme.tx).fontWeight(.semibold)
+            + Text(name.map { "【\($0)】" } ?? "")
+            + Text(p.days != nil ? "距赛季结束 \(p.days!) 天，" : "赛季已到点，")
+            + Text(p.label).foregroundStyle(tint).fontWeight(.semibold))
+            .font(Theme.font(.sm))
+            .monospacedDigit()
+    }
+
     var body: some View {
         // 节律卡数据源提到 body 顶（同 ItemDetailView `let it = resolved` 写法）：
         // 下方 contentSwap 以「有无卡」布尔作切换键
         let clock = SellEtaEngine.marketClock(app.market.items)
+        // 赛季阶段（快照顶层 season，fetch-once 6h TTL）：卡 03 实时行数据源；
+        // 旧快照 / 上游失败无 season → nil，卡 03 维持纯静态文案兜底（契约同 web Playbook）
+        let seasonPhase = MarketMeta.seasonPhase(app.market.snapshot?.season)
+        let seasonName = app.market.snapshot?.season?.name
         NavigationStack {
             // 章节跳转须要 ScrollViewReader 提供 proxy（scrollTo 锚点；导航本体见 PlaybookNav）
             ScrollViewReader { proxy in
@@ -179,6 +203,12 @@ struct PlaybookView: View {
                                     // 纯 ASCII 编号码（01 BUY / SELL / WINDOW / MAIL）：保留 mono
                                     Text("\(c.idx) \(c.en)").font(Theme.monoFont(.micro, weight: .bold)).foregroundStyle(Theme.accent)
                                     Text(c.title).font(Theme.font(.md, weight: .bold)).foregroundStyle(Theme.txStrong)
+                                }
+                                // 卡 03「版本与赛季窗口」接实时赛季阶段（契约 API.md §1 seasonPhase 三端同构，
+                                // iOS 是消费方）：season 有数据时在静态条目前插一行实时读数（只增不改既有卡布局），
+                                // 无 season 静默跳过 → 维持现有静态文案兜底（判读口径同 web Playbook pb-season）
+                                if c.idx == "03", let phase = seasonPhase {
+                                    seasonRow(phase, seasonName)
                                 }
                                 ForEach(Array(c.items.enumerated()), id: \.offset) { _, it in
                                     // lead 用 tx（对齐 web li b --tx + 600）：条目重点词介于标题

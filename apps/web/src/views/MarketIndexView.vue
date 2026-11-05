@@ -16,6 +16,7 @@ import PriceChart from './ammo/PriceChart.vue'
 import Sparkline from './ammo/Sparkline.vue'
 import { useSnapshotFeed } from '../composables/useSnapshotFeed'
 import { fmt, pct } from '../utils/format.js'
+import { picThumb } from '@shared/js/marketMeta.js'
 
 let prevTitle = ''
 
@@ -172,7 +173,7 @@ onBeforeUnmount(() => {
           <h2 class="blk-title">集市物品预测</h2>
           <div class="pred-grid">
             <div v-for="p in prediction" :key="p.objectId" class="pred-card">
-              <img v-if="p.pic" class="pred-ic" :src="p.pic" alt="" loading="lazy" decoding="async">
+              <img v-if="p.pic" class="pred-ic" :src="picThumb(p.pic, 96)" alt="" loading="lazy" decoding="async">
               <div class="pred-main">
                 <p class="pred-name">{{ p.name }}</p>
                 <p class="pred-sub dim">当前价 {{ fmt(p.current) }}</p>

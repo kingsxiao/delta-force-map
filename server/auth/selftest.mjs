@@ -353,6 +353,48 @@ check('⑤push bark 限速：10 次/分钟共享窗口，超限 429', async () =
   }
 })
 
+check('⑤push bark 写盘失败：PUT/DELETE 500 BARK_STORE_FAILED，回滚后内存与盘一致', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'df-bark-wfail-'))
+  const pushDir = path.join(root, 'data', 'push')
+  // fs/promises 解构须在 try 外（函数作用域）：finally 恢复权限也要用 chmod，
+  // try 块内 const 对 finally 不可见（块级作用域），原写法在 finally 抛
+  // ReferenceError 且会吞掉 try 内的真实错误
+  const { chmod, readFile, readdir } = await import('node:fs/promises')
+  try {
+    const api = createAuthApi({ rootDir: root })
+    const { token, user } = (await call(api, 'POST', '/api/auth/register', { body: { username: 'wfail', password: 'password123' } })).json
+    // 前置：先正常注册一次（uid=A 的档已落盘）
+    const putOk = await call(api, 'PUT', '/api/push/bark', { body: { key: 'aBcDeFgHiJkLm', buys: true, sells: false }, token })
+    assert(putOk.status === 200 && putOk.json.savedAt, '前置：首次注册 200')
+    // 失败注入：data/push 转只读 → writeAtomic 的 tmp 落盘 EACCES（真实盘错，零 mock）
+    await chmod(pushDir, 0o555)
+    const putFail = await call(api, 'PUT', '/api/push/bark', { body: { key: 'ZzYyXwVuTsRq', buys: false, sells: true }, token })
+    assert(putFail.status === 500 && putFail.json.code === 'BARK_STORE_FAILED',
+      `写盘失败 PUT 应 500 BARK_STORE_FAILED，实际 ${putFail.status} ${JSON.stringify(putFail.json)}`)
+    const delFail = await call(api, 'DELETE', '/api/push/bark', { token })
+    assert(delFail.status === 500 && delFail.json.code === 'BARK_STORE_FAILED',
+      `写盘失败 DELETE 应 500 BARK_STORE_FAILED，实际 ${delFail.status} ${JSON.stringify(delFail.json)}`)
+    await chmod(pushDir, 0o700)
+    // 内存与盘一致：失败注册/注销都回滚，首次注册原档仍在（内存读到、盘上也在）
+    const got = await call(api, 'GET', '/api/push/bark', { token })
+    assert(got.json.registered === true && got.json.key === 'aBcDeFgHiJkLm' && got.json.buys === true && got.json.sells === false,
+      `回滚后 GET 应见首次注册原档，实际 ${JSON.stringify(got.json)}`)
+    const disk = JSON.parse(await readFile(path.join(pushDir, 'bark.json'), 'utf8'))
+    assert(disk.devices[user.uid] && disk.devices[user.uid].key === 'aBcDeFgHiJkLm', '盘上档案未被失败轮污染')
+    // 无孤儿 tmp（writeAtomic 失败清理口径）
+    const orphans = (await readdir(pushDir)).filter((f) => f !== 'bark.json')
+    assert(orphans.length === 0, `不应留孤儿 tmp，实际 ${JSON.stringify(orphans)}`)
+    // 队列健康：恢复权限后重注册照常写穿（同上 UID 覆盖语义）
+    const putRe = await call(api, 'PUT', '/api/push/bark', { body: { key: 'ZzYyXwVuTsRq', buys: false, sells: true }, token })
+    assert(putRe.status === 200, `恢复后重注册应 200，实际 ${putRe.status}`)
+    const got2 = await call(api, 'GET', '/api/push/bark', { token })
+    assert(got2.json.key === 'ZzYyXwVuTsRq' && got2.json.sells === true, '重注册回读一致')
+  } finally {
+    await chmod(pushDir, 0o700).catch(() => {})
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
 check('⑤push parseBarkUrl：裸 key / 样例 URL / bark scheme / 拒绝面', () => {
   const eq = (a, b) => JSON.stringify(a) === JSON.stringify(b)
   assert(eq(parseBarkUrl('aBcDeFgHiJkLm'), { server: 'https://api.day.app', key: 'aBcDeFgHiJkLm' }), '裸 key')

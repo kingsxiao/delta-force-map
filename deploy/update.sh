@@ -7,9 +7,11 @@ cd "$(cd "$(dirname "$0")" && pwd)/.."
 echo "==> 仓库：$(pwd)"
 
 echo "==> 拉取最新代码"
-# serve 常驻进程会持续重写三个被 git 跟踪的行情快照（deploy/aliyun.md「数据写入」），
-# 不先还原会常态性挡住 --ff-only；数据由服务下一轮重新生成，不会丢
-git checkout -- apps/web/public/ammo/market.json apps/web/public/market/radar.json apps/web/public/craft/craft.json
+# serve 常驻进程会持续重写多份被 git 跟踪的快照（弹药/雷达/制造/交易行/指数/战备/
+# 每日密码等，见 deploy/aliyun.md「数据写入」），不先还原会常态性挡住 --ff-only；
+# 数据由服务下一轮重新生成，不会丢。整目录还原对齐 aliyun.md 手动兜底口径，
+# 未跟踪产物（如 data/ 下）不受影响
+git checkout -- apps/web/public/
 git pull --ff-only
 
 echo "==> 安装依赖（锁定版本）"

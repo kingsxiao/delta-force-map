@@ -18,7 +18,8 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
 const OUT = resolve(ROOT, 'apps/web/public/data/balance-updates.json')
 const NL = String.fromCharCode(10)
 
-const res = await fetch(SRC, { headers: { accept: 'application/json' } })
+// signal 超时兜底对齐全仓其余 12 处抓取口径（20s，防上游 TCP 挂起吊死脚本）
+const res = await fetch(SRC, { headers: { accept: 'application/json' }, signal: AbortSignal.timeout(20000) })
 if (!res.ok) throw new Error('fetch ' + SRC + ' -> HTTP ' + res.status)
 const data = await res.json()
 

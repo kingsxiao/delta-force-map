@@ -8,7 +8,9 @@
         1..6 映射与越界 null、stats
      ④ runSecretsCycle（注入桩 + 临时 webDir）：首轮落盘 public、二轮同内容
         不写盘（changed:false）、密码变化重写、主源失败回落 moligod 且
-        source 如实切换、主源与兜底全挂 → throw
+        source 如实切换、主源与兜底全挂 → throw、官方源部分图（维护期
+        2/6 < KNOWN_MAP_COUNT）保留盘上旧档不覆盖不广播、部分图且无旧档
+        如实落盘
    全部通过 exit 0；失败写 stderr 后 exit 1。
    用法：node server/secrets/selftest.mjs
    ============================================================ */
@@ -32,6 +34,17 @@ const check = (name, fn) => checks.push([name, fn])
 
 /* ---------- 上游形状 ---------- */
 
+/** 六图齐全的官方 list（图名对齐 API.md §1.4；selftest 桩须齐全——
+ *  runSecretsCycle 对 < KNOWN_MAP_COUNT 的载荷按维护期部分图保留旧档） */
+const FULL_LIST = [
+  { mapID: 1, mapName: '零号大坝', secret: '5437' },
+  { mapID: 2, mapName: '长弓溪谷', secret: '5946' },
+  { mapID: 3, mapName: '巴克什', secret: '1122' },
+  { mapID: 4, mapName: '航天基地', secret: '3344' },
+  { mapID: 5, mapName: '潮汐监狱', secret: '5566' },
+  { mapID: 6, mapName: 'AZ3', secret: '7788' },
+]
+
 /** 官方 AMS 载荷（2026-11-05 实测形状） */
 const OFFICIAL_OK = {
   ret: 0,
@@ -42,10 +55,7 @@ const OFFICIAL_OK = {
       code: 0,
       msg: 'ok',
       data: {
-        list: [
-          { mapID: 1, mapName: '零号大坝', secret: '5437' },
-          { mapID: 2, mapName: '长弓溪谷', secret: '5946' },
-        ],
+        list: FULL_LIST,
       },
     },
   },
@@ -54,10 +64,12 @@ const OFFICIAL_OK = {
 /** moligod 兜底载荷（同日实测形状） */
 const MOLI_OK = {
   status: 'ok',
-  data: [
-    { map_id: 1, map_name: '零号大坝', secret: '5437', fetch_date: '2026-11-05' },
-    { map_id: 2, map_name: '长弓溪谷', secret: '5946', fetch_date: '2026-11-05' },
-  ],
+  data: FULL_LIST.map((e) => ({
+    map_id: e.mapID,
+    map_name: e.mapName,
+    secret: e.secret,
+    fetch_date: '2026-11-05',
+  })),
   updated_at: '2026-11-04T16:00:12.802824+00:00',
 }
 
@@ -65,7 +77,7 @@ const MOLI_OK = {
 
 check('parseOfficialSecrets：正常载荷 → 统一条目', () => {
   const items = parseOfficialSecrets(OFFICIAL_OK)
-  assert(items.length === 2, '条目数')
+  assert(items.length === FULL_LIST.length, '条目数')
   assert(items[0].mapId === 1 && items[0].mapName === '零号大坝' && items[0].secret === '5437', '条目字段')
 })
 
@@ -107,7 +119,7 @@ check('parseOfficialSecrets：缺密码 / 缺名条目被过滤，全无效 thro
 
 check('parseMoligodSecrets：形状转换 + fetch_date 提取', () => {
   const items = parseMoligodSecrets(MOLI_OK)
-  assert(items.length === 2, '条目数')
+  assert(items.length === FULL_LIST.length, '条目数')
   assert(items[0].mapId === 1 && items[0].mapName === '零号大坝' && items[0].secret === '5437', '条目字段')
   assert(items[0].upstreamDate === '2026-11-05', 'fetch_date 提取')
 })
@@ -184,10 +196,7 @@ const OFFICIAL_NEXT_DAY = {
       code: 0,
       msg: 'ok',
       data: {
-        list: [
-          { mapID: 1, mapName: '零号大坝', secret: '8888' },
-          { mapID: 2, mapName: '长弓溪谷', secret: '9999' },
-        ],
+        list: FULL_LIST.map((e, i) => ({ ...e, secret: String(8000 + i * 111) })),
       },
     },
   },
@@ -195,7 +204,30 @@ const OFFICIAL_NEXT_DAY = {
 
 const NEW_DAY_MOLI = {
   status: 'ok',
-  data: [{ map_id: 1, map_name: '零号大坝', secret: '8888', fetch_date: '2026-11-06' }],
+  data: OFFICIAL_NEXT_DAY.jData.data.data.list.map((e) => ({
+    map_id: e.mapID,
+    map_name: e.mapName,
+    secret: e.secret,
+    fetch_date: '2026-11-06',
+  })),
+}
+
+/** 官方源维护期部分图载荷（实测 2/6）：条目本身合法、只是不全，且密码与
+ *  完好旧档不同——若门槛失效被整包覆盖，盘上内容立刻可见变化 */
+const OFFICIAL_PARTIAL = {
+  ...OFFICIAL_OK,
+  jData: {
+    data: {
+      code: 0,
+      msg: 'ok',
+      data: {
+        list: [
+          { mapID: 1, mapName: '零号大坝', secret: '0000' },
+          { mapID: 2, mapName: '长弓溪谷', secret: '0000' },
+        ],
+      },
+    },
+  },
 }
 
 check('runSecretsCycle：首轮落盘 public + dist 双写', async () => {
@@ -206,7 +238,7 @@ check('runSecretsCycle：首轮落盘 public + dist 双写', async () => {
       fetchImpl: stubFetch(OFFICIAL_OK, MOLI_OK),
       now: '2026-11-05T10:00:00.000Z',
     })
-    assert(r.changed === true && r.source === 'official-ams' && r.total === 2, JSON.stringify(r))
+    assert(r.changed === true && r.source === 'official-ams' && r.total === 6, JSON.stringify(r))
     assert(r.version === '20261105', `version=${r.version}`)
     const pub = JSON.parse(await readFile(path.join(dir, 'public', 'secrets', 'secrets.json'), 'utf8'))
     assert(pub.source === 'official-ams' && pub.items[0].secret === '5437', 'public 落盘内容')
@@ -246,9 +278,9 @@ check('runSecretsCycle：次日密码变化 → 重写并 changed:true', async (
       fetchImpl: stubFetch(OFFICIAL_NEXT_DAY, NEW_DAY_MOLI),
       now: '2026-11-06T10:00:00.000Z',
     })
-    assert(r.changed === true && r.total === 2, JSON.stringify(r))
+    assert(r.changed === true && r.total === 6, JSON.stringify(r))
     const pub = JSON.parse(await readFile(path.join(dir, 'public', 'secrets', 'secrets.json'), 'utf8'))
-    assert(pub.items[0].secret === '8888' && pub.version === '20261106', '新密码应落盘')
+    assert(pub.items[0].secret === '8000' && pub.version === '20261106', '新密码应落盘')
   } finally {
     await rm(dir, { recursive: true, force: true })
   }
@@ -281,6 +313,46 @@ check('runSecretsCycle：主源与兜底全挂 → throw（循环侧接日志）
     threw = true
   }
   assert(threw, '双源全挂应上抛')
+})
+
+check('runSecretsCycle：官方源部分图（维护期 2/6）→ 保留盘上旧档不覆盖不广播', async () => {
+  const dir = await tempWebDir()
+  try {
+    await runSecretsCycle({
+      webDir: dir,
+      fetchImpl: stubFetch(OFFICIAL_OK, MOLI_OK),
+      now: '2026-11-05T10:00:00.000Z',
+    })
+    const pubPath = path.join(dir, 'public', 'secrets', 'secrets.json')
+    const before = await readFile(pubPath, 'utf8')
+    const r = await runSecretsCycle({
+      webDir: dir,
+      fetchImpl: stubFetch(OFFICIAL_PARTIAL, MOLI_OK),
+      now: '2026-11-05T11:00:00.000Z',
+    })
+    assert(r.changed === false && r.keptOld === true, `部分图应保留旧档，实际 ${JSON.stringify(r)}`)
+    assert(r.version === '20261105' && r.total === 6, `返回旧档元信息 version/total=${r.version}/${r.total}`)
+    const after = await readFile(pubPath, 'utf8')
+    assert(before === after, '盘上旧档不应被部分快照整包覆盖')
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+check('runSecretsCycle：部分图且盘上无旧档 → 如实落盘（无旧档可保）', async () => {
+  const dir = await tempWebDir()
+  try {
+    const r = await runSecretsCycle({
+      webDir: dir,
+      fetchImpl: stubFetch(OFFICIAL_PARTIAL, MOLI_OK),
+      now: '2026-11-05T10:00:00.000Z',
+    })
+    assert(r.changed === true && r.total === 2 && r.keptOld === undefined, `无旧档应如实落盘，实际 ${JSON.stringify(r)}`)
+    const pub = JSON.parse(await readFile(path.join(dir, 'public', 'secrets', 'secrets.json'), 'utf8'))
+    assert(pub.items.length === 2 && pub.stats.total === 2, '部分快照如实落盘计数')
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
 })
 
 /* ---------- 跑测 ---------- */

@@ -10,6 +10,7 @@ import SkeletonView from '../components/SkeletonView.vue'
 import { imgReady, hideImg } from '../composables/imgReady'
 import { useSnapshotFeed } from '../composables/useSnapshotFeed'
 import { fmt, pct, gradeVar } from '../utils/format.js'
+import { picThumb } from '@shared/js/marketMeta.js'
 
 const rootEl = ref(null)
 let prevTitle = ''
@@ -201,7 +202,7 @@ onBeforeUnmount(() => {
                 <td>
                   <span class="it-cell">
                     <span class="icw" :style="{ '--gd': gradeVar(it.grade) }">
-                      <img v-if="it.pic" class="ic" :src="it.pic" alt="" loading="lazy" decoding="async" @load="imgReady" @error="hideImg">
+                      <img v-if="it.pic" class="ic" :src="picThumb(it.pic, 96)" alt="" loading="lazy" decoding="async" @load="imgReady" @error="hideImg">
                     </span>
                     <span class="it-name">
                       <span class="it-title">{{ it.name }}</span>

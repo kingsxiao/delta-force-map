@@ -1046,26 +1046,30 @@ struct MethodNote: View {
 
     var body: some View {
         // 门槛数字与分位刻度从 rules 取值渲染（契约 shared/API.md §1：不得写死数字；做法对齐 web
-        // AmmoMarketView.vue:370-372 ruleNum / buyRankPct 等）：P20 = BUY_RANK_MAX、10% = BUY_MIN_NET_PCT、
-        // P35 = WATCH_RANK_MAX、P80 = SELL_RANK_MIN、「近 3 天」= TARGET_WINDOW_H（72h）。此前把 v2 门槛写死在
-        // 字面文案里，下次调参 iOS 必再漂移（v1→v2 已翻车一次）。离底 3% / 低点距今 12h / 税率 15% 不在
-        // RULES_VIEW_KEYS 展示子集内，维持文字口径
+        // AmmoMarketView.vue ruleNum / buyRankPct 等）：P20 = BUY_RANK_MAX、10% = BUY_MIN_NET_PCT、
+        // P35 = WATCH_RANK_MAX、P80 = SELL_RANK_MIN、「近 3 天」= TARGET_WINDOW_H（72h）、止跌三门槛
+        // 3% = BUY_BOUNCE_OFF_LOW、12h = BUY_LOW_AGE_H、+0.02%/h = BUY_SLOPE_MIN（取值式对齐 web
+        // GATE_LABEL.bounce/lowAge/slope）。此前把 v2 门槛写死在字面文案里，下次调参 iOS 必再漂移
+        // （v1→v2 已翻车一次）。税率 15% 为税后价实测反推值、非 RULES 键，维持文字口径
         let buyRank = rulePct(rules?.buyRankMax, 20)
         let buyNet = rulePct(rules?.buyMinNetPct, 10)
         let watchRank = rulePct(rules?.watchRankMax, 35)
         let sellRank = rulePct(rules?.sellRankMin, 80)
         let targetDays = ruleDays(rules?.targetWindowH, 3)
+        let bounce = rulePct(rules?.buyBounceOffLow, 3)
+        let lowAge = ruleHours(rules?.buyLowAgeH, 12)
+        let slopeMin = ruleSlope(rules?.buySlopeMin, 0.02)
         VStack(alignment: .leading, spacing: 6) {
             // 含中文标题：默认 design + 等宽数字（mono 只留给纯 ASCII）
             Text("口径").font(Theme.font(.xs, weight: .bold)).monospacedDigit().foregroundStyle(Theme.accent)
             // 正文含 P20/10%/15% 等实义数字：同样走等宽数字，与标题及全页数字节拍一致
             Text(MarketMeta.methodDataLine(source)).font(Theme.font(.xs)).monospacedDigit().foregroundStyle(Theme.dim)
             // 口径对齐信号 v2 回测定稿（server/ammo/analyze.mjs 头注与 RULES：BUY_RANK_MAX 0.20 /
-            // BUY_MIN_NET_PCT 0.10 / 离底 3% + 低点距今 12h + 48h 斜率 ≥ 0 三重止跌确认 / 目标 = 近 72h P75 /
+            // BUY_MIN_NET_PCT 0.10 / 离底 + 低点距今 + 48h 斜率三重止跌确认 / 目标 = 近 72h P75 /
             // SELL 加动能守则）。此前文案是 v1 旧口径「≤ P25 且 ≥ 8%、目标取 7 天 P75」，web 端 METHOD 已随
             // v2 更新而本页滞留：用户按旧口径判读（如 rank 22%、收益 9% 的弹）会误以为 App 漏报买入——
             // 双端同口径是本页「信号仅供参考」这句话成立的前提
-            Text("买卖点 = 近 7 天小时曲线分位 + 趋势确认：现价 ≤ P\(buyRank)、已止跌企稳（离 7 天低点 ≥ 3%、近 12 小时无新低、近 48 小时趋势不向下）且按近 \(targetDays) 天 P75 挂卖税后收益率 ≥ \(buyNet)% 判「买入」，低位（≤ P\(watchRank)）但门槛未齐判「关注」；≥ P\(sellRank) 且动能转弱判「卖出」，强势上冲不催卖。目标挂卖价取近 \(targetDays) 天 P75，税率按税后价实测反推（约 15%）。历史分位不代表未来走势，信号仅供参考。")
+            Text("买卖点 = 近 7 天小时曲线分位 + 趋势确认：现价 ≤ P\(buyRank)、已止跌企稳（离 7 天低点 ≥ \(bounce)%、近 \(lowAge) 小时无新低、近 48 小时斜率 ≥ +\(slopeMin)%/h）且按近 \(targetDays) 天 P75 挂卖税后收益率 ≥ \(buyNet)% 判「买入」，低位（≤ P\(watchRank)）但门槛未齐判「关注」；≥ P\(sellRank) 且动能转弱判「卖出」，强势上冲不催卖。目标挂卖价取近 \(targetDays) 天 P75，税率按税后价实测反推（约 15%）。历史分位不代表未来走势，信号仅供参考。")
                 .font(Theme.font(.xs)).monospacedDigit().foregroundStyle(Theme.dim)
         }
     }
@@ -1082,5 +1086,20 @@ struct MethodNote: View {
     private func ruleDays(_ v: Double?, _ dflt: Int) -> Int {
         guard let v, v.isFinite, v > 0 else { return dflt }
         return Int((v / 24).rounded())
+    }
+
+    /// rules 小时门槛原样输出（BUY_LOW_AGE_H 12 → 12；web GATE_LABEL.lowAge 同用原始小时数、
+    /// 不折算天——ruleDays(12) 会取整成 1 天而失真）；缺席 / 非正数退 v2 定稿值
+    private func ruleHours(_ v: Double?, _ dflt: Int) -> Int {
+        guard let v, v.isFinite, v > 0 else { return dflt }
+        return Int(v.rounded())
+    }
+
+    /// rules 斜率门槛 → JS Number 直出（BUY_SLOPE_MIN 0.02 → "0.02"；%g 最短表示与
+    /// web GATE_LABEL.slope 的 `+${ruleNum(...)}` 对门槛值量级逐字一致）；
+    /// 缺席 / 非有限数退 v2 定稿值
+    private func ruleSlope(_ v: Double?, _ dflt: Double) -> String {
+        guard let v, v.isFinite else { return String(format: "%g", dflt) }
+        return String(format: "%g", v)
     }
 }

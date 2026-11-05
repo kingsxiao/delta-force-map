@@ -9,7 +9,8 @@
      · 兜底：moligod.com /api/daily-secrets（官方源的社区转发，形状更平，
        带 fetch_date 与 updated_at；主源维护窗口期顶上）
    官方密码北京时间每天 0 点轮换、无小时内变化——轮询 30 分钟一轮纯属
-   兜「0 点轮换时刻的服务波动」，读到的内容不变就不写盘、不广播。
+   兜「0 点轮换时刻的服务波动」，读到的内容不变就不写盘、不广播；上游
+   维护期只回部分图（< KNOWN_MAP_COUNT）时保留盘上旧档、不覆盖不广播。
    位置图为官方 WeGame 助手静态资源，已下载打包进 apps/web/public/
    secrets/img/password{1..6}.jpg（season 更新可能换图，届时重新导出）；
    快照只存相对路径，mapID 1..6 之外的图如实置 null。
@@ -33,6 +34,12 @@ export function secretImagePath(mapId) {
   const n = Number(mapId)
   return Number.isInteger(n) && n >= 1 && n <= 6 ? `secrets/img/password${n}.jpg` : null
 }
+
+/** 已知图数（2026-11-05 实测 6 张；与 secretImagePath 的 1..6、本地打包
+ *  password1..6.jpg 同源维护，新赛季地图增减须同步）。官方源维护期常只回
+ *  部分图（实测 2/6），条数不足的快照不许整包覆盖旧档——门槛在轮次层判
+ *  （runSecretsCycle），parseOfficialSecrets 保持纯函数不掺条数政策 */
+export const KNOWN_MAP_COUNT = 6
 
 /** 北京墙钟日期：'YYYY-MM-DD'（密码口径的「今天」，UTC+8 直加不依赖本机时区） */
 export function beijingDate(iso = new Date().toISOString()) {
@@ -125,9 +132,11 @@ async function getJson(url) {
 /**
  * 抓一轮：主源官方 AMS，失败回落 moligod 镜像（source 如实切换）。
  * 与盘上快照同 version 且条目一致 → 跳过写盘（changed:false），SSE 不广播。
+ * 条数 < KNOWN_MAP_COUNT（上游维护期部分图）且盘上有不差的旧档 → 保留旧档
+ * （changed:false + keptOld:true），不整包覆盖、不广播。
  * @param {{webDir?:string, fetchImpl?:Function, now?:string|Date}} opts
  *   fetchImpl 供 selftest 注入桩；now 覆盖抓取时刻（selftest 模拟跨天，生产不传）
- * @returns {Promise<{version:string, source:string, total:number, changed:boolean}>}
+ * @returns {Promise<{version:string, source:string, total:number, changed:boolean, keptOld?:boolean}>}
  */
 export async function runSecretsCycle({ webDir, fetchImpl, now } = {}) {
   const get = fetchImpl || getJson
@@ -143,8 +152,25 @@ export async function runSecretsCycle({ webDir, fetchImpl, now } = {}) {
   }
   const out = buildSecretsSnapshot(entries, { fetchedAt: now, source })
   const dir = webDir || process.cwd()
-  // 内容不变不写盘：日更数据 30 分钟一轮的轮询里，99% 的轮次都该是空转
+  // 轮内唯一一次读盘（位置不变）：既供「内容不变不写盘」比对，也供下面的
+  // 「条数不足保旧档」判定——同一份 prev、同一处读，不引入新竞态
   const prev = await readSnapshot(dir).catch(() => null)
+  // 部分图门槛：上游维护期只回部分图时整包覆盖，会把完好的旧档冲成半截、
+  // 页面「今日密码」整排缺失。盘上旧档条目数不比新档差 → 保留旧档不写盘
+  // （changed:false 即不广播）；无旧档（首次部署撞上维护期）或旧档更差 →
+  // 没有可保的档，如实落盘新快照（total 如实计数），等下一轮齐全再覆盖
+  const partial = out.stats.total < KNOWN_MAP_COUNT
+  const prevUsable = !!prev && Array.isArray(prev.items) && prev.items.length >= out.stats.total
+  if (partial && prevUsable) {
+    return {
+      version: prev.version,
+      source,
+      total: prev.stats?.total ?? prev.items.length,
+      changed: false,
+      keptOld: true,
+    }
+  }
+  // 内容不变不写盘：日更数据 30 分钟一轮的轮询里，99% 的轮次都该是空转
   const same =
     prev &&
     prev.version === out.version &&
@@ -173,7 +199,7 @@ if (IS_CLI) {
     try {
       const r = await runSecretsCycle({ webDir: WEB_DIR })
       console.log(
-        `[${new Date().toLocaleString('zh-CN')}] ${r.version} · ${r.total} 张图 · 源 ${r.source}${r.changed ? ' · 已更新' : ' · 未变化'}`,
+        `[${new Date().toLocaleString('zh-CN')}] ${r.version} · ${r.total} 张图 · 源 ${r.source}${r.keptOld ? ' · 上游条目不足，保留旧档' : r.changed ? ' · 已更新' : ' · 未变化'}`,
       )
     } catch (e) {
       console.error(`[${new Date().toLocaleString('zh-CN')}] 每日密码抓取失败: ${e.message}`)

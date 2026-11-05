@@ -12,9 +12,11 @@
    损坏隔离同款 .corrupt-<ts> 留档（账号表同口径，不抄两份仅此一处差异：
    quarantine 在 auth store 闭包内，此处按同语义本地实现）。
    出口契约与 osascript notify 一致：失败只 console.error，绝不抛——
-   通知失败不能拖垮行情抓取主循环。
+   通知失败不能拖垮行情抓取主循环。注册表写盘（put/del）不受此约束：
+   失败抛 BarkError('BARK_STORE_FAILED', 500)，由 api 层如实回 500，
+   不许「写盘失败假成功」。
    ============================================================ */
-import { readFile, rename } from 'node:fs/promises'
+import { readFile, rename, stat } from 'node:fs/promises'
 import path from 'node:path'
 import { writeAtomic } from '../auth/store.mjs'
 
@@ -62,13 +64,18 @@ export function parseBarkUrl(input) {
 }
 
 /**
- * 打开 Bark 注册表（懒加载首访读盘，写穿；进程内单实例）。
+ * 打开 Bark 注册表（懒加载首访读盘，写穿；缓存按文件 mtime 失效）。
+ * 注册表会被开成两个实例（server.mjs 出口与 auth/api.mjs 注册 API 各一），
+ * 首读永缓存会让「注册后出口实例永远看不到新设备」——mtime 变了才重读，
+ * 另一实例写盘后本实例下次访问即拿到新表（每次读多一次 stat，可忽略）。
  * @param {{rootDir?:string}} opts rootDir 仓库根（数据挂 data/push/）
  */
 export function openBarkRegistry({ rootDir = process.cwd() } = {}) {
   const file = path.join(rootDir, 'data', 'push', 'bark.json')
   /** @type {Record<string, {server:string,key:string,buys:boolean,sells:boolean,savedAt:string}>|null} */
   let devices = null
+  /** 上次读盘时的文件 mtime（ms）；-1 = 尚未读过 / 读时文件不存在 */
+  let cachedMtimeMs = -1
   /** 注册读改写串行链（同 auth store 的并发安全网） */
   let queue = Promise.resolve()
 
@@ -84,13 +91,23 @@ export function openBarkRegistry({ rootDir = process.cwd() } = {}) {
   }
 
   async function load() {
-    if (devices) return
+    let mtime = -1
+    try {
+      mtime = (await stat(file)).mtimeMs
+    } catch {
+      /* ENOENT 等：按「文件不存在」处理（mtime 保持 -1） */
+    }
+    if (devices && mtime === cachedMtimeMs) return // 文件没变：吃缓存
     try {
       const j = JSON.parse(await readFile(file, 'utf8'))
       devices = j.devices && typeof j.devices === 'object' ? j.devices : {}
+      cachedMtimeMs = mtime
     } catch (e) {
-      if (e.code !== 'ENOENT') await quarantine(e.message)
+      if (mtime !== -1 && e.code !== 'ENOENT') await quarantine(e.message)
       devices = {}
+      // 留档成功后文件已消失 → -1；留档失败文件仍在 → 记住该 mtime，
+      // 避免每次访问都对同一份坏文件反复读盘留档打环
+      cachedMtimeMs = mtime
     }
   }
 
@@ -98,10 +115,13 @@ export function openBarkRegistry({ rootDir = process.cwd() } = {}) {
     await writeAtomic(file, JSON.stringify({ devices }) + '\n')
   }
 
-  /** 串行化读改写（put/delete 竞争安全） */
+  /** 串行化读改写（put/delete 竞争安全）：失败同步回调用方（api 层回 500，
+   *  不再「写盘失败假成功」）；队列尾吸收错误保证后续任务照常执行
+   *  （毒化不阻断下一笔，语义同 auth store 的双分支队列） */
   function chained(fn) {
-    queue = queue.then(fn).catch((e) => console.error(`[push] bark 注册表写失败：${e.message}`))
-    return queue
+    const run = queue.then(fn)
+    queue = run.catch((e) => console.error(`[push] bark 注册表写失败：${e.message}`))
+    return run
   }
 
   return {
@@ -116,23 +136,45 @@ export function openBarkRegistry({ rootDir = process.cwd() } = {}) {
       return devices[uid] ?? null
     },
     /** upsert 注册；返回 savedAt（先确保懒加载完成——chained 里的写盘任务
-        异步执行，不能依赖它之前有人调过 get/all） */
+        异步执行，不能依赖它之前有人调过 get/all）。写盘失败抛
+        BarkError('BARK_STORE_FAILED', 500）。失败回滚在 chained 闭包内完成：
+        prev 的捕获与恢复同处一个队列任务，回滚先于下一任务执行——并发
+        PUT 同 uid 时不会拿陈旧 prev 覆盖别个任务刚写入的注册，也不会把
+        已成功落盘的注册从内存抹掉（读-改-写-回滚全程队列序） */
     async put(uid, { server, key, buys, sells }) {
       await load()
       const savedAt = new Date().toISOString()
-      await chained(() => {
-        devices[uid] = { server, key, buys, sells, savedAt }
-        return save()
-      })
+      try {
+        await chained(() => {
+          const prev = devices[uid]
+          devices[uid] = { server, key, buys, sells, savedAt }
+          return save().catch((e) => {
+            if (prev) devices[uid] = prev
+            else delete devices[uid]
+            throw e
+          })
+        })
+      } catch (e) {
+        throw new BarkError('BARK_STORE_FAILED', `Bark 注册表写盘失败：${e.message}`, 500)
+      }
       return savedAt
     },
-    /** 注销（幂等：未注册也是删了个不存在键） */
+    /** 注销（幂等：未注册也是删了个不存在键）；写盘失败同 put 口径抛 500
+        且回滚同在队列序内（恢复被删条目） */
     async del(uid) {
       await load()
-      await chained(() => {
-        delete devices[uid]
-        return save()
-      })
+      try {
+        await chained(() => {
+          const prev = devices[uid]
+          delete devices[uid]
+          return save().catch((e) => {
+            if (prev) devices[uid] = prev
+            throw e
+          })
+        })
+      } catch (e) {
+        throw new BarkError('BARK_STORE_FAILED', `Bark 注册表写盘失败：${e.message}`, 500)
+      }
     },
   }
 }

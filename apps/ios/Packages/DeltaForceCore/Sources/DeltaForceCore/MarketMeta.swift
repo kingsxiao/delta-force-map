@@ -82,6 +82,83 @@ public enum MarketMeta {
         max(0, now.timeIntervalSince(fetchedAt) / 60)
     }
 
+    // MARK: - 赛季阶段（shared/js/marketMeta.js seasonPhase 同构移植；契约 API.md §1 三端同构）
+
+    /// 赛季阶段四档（与 JS phase 值一一对应）
+    public enum SeasonPhaseKind: String, Sendable, Hashable {
+        /// 开更出货窗（赛季开始 ≤3 天）
+        case fresh
+        /// 囤货窗（距赛季结束 3~7 天，即 T−7~T−3）
+        case hoard
+        /// 赛季末（距结束 ≤3 天 / 已到点）
+        case late
+        /// 常规期（含未开始）
+        case mid
+    }
+
+    /// 赛季阶段调性（web Playbook .pb-season tone 四档；UI 侧 buy=ok / sell=danger / warn=warn / dim=dim）
+    public enum SeasonTone: String, Sendable, Hashable {
+        case buy, sell, warn, dim
+    }
+
+    /// seasonPhase 判定结果（label 与 JS 逐字同步——三端同构口径，改文案先改 shared/js 再同步这里）
+    public struct SeasonPhase: Sendable, Hashable {
+        public let phase: SeasonPhaseKind
+        public let label: String
+        public let tone: SeasonTone
+        /// 距赛季结束天数（可负 = 已到点）
+        public let daysLeft: Double
+        /// 距赛季开始天数
+        public let daysFromStart: Double
+
+        /// 倒计时整数天：>0 向下取整、≤0 nil（对齐 web Playbook seasonInfo.days 的
+        /// `p.daysLeft > 0 ? Math.floor(p.daysLeft) : null`；nil 时横幅改显「赛季已到点」）
+        public var days: Int? { daysLeft > 0 ? Int(daysLeft.rounded(.down)) : nil }
+
+        public init(phase: SeasonPhaseKind, label: String, tone: SeasonTone, daysLeft: Double, daysFromStart: Double) {
+            self.phase = phase
+            self.label = label
+            self.tone = tone
+            self.daysLeft = daysLeft
+            self.daysFromStart = daysFromStart
+        }
+    }
+
+    /// 赛季阶段判定（Playbook「版本与赛季窗口」实时行的数据源，纯函数）：赛季窗口套利的
+    /// 口径来自 Playbook 03 静态经验——更新前 3~7 天囤货、开更后 3 天内出货、赛季末物价波动。
+    /// 与 shared/js/marketMeta.js seasonPhase 逐分支同构：
+    ///   fresh  开更出货窗（daysFromStart ≤3，tone=sell）
+    ///   late   赛季末（daysLeft ≤0 已到点 / ≤3，tone=warn）
+    ///   hoard  囤货窗（daysLeft ≤7，tone=buy）
+    ///   mid    常规期（含未开始 daysFromStart <0，tone=dim，仅给倒计时）
+    /// 无有效赛季 / 起止倒挂 / 起止解析失败 → nil（JS 返回 null 同口径）
+    public static func seasonPhase(_ season: Season?, now: Date = .now) -> SeasonPhase? {
+        guard let start = parseISO8601(season?.start), let end = parseISO8601(season?.end), start < end else { return nil }
+        let day = 86_400.0
+        let nowT = now.timeIntervalSince1970
+        let daysLeft = (end.timeIntervalSince1970 - nowT) / day
+        let daysFromStart = (nowT - start.timeIntervalSince1970) / day
+        func out(_ phase: SeasonPhaseKind, _ label: String, _ tone: SeasonTone) -> SeasonPhase {
+            SeasonPhase(phase: phase, label: label, tone: tone, daysLeft: daysLeft, daysFromStart: daysFromStart)
+        }
+        if daysFromStart < 0 { return out(.mid, "赛季未开始", .dim) }
+        if daysFromStart <= 3 { return out(.fresh, "开更出货窗（新赛季 +3 天内，补弹需求高峰）", .sell) }
+        if daysLeft <= 0 { return out(.late, "赛季已到点（待新赛季数据刷新）", .warn) }
+        if daysLeft <= 3 { return out(.late, "赛季末（T−3 内，物价波动大）", .warn) }
+        if daysLeft <= 7 { return out(.hoard, "囤货窗（T−7~T−3：新赛季前囤热门口径）", .buy) }
+        return out(.mid, "常规期", .dim)
+    }
+
+    /// JS Date.parse 同构的 ISO-8601 解析：契约 start/end 带时区偏移（如 +08:00），
+    /// 也兼容毫秒 / Z 后缀。解析失败（JS 得 NaN）→ nil。
+    /// 用值类型 FormatStyle 而非共享 DateFormatter 实例：Swift Testing 默认并行跑用例
+    public static func parseISO8601(_ s: String?) -> Date? {
+        guard let s else { return nil }
+        if let d = try? Date.ISO8601FormatStyle(includingFractionalSeconds: true).parse(s) { return d }
+        if let d = try? Date.ISO8601FormatStyle().parse(s) { return d }
+        return nil
+    }
+
     /// JS `Math.round` 语义：.5 向正无穷取整（Swift `rounded()` 是远离零，负数会差 1）
     @inline(__always)
     static func jsRound(_ x: Double) -> Double { (x + 0.5).rounded(.down) }

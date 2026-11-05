@@ -35,7 +35,7 @@ Schema：[schema/market-snapshot.schema.json](schema/market-snapshot.schema.json
 | `generatedAt` | ISO-8601 | 分析产物生成时刻 |
 | `source` | `"moligod" \| "kkrb"` | 实际服务源，页面来源标签如实切换 |
 | `fingerprint` | hex-64 | 价格向量 sha256（内容门槛用，客户端可忽略） |
-| `rules` | object | 信号门槛展示子集（`BUY_RANK_MAX` / `BUY_MIN_NET_PCT` / `WATCH_RANK_MAX` / `SELL_RANK_MIN` / `BUY_MKT_SLOPE_MIN` / `MAX_HOLD_H` / `TARGET_WINDOW_H`，来自 `analyze.mjs` RULES）。页面文案与分位刻度线**从这里渲染**，不得写死数字；null = 该门槛关闭（如市场体制门槛） |
+| `rules` | object | 信号门槛展示子集，11 键：`BUY_RANK_MAX` / `BUY_MIN_NET_PCT` / `WATCH_RANK_MAX` / `SELL_RANK_MIN` / `BUY_MIN_POINTS` / `BUY_BOUNCE_OFF_LOW` / `BUY_LOW_AGE_H` / `BUY_SLOPE_MIN` / `BUY_MKT_SLOPE_MIN` / `MAX_HOLD_H` / `TARGET_WINDOW_H`（来自 `analyze.mjs` `RULES`，快照只带 `RULES_VIEW_KEYS` 列出的展示子集）。页面文案与分位刻度线**从这里渲染**，不得写死数字；null = 该门槛关闭（如市场体制门槛） |
 | `officialAnchor` | `{fetchedAt, joined} \| null` | 官方均价锚元信息（§7.5 产物，fetch-once join 时带上）；null = 未跑过锚 |
 | `season` | `{name, start, end, fetchedAt, events}` | 当前赛季日历（kkrb 活动日历接口，fetch-once 6h TTL 拉取）。`start`/`end` 为 ISO-8601 带时区；阶段判定用 `js/marketMeta.js seasonPhase`（囤货窗 T−7~T−3 / 赛季末 T−3 / 开更出货窗 +3 天）。上游失败时字段缺省 |
 | `items` | Item[] | 全量弹药（当前 67 种），含 WAIT |
@@ -96,7 +96,7 @@ Item 字段：
 
 Schema：[schema/radar-snapshot.schema.json](schema/radar-snapshot.schema.json)
 
-顶层同上（`source` 恒为 `"kkrb-radar+moligod"`；无 `fingerprint`/`signals`），`items` 为涨幅榜 Top10。Item 在子弹 Item 基础上追加：
+顶层同上（`source` 恒为 `"kkrb-radar+moligod"`；无 `fingerprint`/`signals`），`items` 为上游涨幅榜整表透传（当前 11 项，榜单条数以 kkrb 返回为准，客户端按 `items.length` 渲染不写死）。Item 在子弹 Item 基础上追加：
 
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
@@ -231,6 +231,10 @@ Schema：[schema/loadout-snapshot.schema.json](schema/loadout-snapshot.schema.js
 | `moligod-craft`（分钟级，特勤处制造） | 10 分钟 | 30 分钟 |
 | `kkrb`（小时级兜底） | 60 分钟 | 360 分钟 |
 | `kkrb-radar+moligod`（雷达双源；monitor 30min 一轮、榜单约每小时滚动） | 90 分钟 | 240 分钟 |
+| `moligod-tradehouse`（交易行全量快照；上游分钟级 ttl、阈值暂用兜底档） | 60 分钟 | 360 分钟 |
+| `moligod-preparedness`（战备值差价；上游小时级、阈值暂用兜底档） | 60 分钟 | 360 分钟 |
+
+后两行是 `js/marketMeta.js staleness()` 的现状兜底（两 source 未单列分支，落 else 的 60/360）；日后若把阈值收紧为分钟级源的 10/30，须同步 `marketMeta.js` 与 iOS `MarketMeta.swift` 行为（客户端对未知 source 同样落 60/360 兜底）。
 
 年龄计算锚点：`fetchedAt`（心跳会刷新它）；年龄可读化 <60min 用分钟、<24h 用小时、更长用天。
 
@@ -244,7 +248,12 @@ Schema：[schema/loadout-snapshot.schema.json](schema/loadout-snapshot.schema.js
 
 ## 5. fixtures
 
-`fixtures/market-sample.json`、`fixtures/radar-sample.json`、`fixtures/craft-sample.json`、`fixtures/secrets-sample.json`：真实快照全量留档样本（`server/export-ios-data.mjs` 逐字拷贝线上快照，含 `fingerprint` / `officialAnchor` / `season` 等元信息字段，非脱敏），供 iOS 单测断言口径移植与解码（iOS 端无演示模式）；后端自测另有自己的注入桩。契约变化时同步更新 fixtures。
+`fixtures/` 共 7 份快照留档样本，维护方式分两档（如实登记）：
+
+- `market-sample.json` / `radar-sample.json` / `craft-sample.json`：由 `server/export-ios-data.mjs`（`npm run export:ios`）逐字拷贝线上快照（含 `fingerprint` / `officialAnchor` / `season` 等元信息字段，非脱敏）——**这是该脚本导出的全部三份**；
+- `secrets-sample.json` / `tradehouse-sample.json` / `index-sample.json` / `loadout-sample.json`：**不在 export:ios 导出面**（§7「iOS 端无消费方」），契约变更时从线上快照手工刷新落档，`npm run contract:check` 门禁校验其与对应 schema 一致。
+
+全部 fixtures 供 iOS 单测断言口径移植与解码（iOS 端无演示模式）；后端自测另有自己的注入桩。契约变化时同步更新 fixtures。
 
 ## 6. 账号与云同步（`server/auth/`，实现方 = 后端）
 
@@ -271,7 +280,7 @@ Schema：[schema/loadout-snapshot.schema.json](schema/loadout-snapshot.schema.js
 - 错误响应统一 `{error: "中文说明", code: "MACHINE_CODE"}`，`code` 供两端分支（如 `AUTH_FAILED` / `USERNAME_TAKEN` / `BAD_TOKEN` / `RATE_LIMITED`）。
 - 请求体上限 128KB；鉴权响应一律 `Cache-Control: no-store`。
 - 用户名 2–16 字符（字母 / 数字 / 下划线 / 中文，全表唯一，大小写不敏感）；密码 8–64 字符，无组成规则。
-- 限速（按 IP）：注册 10 次/小时，登录 20 次/小时，超限 `429 {code:"RATE_LIMITED"}`。默认按**直连地址**计（XFF 可伪造，不采信）；nginx 反代形态启动时加 `--trust-proxy`（或 `TRUST_PROXY=1`）才按 `X-Forwarded-For` 首段计。
+- 限速（按 IP）：注册 10 次/小时，登录 20 次/小时，账号数据（GET/PUT `/api/account/data` 合计）30 次/分钟，超限 `429 {code:"RATE_LIMITED"}`。默认按**直连地址**计（XFF 可伪造，不采信）；nginx 反代形态启动时加 `--trust-proxy`（或 `TRUST_PROXY=1`）才按 `X-Forwarded-For` 从右数第 N 跳计（单层反代 N=1，多级反代 `--trust-proxy=N`）。
 - CORS：`/api/*` 响应带 `Access-Control-Allow-Origin: *` 并处理 `OPTIONS` 预检（与 `/events` 同 posture；客户端用 token 而非 cookie，无凭证风险）。
 
 ### 6.3 账号数据口径（`js/accountData.js`，三端同构）
@@ -290,9 +299,9 @@ Schema：[schema/loadout-snapshot.schema.json](schema/loadout-snapshot.schema.js
 
 | 方法 | 路径 | 鉴权 | 成功 | 失败 |
 | --- | --- | --- | --- | --- |
-| PUT | `/api/push/bark` | Bearer | `200 {ok:true, savedAt}` | `400` key/server 不合规（`BAD_KEY` / `BAD_SERVER`）；`401` |
+| PUT | `/api/push/bark` | Bearer | `200 {ok:true, savedAt}` | `400` key/server 不合规（`BAD_KEY` / `BAD_SERVER`）；`500` 注册表写盘失败（`BARK_STORE_FAILED`）；`401` |
 | GET | `/api/push/bark` | Bearer | `200 {registered:false}` 或 `{registered:true, server, key, buys, sells, savedAt}` | `401` |
-| DELETE | `/api/push/bark` | Bearer | `204`（幂等：未注册也 204） | `401` |
+| DELETE | `/api/push/bark` | Bearer | `204`（幂等：未注册也 204） | `500` 注册表写盘失败（`BARK_STORE_FAILED`）；`401` |
 | POST | `/api/push/bark/test` | Bearer | `200 {ok:true}`（已发测试推送） | `400` 未注册（`NOT_REGISTERED`）；`502` Bark 服务不可达（`BARK_FAILED`，附上游状态码）；`401` |
 
 - 请求体（PUT）：`{server?, key, buys, sells}`。`key` = Bark app「复制URL」里那段设备 key（`^[A-Za-z0-9]{10,80}$`）；`server` 可省（默认 `https://api.day.app`，自建 Bark 填其 https 源）；`buys` / `sells` = 是否推送对应信号（boolean，必填）。客户端也可整段粘贴样例 URL 自行解析（两端同构 `parseBarkUrl`，见下）。

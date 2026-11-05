@@ -23,11 +23,11 @@
    用法：node server/market/tradehouse.mjs [--once] [--interval 分钟=10]
    ============================================================ */
 import { createDecipheriv, createHash } from 'node:crypto'
-import { readFile, writeFile, mkdir } from 'node:fs/promises'
+import { readFile } from 'node:fs/promises'
 import { gunzipSync as gunzip } from 'node:zlib'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { writeSnapshotPair } from '../ammo/fetch-once.mjs'
+import { writeSnapshotPair, writeJsonAtomic } from '../ammo/fetch-once.mjs'
 
 const BASE = 'https://moligod.com'
 const TRADEHOUSE_URL = `${BASE}/api/market/trade-house-snapshot`
@@ -305,15 +305,6 @@ async function readHistory(rootDir) {
   }
 }
 
-async function writeHistory(rootDir, hist) {
-  const p = path.join(rootDir, HISTORY_REL)
-  await mkdir(path.dirname(p), { recursive: true })
-  const tmp = `${p}.${process.pid}.tmp`
-  await writeFile(tmp, JSON.stringify(hist))
-  const { rename } = await import('node:fs/promises')
-  await rename(tmp, p)
-}
-
 /**
  * 抓一轮：三个上游各自隔离——交易行是主产物（失败整轮抛出），战备差价 /
  * 预测失败降级为 null（快照对应字段缺失，页面如实显示「暂无」，不阻塞主链路）。
@@ -329,13 +320,14 @@ export async function runTradehouseCycle({ webDir, rootDir, fetchJson = getJson,
   const snap = buildTradehouseSnapshot(raw, { fetchedAt })
   const { all, markets } = buildIndexMarkets(snap.items)
 
-  // 指数历史：本服务自积累（首次部署从零开始，页内如实标注起算时点）
+  // 指数历史：本服务自积累（首次部署从零开始，页内如实标注起算时点）。
+  // 只在内存里追加、落盘挪到三份快照写盘之后（见轮尾）——历史积累失败
+  // 不得连累主产物
   const levels = { all: all ? round4(all.level) : null }
   for (const m of markets) levels[m.id] = m.level != null ? round4(m.level) : null
   const hist = await readHistory(dataDir)
   const histNew = appendHistoryPoint(hist, snap.version, levels)
   const versionChanged = !hist.points.some((p) => p.t === snap.version)
-  if (versionChanged) await writeHistory(dataDir, histNew)
 
   const indexSnap = {
     version: snap.version,
@@ -367,6 +359,18 @@ export async function runTradehouseCycle({ webDir, rootDir, fetchJson = getJson,
     loadoutTotal = lo.stats.total
   } catch {
     /* 保留旧档 */
+  }
+
+  // 指数历史落盘（原在读档后立刻写、失败会连累整轮）：挪到三份快照写盘
+  // 之后且降级为日志——主产物已落盘，历史只少本轮一个点，下一轮从盘上
+  // 旧档重新追加自愈。写盘复用 writeJsonAtomic（随机 tmp + 失败清理），
+  // 替换原 `${p}.${pid}.tmp` 固定名（并发写者会互搬对方半截文件）
+  if (versionChanged) {
+    try {
+      await writeJsonAtomic(path.join(dataDir, HISTORY_REL), JSON.stringify(histNew))
+    } catch (e) {
+      console.error(`[tradehouse] 指数历史落盘失败（不影响快照主产物）: ${e.message}`)
+    }
   }
 
   return { version: snap.version, total: snap.stats.total, indexAll: indexSnap.all?.level ?? null, loadoutTotal }

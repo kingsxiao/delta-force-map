@@ -38,6 +38,17 @@ struct ItemDetailView: View {
         return .frozen
     }
 
+    /// 口径脚注的数据源（对齐网页端 AmmoDetailView sourceLabel(snap.source)）：跟随解冻命中路径——
+    /// market 命中传行情快照 source（moligod → 分钟级文案），radar 命中传雷达快照 source
+    /// （双源 / kkrb 均落「每小时」兜底档），frozen 两路皆无退 nil
+    private var originSource: String? {
+        switch origin {
+        case .market: app.market.snapshot?.source
+        case .radar: app.radar.snapshot?.source
+        case .frozen: nil
+        }
+    }
+
     /// 实时条目（§4.2-1）：两路快照按名称命中即跟随（60s 轮询 / SSE 版本前进自动更新），全未命中回落冻结值
     private var resolved: MarketItem {
         app.market.items.first { $0.name == item.name }
@@ -72,7 +83,7 @@ struct ItemDetailView: View {
                 stats(it)
                 sellEta(it)
                 if it.hiRank != nil { radarCard(it) }
-                MethodNote(source: nil).card()
+                MethodNote(source: originSource).card()
             }
             .padding(12)
             // 横幅进出（MOTION.md §3-H 状态进场档）：animSwap 淡入淡出，RM 门内建于 .contentSwap；
@@ -393,14 +404,18 @@ struct ItemDetailView: View {
 
     /// 按我的成本试算：数量档 100/500/1000/自定义 + 成本价输入（默认台账已录价，无记录按现价）。
     /// 两档到手与台账 / 网页端同口径：现价直出 = current×(1−税率)，挂 P75 = netSell；
+    /// 缺价（current / netSell 为 nil）不硬算——对应到手格与利润行降级「—」faint
+    /// （对齐 stats 区 Fmt.price 缺价口径），不把缺数据算成 −成本×数量的假巨额亏损；
     /// 「记入囤货」把当前数量与成本写进本机台账（同名即更新，行情页「我的囤货」区即时可见）
     private func positionCalc(_ it: MarketItem) -> some View {
         let qty = max(1, calcQty)
         let qtyD = Double(qty)
         let cost = calcCost > 0 ? calcCost : (it.current ?? 0)
-        let netNow = (it.current ?? 0) * (1 - it.taxRate)
-        let gainNow = (netNow - cost) * qtyD
-        let gainP75 = ((it.netSell ?? 0) - cost) * qtyD
+        let netNow = it.current.map { $0 * (1 - it.taxRate) } // 现价税后到手 / 发；nil = 缺现价
+        let gainNow = netNow.map { ($0 - cost) * qtyD }
+        let gainP75 = it.netSell.map { ($0 - cost) * qtyD }
+        let grossNow = netNow.map { $0 * qtyD }
+        let grossP75 = it.netSell.map { $0 * qtyD }
         let inBook = app.positions.contains(it.name)
         return VStack(alignment: .leading, spacing: Theme.Space.sm) {
             HStack(spacing: 6) {
@@ -460,12 +475,9 @@ struct ItemDetailView: View {
             calcQuad(
                 StatCell(label: "总投入", value: Fmt.price(cost * qtyD))
                     .numericChange(value: cost * qtyD),
-                StatCell(label: "现价直出到手", value: Fmt.price(netNow * qtyD))
-                    .numericChange(value: netNow * qtyD),
-                StatCell(label: "挂 P75 到手", value: Fmt.price((it.netSell ?? 0) * qtyD))
-                    .numericChange(value: (it.netSell ?? 0) * qtyD),
-                StatCell(label: "到价利润", value: Fmt.signedPrice(gainP75), color: gainP75 >= 0 ? Theme.ok : Theme.danger)
-                    .numericChange(value: gainP75)
+                calcCell("现价直出到手", grossNow),
+                calcCell("挂 P75 到手", grossP75),
+                calcProfitCell("到价利润", gainP75)
             )
             // 直出档利润单独一行：四格放不下第五个数，且它是「急用钱立卖」的决策数；
             // 此行即浮盈（现价口径未实现盈亏）——记账成功后在此播两帧确认脉冲（profitPulseText）
@@ -507,6 +519,29 @@ struct ItemDetailView: View {
         }
     }
 
+    /// 试算格缺价降级（F14）：有值照常渲染 + 挂数字滚动；缺值显「—」faint（对齐 stats 区
+    /// Fmt.price 缺价口径），不挂 numericChange——无值不滚，也不参与方向判定。
+    /// 命中值默认色随 StatCell（txStrong）；利润格按符号取 ok / danger 语义色
+    @ViewBuilder
+    private func calcCell(_ label: String, _ value: Double?) -> some View {
+        if let value {
+            StatCell(label: label, value: Fmt.price(value))
+                .numericChange(value: value)
+        } else {
+            StatCell(label: label, value: "—", color: Theme.faint)
+        }
+    }
+
+    @ViewBuilder
+    private func calcProfitCell(_ label: String, _ value: Double?) -> some View {
+        if let value {
+            StatCell(label: label, value: Fmt.signedPrice(value), color: value >= 0 ? Theme.ok : Theme.danger)
+                .numericChange(value: value)
+        } else {
+            StatCell(label: label, value: "—", color: Theme.faint)
+        }
+    }
+
     /// 带数字滚动的四格行：结构与共享 StatQuadRow 同构（宽足一行 4 列 / 窄屏 2×2，ViewThatFits
     /// 降级），但格子收「已挂 numericChange 的 StatCell」——共享组件参数锁死 StatCell 具体类型，
     /// 滚动修饰符只能挂在格子外围（已写进 sharedRequests，待共享层开放 per-cell 动画通道后收编）
@@ -523,27 +558,33 @@ struct ItemDetailView: View {
     /// 记账确认脉冲（keyframe 两帧，总时长 0.25s = durSwap 档、仅 scaleEffect 不动布局）：
     /// 记入 / 更新囤货成功后浮盈行轻弹一下，把「账已按此价记下、浮盈按这个数」落到视线处——
     /// 比 .selection 触感更可见的操作闭环；RM 下跳过（装饰动效全关，§7-9），
-    /// ok/danger 语义色即静态等价物
+    /// ok/danger 语义色即静态等价物；缺现价（gainNow = nil）降级「—」faint，不弹不滚
     @ViewBuilder
-    private func profitPulseText(gainNow: Double) -> some View {
-        // 数字滚动挂在 keyframe 内层：改档位 / 输入成本时浮盈随四格同滚（方向感知，负值下滚），
-        // 记账时刻的 scale 脉冲在外层独立触发，两层动画互不干扰
-        let base = Text("现价直出利润 \(Fmt.signedPrice(gainNow))")
-            .font(Theme.font(.xs)).monospacedDigit()
-            .foregroundStyle(gainNow >= 0 ? Theme.ok : Theme.danger)
-            .numericChange(value: gainNow)
-        if reduceMotion {
-            base
-        } else {
-            base.keyframeAnimator(initialValue: PosPulse(), trigger: posPulse) { v, p in
-                // 锚 leading：左对齐读数行从左缘起弹，中锚会让行首文字瞬时左右游移
-                v.scaleEffect(p.scale, anchor: .leading)
-            } keyframes: { _ in
-                KeyframeTrack(\.scale) {
-                    CubicKeyframe(1.08, duration: 0.1) // 弹起半帧
-                    CubicKeyframe(1.0, duration: 0.15)  // 回落半帧
+    private func profitPulseText(gainNow: Double?) -> some View {
+        if let gainNow {
+            // 数字滚动挂在 keyframe 内层：改档位 / 输入成本时浮盈随四格同滚（方向感知，负值下滚），
+            // 记账时刻的 scale 脉冲在外层独立触发，两层动画互不干扰
+            let base = Text("现价直出利润 \(Fmt.signedPrice(gainNow))")
+                .font(Theme.font(.xs)).monospacedDigit()
+                .foregroundStyle(gainNow >= 0 ? Theme.ok : Theme.danger)
+                .numericChange(value: gainNow)
+            if reduceMotion {
+                base
+            } else {
+                base.keyframeAnimator(initialValue: PosPulse(), trigger: posPulse) { v, p in
+                    // 锚 leading：左对齐读数行从左缘起弹，中锚会让行首文字瞬时左右游移
+                    v.scaleEffect(p.scale, anchor: .leading)
+                } keyframes: { _ in
+                    KeyframeTrack(\.scale) {
+                        CubicKeyframe(1.08, duration: 0.1) // 弹起半帧
+                        CubicKeyframe(1.0, duration: 0.15)  // 回落半帧
+                    }
                 }
             }
+        } else {
+            Text("现价直出利润 —")
+                .font(Theme.font(.xs)).monospacedDigit()
+                .foregroundStyle(Theme.faint)
         }
     }
 

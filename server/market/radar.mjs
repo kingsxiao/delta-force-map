@@ -3,7 +3,7 @@
    ------------------------------------------------------------
    数据管线（2026-10-14 实测定稿，见 README「扩品类数据源」）：
      · 异动物品清单：kkrb「全物品价格变化曲线」页的涨幅榜
-       getHIPriceCurveData（Top10，自带 7 天小时曲线，免登录免配额）
+       getHIPriceCurveData（整表透传，当前 11 项，自带 7 天小时曲线，免登录免配额）
      · 曲线主源：moligod /api/market/history?lookup=name —— 不限品类，
        小时级 168 点 + 分钟级尾点（现价取 1m 尾点，比榜单小时曲线新鲜）
      · 双源交叉：同一物品 kkrb 与 moligod 曲线在重叠小时上的中位偏差；
@@ -256,6 +256,7 @@ async function sendRadarNotifications(buys, sells, notifyFn) {
     const top = buys.slice(0, 3)
     const body = top.map((i) => `🎯 ${radarBuyLine(i)}`).join('\n')
     await notifyFn({
+      kind: 'buy', // 消息形状对齐 notify-policy sendNotifications：Bark 出口按 kind 分桶（API.md §6.4），缺 kind 一律投 buys、sells 订阅者漏收
       title: `异动雷达 · 买入信号 ×${buys.length}`,
       body: buys.length > top.length ? body + `\n…还有${buys.length - top.length}项见 #/radar 页` : body,
       sound: 'Glass',
@@ -265,6 +266,7 @@ async function sendRadarNotifications(buys, sells, notifyFn) {
     const top = sells.slice(0, 3)
     const body = top.map((i) => `📈 ${radarSellLine(i)}`).join('\n')
     await notifyFn({
+      kind: 'sell',
       title: `异动雷达 · 卖出信号 ×${sells.length}`,
       body: sells.length > top.length ? body + `\n…还有${sells.length - top.length}项见 #/radar 页` : body,
       sound: 'Hero',

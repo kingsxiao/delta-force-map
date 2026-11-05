@@ -225,7 +225,7 @@ public struct SnapshotStats: Codable, Sendable, Hashable {
     }
 }
 
-/// 快照顶层 `rules`（`analyze.mjs` RULES_VIEW_KEYS 展示子集；契约 shared/API.md §1）：
+/// 快照顶层 `rules`（`analyze.mjs` RULES_VIEW_KEYS 展示子集，11 键全量解码；契约 shared/API.md §1）：
 /// 门槛文案与分位刻度从这里渲染、不得写死数字；null = 该门槛关闭（如市场体制门槛
 /// BUY_MKT_SLOPE_MIN）。逐字段宽松解码（try?）——形状异常时退 nil 而非让整张快照
 /// 解码失败，渲染端有 v2 定稿值兜底（AmmoView MethodNote 同 web ruleNum 缺省做法）
@@ -238,6 +238,14 @@ public struct MarketRules: Codable, Sendable, Hashable {
     public let watchRankMax: Double?
     /// 卖出分位门槛（0.80）
     public let sellRankMin: Double?
+    /// 买入最少样本点数（7 天曲线长度下限，48）
+    public let buyMinPoints: Double?
+    /// 离底幅度门槛（现价相对 7 天低点的涨幅下限，0.03）
+    public let buyBounceOffLow: Double?
+    /// 止跌确认门槛（7 天低点距今小时数下限，12）
+    public let buyLowAgeH: Double?
+    /// 48h 回归斜率买入门槛（%/h，0.02）
+    public let buySlopeMin: Double?
     /// 市场体制门槛（全市场 48h 斜率中位下限，%/h）；null = 关闭
     public let buyMktSlopeMin: Double?
     /// 建议最长持有（小时）
@@ -250,6 +258,10 @@ public struct MarketRules: Codable, Sendable, Hashable {
         case buyMinNetPct = "BUY_MIN_NET_PCT"
         case watchRankMax = "WATCH_RANK_MAX"
         case sellRankMin = "SELL_RANK_MIN"
+        case buyMinPoints = "BUY_MIN_POINTS"
+        case buyBounceOffLow = "BUY_BOUNCE_OFF_LOW"
+        case buyLowAgeH = "BUY_LOW_AGE_H"
+        case buySlopeMin = "BUY_SLOPE_MIN"
         case buyMktSlopeMin = "BUY_MKT_SLOPE_MIN"
         case maxHoldH = "MAX_HOLD_H"
         case targetWindowH = "TARGET_WINDOW_H"
@@ -257,13 +269,18 @@ public struct MarketRules: Codable, Sendable, Hashable {
 
     public init(
         buyRankMax: Double? = nil, buyMinNetPct: Double? = nil, watchRankMax: Double? = nil,
-        sellRankMin: Double? = nil, buyMktSlopeMin: Double? = nil, maxHoldH: Double? = nil,
-        targetWindowH: Double? = nil
+        sellRankMin: Double? = nil, buyMinPoints: Double? = nil, buyBounceOffLow: Double? = nil,
+        buyLowAgeH: Double? = nil, buySlopeMin: Double? = nil, buyMktSlopeMin: Double? = nil,
+        maxHoldH: Double? = nil, targetWindowH: Double? = nil
     ) {
         self.buyRankMax = buyRankMax
         self.buyMinNetPct = buyMinNetPct
         self.watchRankMax = watchRankMax
         self.sellRankMin = sellRankMin
+        self.buyMinPoints = buyMinPoints
+        self.buyBounceOffLow = buyBounceOffLow
+        self.buyLowAgeH = buyLowAgeH
+        self.buySlopeMin = buySlopeMin
         self.buyMktSlopeMin = buyMktSlopeMin
         self.maxHoldH = maxHoldH
         self.targetWindowH = targetWindowH
@@ -280,6 +297,10 @@ public struct MarketRules: Codable, Sendable, Hashable {
             buyMinNetPct: try? c.decodeIfPresent(Double.self, forKey: .buyMinNetPct),
             watchRankMax: try? c.decodeIfPresent(Double.self, forKey: .watchRankMax),
             sellRankMin: try? c.decodeIfPresent(Double.self, forKey: .sellRankMin),
+            buyMinPoints: try? c.decodeIfPresent(Double.self, forKey: .buyMinPoints),
+            buyBounceOffLow: try? c.decodeIfPresent(Double.self, forKey: .buyBounceOffLow),
+            buyLowAgeH: try? c.decodeIfPresent(Double.self, forKey: .buyLowAgeH),
+            buySlopeMin: try? c.decodeIfPresent(Double.self, forKey: .buySlopeMin),
             buyMktSlopeMin: try? c.decodeIfPresent(Double.self, forKey: .buyMktSlopeMin),
             maxHoldH: try? c.decodeIfPresent(Double.self, forKey: .maxHoldH),
             targetWindowH: try? c.decodeIfPresent(Double.self, forKey: .targetWindowH)
@@ -287,7 +308,46 @@ public struct MarketRules: Codable, Sendable, Hashable {
     }
 }
 
-/// 快照顶层（`/ammo/market.json` 与 `/market/radar.json` 共用；`signals` 字段是 items 的过滤副本，客户端自行过滤故不解码）
+/// 快照顶层 `season`（kkrb 活动日历；契约 shared/API.md §1）：Playbook「版本与赛季窗口」
+/// 实时阶段（MarketMeta.seasonPhase，与 shared/js/marketMeta.js 同构）的数据源。
+/// 全字段可空宽松解码——上游失败 / 旧快照缺字段时整字段或单字段退 nil，不炸整张快照
+public struct Season: Codable, Sendable, Hashable {
+    /// 赛季名（如「S11赛季」）；横幅标题用
+    public let name: String?
+    /// 赛季开始（ISO-8601 带时区，如 2026-09-04T02:00:00+08:00）
+    public let start: String?
+    /// 赛季结束（同上格式）
+    public let end: String?
+    /// 赛季内活动日历（kkrb 透传；iOS 暂不消费，仅保形）
+    public let events: [SeasonEvent]?
+
+    public init(name: String? = nil, start: String? = nil, end: String? = nil, events: [SeasonEvent]? = nil) {
+        self.name = name
+        self.start = start
+        self.end = end
+        self.events = events
+    }
+}
+
+/// 赛季活动条目（kkrb 活动日历透传；解析失败的条目服务端已剔除，客户端全可空保形）
+public struct SeasonEvent: Codable, Sendable, Hashable {
+    public let name: String?
+    public let start: String?
+    public let end: String?
+    /// ingame / website
+    public let type: String?
+
+    public init(name: String? = nil, start: String? = nil, end: String? = nil, type: String? = nil) {
+        self.name = name
+        self.start = start
+        self.end = end
+        self.type = type
+    }
+}
+
+/// 快照顶层（`/ammo/market.json` 与 `/market/radar.json` 共用；`signals` 字段是 items 的过滤副本，客户端自行过滤故不解码；
+/// `officialAnchor`（官方均价锚元信息，API.md §1）客户端可忽略，iOS 不解码——items[].official 已带 join 后的官方均价，
+/// 锚的 fetchedAt/joined 属服务端运维信息）
 public struct MarketSnapshot: Codable, Sendable, Hashable {
     public let version: String
     public let fetchedAt: Date
@@ -298,8 +358,10 @@ public struct MarketSnapshot: Codable, Sendable, Hashable {
     public let stats: SnapshotStats?
     /// 信号门槛展示子集；nil = 旧快照无此字段（雷达快照亦无）——渲染端退 v2 定稿值兜底
     public let rules: MarketRules?
+    /// 当前赛季日历；nil = 上游失败 / 旧快照缺省（雷达快照亦无）——渲染端退静态文案兜底
+    public let season: Season?
 
-    public init(version: String, fetchedAt: Date, generatedAt: Date, source: String, fingerprint: String? = nil, items: [MarketItem], stats: SnapshotStats? = nil, rules: MarketRules? = nil) {
+    public init(version: String, fetchedAt: Date, generatedAt: Date, source: String, fingerprint: String? = nil, items: [MarketItem], stats: SnapshotStats? = nil, rules: MarketRules? = nil, season: Season? = nil) {
         self.version = version
         self.fetchedAt = fetchedAt
         self.generatedAt = generatedAt
@@ -308,6 +370,7 @@ public struct MarketSnapshot: Codable, Sendable, Hashable {
         self.items = items
         self.stats = stats
         self.rules = rules
+        self.season = season
     }
 
     public func items(with signal: Signal) -> [MarketItem] { items.filter { $0.signal == signal } }

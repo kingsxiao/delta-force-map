@@ -152,6 +152,9 @@ function setQ(name, v) {
 function toggle(name) {
   expanded.value = expanded.value === name ? null : name
 }
+/* 行键盘开关（同 AmmoMarketView/MarketRadarView/CraftView 口径）：模板只绑
+   @keydown.enter/@keydown.space——Tab 等其余按键不进本函数、照常穿透（焦点可
+   穿过表格走 Tab 序）；事件源不是 tr 本身（如展开面板内的输入框/按钮）时不拦截 */
 function onRowKeydown(e, name) {
   if (e.target !== e.currentTarget) return
   e.preventDefault()
@@ -267,7 +270,7 @@ onBeforeUnmount(() => {
               </thead>
               <tbody>
                 <template v-for="b in sortedBullets" :key="b.name">
-                  <tr class="row-click" tabindex="0" :aria-expanded="expanded === b.name" @click="toggle(b.name)" @keydown="onRowKeydown($event, b.name)">
+                  <tr class="row-click" tabindex="0" :aria-expanded="expanded === b.name" @click="toggle(b.name)" @keydown.enter="onRowKeydown($event, b.name)" @keydown.space="onRowKeydown($event, b.name)">
                     <td>
                       <span class="it-cell">
                         <span class="icw" :style="{ '--gd': gradeVar(b.grade) }">
