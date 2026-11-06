@@ -192,10 +192,15 @@ const headTip = computed(() =>
    整页加载只建立基线不弹（信号卡就在眼前），静默刷新 diff 出的新 BUY/SELL
    才弹（buyLine/sellLine 与服务端通知同款文案），点击通知 window.focus()。 */
 const NOTIFY_SUPPORTED = typeof window !== 'undefined' && window.isSecureContext && 'Notification' in window
-const NOTIFY_ON_KEY = 'ammo-notify-on'
+// 买入/卖出各自独立开关（只收买入、只收卖出或都收）；旧版单开关 ammo-notify-on
+// 首次访问时迁移为两个新键后清除——之后完全以新键为准
+const NOTIFY_BUY_KEY = 'ammo-notify-buy'
+const NOTIFY_SELL_KEY = 'ammo-notify-sell'
+const NOTIFY_ON_KEY_LEGACY = 'ammo-notify-on'
 const NOTIFY_STATE_KEY = 'ammo-notify-state'
 const NOTIFY_SCOPE_TIP = '后台提醒需实时推送部署形态（页头显示实时推送），纯静态托管仅页面可见时提醒'
-const notifyOn = ref(false)
+const notifyBuyOn = ref(false)
+const notifySellOn = ref(false)
 const notifyTip = ref('')
 let notifyTipTimer = null
 
@@ -209,13 +214,22 @@ function loadNotifyState() {
 }
 const notifyJudgeState = loadNotifyState()
 try {
-  notifyOn.value = NOTIFY_SUPPORTED && localStorage.getItem(NOTIFY_ON_KEY) === '1'
+  const hasNew = localStorage.getItem(NOTIFY_BUY_KEY) != null || localStorage.getItem(NOTIFY_SELL_KEY) != null
+  if (!hasNew && localStorage.getItem(NOTIFY_ON_KEY_LEGACY) === '1') {
+    // 旧单开关 = 买入卖出一起收：迁移为双开，避免升级后静默掉通知
+    localStorage.setItem(NOTIFY_BUY_KEY, '1')
+    localStorage.setItem(NOTIFY_SELL_KEY, '1')
+  }
+  localStorage.removeItem(NOTIFY_ON_KEY_LEGACY)
+  notifyBuyOn.value = NOTIFY_SUPPORTED && localStorage.getItem(NOTIFY_BUY_KEY) === '1'
+  notifySellOn.value = NOTIFY_SUPPORTED && localStorage.getItem(NOTIFY_SELL_KEY) === '1'
 } catch { /* 读取失败按关处理 */ }
 
-function persistNotify(on) {
+function persistNotify(kind, on) {
   try {
-    if (on) localStorage.setItem(NOTIFY_ON_KEY, '1')
-    else localStorage.removeItem(NOTIFY_ON_KEY)
+    const key = kind === 'buy' ? NOTIFY_BUY_KEY : NOTIFY_SELL_KEY
+    if (on) localStorage.setItem(key, '1')
+    else localStorage.removeItem(key)
   } catch { /* 隐私模式等写入失败时仅本次会话生效 */ }
 }
 function persistNotifyState() {
@@ -228,11 +242,12 @@ function flashNotifyTip(msg) {
   if (notifyTipTimer) clearTimeout(notifyTipTimer)
   notifyTipTimer = setTimeout(() => { notifyTip.value = '' }, 6000)
 }
-async function toggleNotify() {
+async function toggleNotify(kind) {
   if (!NOTIFY_SUPPORTED) return
-  if (notifyOn.value) {
-    notifyOn.value = false
-    persistNotify(false)
+  const onRef = kind === 'buy' ? notifyBuyOn : notifySellOn
+  if (onRef.value) {
+    onRef.value = false
+    persistNotify(kind, false)
     return
   }
   let perm = Notification.permission
@@ -241,19 +256,20 @@ async function toggleNotify() {
     flashNotifyTip('浏览器通知权限未授予：请在地址栏权限设置中允许后重开')
     return
   }
-  notifyOn.value = true
-  persistNotify(true)
+  onRef.value = true
+  persistNotify(kind, true)
   flashNotifyTip(NOTIFY_SCOPE_TIP)
 }
 /* load 成功回调：喂 judge 推进去抖 state（与服务端同口径，含 WAIT 全量记录）；
-   静默刷新且开关在开、权限已授予时才真正投递浏览器通知 */
+   静默刷新且权限已授予时，按各自开关过滤投递——被关掉的那类信号 state 仍
+   照常逐轮推进（streak / 冷却不停摆），重新打开不会把存量信号一次性爆发 */
 function runNotifyJudge(json, { silent }) {
   try {
     const { buys, sells } = judgeSignals(notifyJudgeState, json.items || [])
     persistNotifyState()
-    if (!silent || !notifyOn.value || Notification.permission !== 'granted') return
-    if (!buys.length && !sells.length) return
-    sendNotifications(buys, sells, ({ title, body }) => {
+    if (!silent || Notification.permission !== 'granted') return
+    if (!notifyBuyOn.value && !notifySellOn.value) return
+    sendNotifications(notifyBuyOn.value ? buys : [], notifySellOn.value ? sells : [], ({ title, body }) => {
       try {
         const n = new Notification(title, { body })
         n.onclick = () => { window.focus(); n.close() }
@@ -261,8 +277,11 @@ function runNotifyJudge(json, { silent }) {
     })
   } catch { /* 通知链路任何异常都不影响行情展示 */ }
 }
-const notifyBtnTitle = computed(() =>
-  NOTIFY_SUPPORTED ? `BUY/SELL 新信号弹浏览器通知（与服务端通知同款文案与去抖口径）。${NOTIFY_SCOPE_TIP}` : '浏览器通知需 HTTPS 部署后可用')
+const notifyBtnTitleFor = (kind) => NOTIFY_SUPPORTED
+  ? `${kind === 'buy' ? 'BUY' : 'SELL'} 新信号弹浏览器通知（与服务端通知同款文案与去抖口径），与另一路开关互不影响。${NOTIFY_SCOPE_TIP}`
+  : '浏览器通知需 HTTPS 部署后可用'
+const notifyBuyBtnTitle = computed(() => notifyBtnTitleFor('buy'))
+const notifySellBtnTitle = computed(() => notifyBtnTitleFor('sell'))
 
 /* ---------- 价格闪变反馈（思路库·价格闪变）：静默刷新落地后 diff 新旧现价，
    变化格挂 up/down 类——td 一次性 0.8s 底色脉冲 + 涨跌箭头，900ms 后摘类。
@@ -654,12 +673,17 @@ onUnmounted(() => {
     <header class="compact-head">
       <h1>子弹价格监控<span class="live-dot" :class="{ stale: ageMin !== null && ageMin > thresholds.staleDotMin }" aria-hidden="true"></span></h1>
       <p v-if="market" class="meta" :title="headTip">{{ srcShort }}</p>
-      <!-- 浏览器通知开关：非安全上下文（http 部署）无 Notification 对象，置灰如实降级 -->
+      <!-- 浏览器通知开关（买入/卖出独立）：非安全上下文（http 部署）无 Notification 对象，置灰如实降级 -->
       <button
-        class="notify-btn" :class="{ on: notifyOn }" :disabled="!NOTIFY_SUPPORTED"
-        :aria-pressed="notifyOn" :title="notifyBtnTitle"
-        @click="toggleNotify"
-      ><i class="nt-dot" aria-hidden="true"></i>信号通知{{ notifyOn ? ' · 开' : '' }}</button>
+        class="notify-btn" :class="{ on: notifyBuyOn }" :disabled="!NOTIFY_SUPPORTED"
+        :aria-pressed="notifyBuyOn" :title="notifyBuyBtnTitle"
+        @click="toggleNotify('buy')"
+      ><i class="nt-dot" aria-hidden="true"></i>买入通知{{ notifyBuyOn ? ' · 开' : '' }}</button>
+      <button
+        class="notify-btn" :class="{ on: notifySellOn }" :disabled="!NOTIFY_SUPPORTED"
+        :aria-pressed="notifySellOn" :title="notifySellBtnTitle"
+        @click="toggleNotify('sell')"
+      ><i class="nt-dot" aria-hidden="true"></i>卖出通知{{ notifySellOn ? ' · 开' : '' }}</button>
     </header>
     <p v-if="!NOTIFY_SUPPORTED" class="notify-hint">浏览器通知需 HTTPS 部署后可用</p>
     <!-- 开关反馈提示：淡入淡出（MOTION.md §3-F，.swap 进场带 6px 上移） -->
