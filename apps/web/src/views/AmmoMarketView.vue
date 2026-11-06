@@ -951,7 +951,7 @@ onUnmounted(() => {
                         {{ i.chg24h == null ? '—' : pct(i.chg24h) }}
                       </td>
                       <td>
-                        <span v-if="i.rank == null" class="sig wait">数据不足</span>
+                        <span v-if="i.rank == null" class="sig wait">{{ i.reason || '数据不足' }}</span>
                         <span v-else class="sig" :class="SIGNAL_META[i.signal].cls">{{ SIGNAL_META[i.signal].label }}</span>
                       </td>
                       <td class="mono num" :class="{ profit: i.profitPerRound > 0 }">

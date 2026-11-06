@@ -52,7 +52,7 @@ Item 字段：
 | `current` | number | 现价（源无现价时取曲线末点） |
 | `taxRate` | number | 税率（本周最高价税前/税后反推；缺数据兜底 0.15） |
 | `curve` | [[key, price]] | 近 7 天小时级曲线，按时间键升序。时间键同 `version` 双格式 |
-| `rank` | number \| null | 现价在 7 天曲线中的分位（0=最低 1=最高）；**null = 数据不足**（曲线 <24 点，此时 signal 恒为 WAIT） |
+| `rank` | number \| null | 现价在 7 天曲线中的分位（0=最低 1=最高）；**null = 数据不足**（曲线 <24 点）**或数据过期**（曲线末端距今 >6h——上游断供/停机后的旧体制不算今天的市场），此时 signal 恒为 WAIT，`reason` 区分 |
 | `p10 p25 p50 p75 p90` | number | 7 天价格分位（线性插值） |
 | `p75Local` | number | 近 72h 曲线 P75（体制内目标锚） |
 | `weekHigh` `weekLow` | number | 7 天最高 / 最低 |
@@ -71,7 +71,7 @@ Item 字段：
 | `official` | `{avg, dev, at}` | 官方均价参照（§7.5 锚 join；`dev` = (current − avg)/avg 按本快照现价现算）。**旁路参照：不进任何信号**；无锚 / 锚无该弹时字段不出现 |
 | `trade` | `{costPerRound, perCount, marketPrice, materials, version}` | 军需处兑换折算（kkrb 军需处兑换接口，fetch-once 10min TTL 拉取）：材料市价折算 `costPerRound`/发 → 兑 `perCount` 发，交易行现价 `marketPrice` 为上游同刻读数。**旁路参照：不进任何信号**；仅约 7 种可兑换弹有此字段（按弹名精确 join，命名差异宁缺毋滥） |
 | `signal` | `"BUY" \| "WATCH" \| "SELL" \| "WAIT"` | 见下方信号口径 |
-| `reason` | string | 仅数据不足时出现（"数据不足"） |
+| `reason` | string | 仅 rank=null 时出现："数据不足"（曲线 <24 点）或"数据过期"（曲线末端距今 >6h，断供/停机的旧体制） |
 
 **信号口径**（`server/ammo/analyze.mjs`，三端不得另立；参数集中在 `RULES`，
 调参先跑 `server/ammo/backtest.mjs --grid` 回测验证）：

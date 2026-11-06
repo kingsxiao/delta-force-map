@@ -108,7 +108,7 @@ public struct MarketItem: Codable, Sendable, Hashable, Identifiable {
     public let current: Double?
     public let taxRate: Double
     public let curve: [CurvePoint]
-    /// 现价在 7 天曲线中的分位；nil = 数据不足（曲线 <24 点，signal 恒 WAIT）
+    /// 现价在 7 天曲线中的分位；nil = 数据不足（曲线 <24 点）或数据过期（曲线末端距今 >6h），signal 恒 WAIT，reason 区分
     public let rank: Double?
     public let p10: Double?
     public let p25: Double?

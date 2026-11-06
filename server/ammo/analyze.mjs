@@ -32,6 +32,10 @@
    杜绝 UI 与规则参数再次漂移（曾出现页面写 8%/25% 而规则已是 10%/20%）。
    关注带 item 带 buyBlockers（未过门槛 key 列表，判定与展示同源同数组）：
    页面「差一步」诊断区渲染逐项差距，空窗期也能看到离 BUY 最近的前几名。
+   曲线时效护栏（analyzeMarket 注入时钟）：末端距今 > CURVE_MAX_AGE_H（6h，
+   上游小时级滞后实测 ≤2h）判 WAIT「数据过期」——上游断供/服务停机后曲线
+   停在旧体制时，不再拿旧分位评当前现价（2026-10-28 断供 42h 实例：现价已
+   跌 13%+ 而 slope48 还是 10 月底的，BUY 全被幻影特征挡死）。
    注意：历史统计不代表未来；生产曲线窗口 7 天，全部特征在窗口内可算。
    ============================================================ */
 
@@ -83,6 +87,10 @@ export const RULES = {
   SELL_GUARD: true,        // 卖出动量守则开关
   WATCH_RANK_MAX: 0.35,
   TARGET_WINDOW_H: 72,     // 目标价体制窗口（小时）
+  CURVE_MAX_AGE_H: 6,      // 曲线末端距当前最大时效（上游小时级滞后实测 ≤2h；
+  // 断供/停机后末端停在数天前——此时 rank/slope/bounce 全是旧体制，判「数据过
+  // 期」WAIT 而非拿 8 天前的分位评今天的现价。仅 analyzeMarket 注入时钟生效，
+  // 单弹调用 / 回测 / 单测不注入即不判（与 BUY_MKT_SLOPE_MIN 的 ctx 惯例同构）
   STOP_LOW_PCT: 0.03,      // 止损：跌破 7 天低点 3%
   STOP_MAX_RISK: 0.05,     // 止损：单笔价差风险上限 5%
   MAX_HOLD_H: 168,         // 建议最长持有（小时）
@@ -96,12 +104,24 @@ function median(values) {
   return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2
 }
 
+/** 曲线 key（YYYYMMDDHHmm 北京墙钟）→ epoch ms；形状不符返回 null。
+    与 moligod-client 的 curveKeyEpochMs 同式（本模块保持纯函数零依赖，不互引） */
+function curveKeyEpochMs(key) {
+  const m = /^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})$/.exec(String(key))
+  if (!m) return null
+  return Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]) - 8 * 3600 * 1000
+}
+
 /**
  * 分析单种子弹。
  * @param raw getAmmoPLData 的一个 item
- * @param {{mktSlope48?:number}} [ctx] 市场上下文：全弹 48h 斜率中位（analyzeMarket 注入；
- *   缺省 / 非有限数时市场体制门槛视为通过——单弹调用、回测基线与旧调用方零改动）
- * @returns 分析结果对象（signal 为 WAIT 且 rank 为 null 表示数据不足）
+ * @param {{mktSlope48?:number, nowMs?:number}} [ctx] 市场上下文：全弹 48h 斜率中位
+ *   （analyzeMarket 注入；缺省 / 非有限数时市场体制门槛视为通过）与当前时钟
+ *   （analyzeMarket 注入；注入且曲线末端距今 > CURVE_MAX_AGE_H 时判「数据过
+ *   期」WAIT——断供/停机后的旧曲线不算今天的市场体制。缺省不判：单弹调用、
+ *   回测与旧调用方零改动）
+ * @returns 分析结果对象（signal 为 WAIT 且 rank 为 null 表示数据不足或数据过期，
+ *   reason 字段区分）
  */
 export function analyzeItem(raw, ctx = {}) {
   const name = raw.itemName
@@ -134,6 +154,16 @@ export function analyzeItem(raw, ctx = {}) {
     curve: curveEntries, // [["202610061100", 755], ...] 前端直接画线
   }
   if (!current || prices.length < 24) return { ...base, rank: null, signal: 'WAIT', reason: '数据不足' }
+
+  // 曲线时效护栏（ctx.nowMs 注入时）：末端停在断供/停机前——rank/slope/bounce
+  // 都是旧体制，拿它评当前现价只会产出错位信号（2026-10-28 上游断供 42h 后
+  // 现价已跌 13%+ 而曲线分位还是 10 月的，全市场 BUY 被幻影 slope 挡死）
+  if (Number.isFinite(ctx.nowMs)) {
+    const tail = curveKeyEpochMs(curveEntries[curveEntries.length - 1][0])
+    if (tail == null || (ctx.nowMs - tail) / 3600e3 > RULES.CURVE_MAX_AGE_H) {
+      return { ...base, rank: null, signal: 'WAIT', reason: '数据过期' }
+    }
+  }
 
   const sorted = [...prices].sort((a, b) => a - b)
   const p10 = quantile(sorted, 0.1)
@@ -240,14 +270,17 @@ export const RULES_VIEW_KEYS = [
 /**
  * 分析整个市场快照。
  * 两遍过：第一遍逐弹算特征并收集 slope48，取全弹中位作市场体制读数；
- * 第二遍带 ctx 逐弹判定 BUY（BUY_MKT_SLOPE_MIN 门槛）。
+ * 第二遍带 ctx 逐弹判定 BUY（BUY_MKT_SLOPE_MIN 门槛）。两遍都注入当前时钟
+ * （CURVE_MAX_AGE_H 时效护栏）：过期弹第一遍即 WAIT「数据过期」，不再进
+ * slope48 中位——旧体制不污染市场读数。
  * @returns {{version:string, fetchedAt:string, generatedAt:string, items:Array,
  *            signals:{buy:Array, sell:Array, watch:Array}, stats:object, rules:object}}
  */
 export function analyzeMarket(snapshot) {
-  const first = (snapshot.data || []).map((raw) => analyzeItem(raw))
+  const nowMs = Date.now()
+  const first = (snapshot.data || []).map((raw) => analyzeItem(raw, { nowMs }))
   const mktSlope48 = median(first.map((i) => i.slope48).filter((v) => Number.isFinite(v)))
-  const ctx = mktSlope48 == null ? {} : { mktSlope48 }
+  const ctx = { nowMs, ...(mktSlope48 == null ? {} : { mktSlope48 }) }
   const items = (snapshot.data || []).map((raw) => analyzeItem(raw, ctx))
   const by = (s) =>
     items

@@ -268,7 +268,7 @@
           }
         },
         "rank": {
-          "description": "现价在 7 天曲线中的分位；null = 数据不足（曲线 <24 点），此时 signal 恒为 WAIT",
+          "description": "现价在 7 天曲线中的分位；null = 数据不足（曲线 <24 点）或数据过期（曲线末端距今 >6h，断供/停机的旧体制），此时 signal 恒为 WAIT，reason 区分",
           "type": [
             "number",
             "null"
@@ -321,7 +321,7 @@
           "$ref": "#/$defs/signal"
         },
         "reason": {
-          "description": "仅数据不足时出现",
+          "description": "仅 rank=null 时出现：\"数据不足\"（曲线 <24 点）或\"数据过期\"（曲线末端距今 >6h）",
           "type": "string"
         },
         "p75Local": {

@@ -124,12 +124,32 @@ export async function fetchHistory(name, { interval = '1h', limit = 168 } = {}) 
 /* ---------- 曲线缓存（模块态） ---------- */
 const isFresh = (entry) => entry && Date.now() - entry.fetchedAt < CURVE_TTL_MS
 
+/** 上游小时级数据的正常末端滞后容忍（小时末收盘 + catalog 滚动，实测 ≤2h） */
+const CURVE_TAIL_GRACE_MS = 2 * 3600 * 1000
+
+/** 曲线 key（YYYYMMDDHHmm 北京墙钟）→ epoch ms；形状不符返回 null */
+function curveKeyEpochMs(key) {
+  const m = /^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})$/.exec(String(key))
+  if (!m) return null
+  return Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]) - 8 * 3600 * 1000
+}
+
+/** 缓存新鲜度按「数据末端」而非「获取动作」记：fetchedAt = min(now, 末点+容忍)。
+    旧曲线（断供/停机期间末端停在几天前）预热或重抓回来都不再伪装成新鲜——
+    auto 模式会持续补抓直到末端真的前进；正常滞后 ≤2h 的数据不受影响 */
+function fetchedAtFor(points) {
+  const tail = points.length ? curveKeyEpochMs(points[points.length - 1][0]) : null
+  const byTail = tail != null ? tail + CURVE_TAIL_GRACE_MS : null
+  return byTail == null ? Date.now() : Math.min(Date.now(), byTail)
+}
+
 /** 从既有 market.json 的 items[].curve 预热缓存（live/monitor 启动时调用；
- *  fetchedAt 可注入，selftest 用它构造「已过期」缓存） */
-export function primeCurveCache(items, { fetchedAt = Date.now() } = {}) {
+ *  fetchedAt 缺省按各曲线末端推算（停机数天后重启不再把旧曲线当新鲜），
+ *  可显式注入，selftest 用它构造「已过期」缓存） */
+export function primeCurveCache(items, { fetchedAt = null } = {}) {
   for (const it of items || []) {
     if (it && it.name && Array.isArray(it.curve) && it.curve.length) {
-      curveCache.set(it.name, { points: it.curve, fetchedAt })
+      curveCache.set(it.name, { points: it.curve, fetchedAt: fetchedAt ?? fetchedAtFor(it.curve) })
     }
   }
 }
@@ -169,7 +189,10 @@ export async function getSnapshot({ mode = 'auto', paceMs = 400 } = {}) {
     for (let i = 0; i < need.length; i++) {
       const name = need[i]
       try {
-        curveCache.set(name, { points: await fetchHistory(name), fetchedAt: Date.now() })
+        const points = await fetchHistory(name)
+        // 请求成功 ≠ 数据新鲜：上游断供时返回的末端可能停在几天前，新鲜度
+        // 按末端记，断供期间每轮 TTL 到期自动重试，恢复后立即跟上
+        curveCache.set(name, { points, fetchedAt: fetchedAtFor(points) })
       } catch (e) {
         // 单弹曲线失败不炸整份快照：沿用旧缓存（可能已过期）或留空判「数据不足」，
         // 下一轮 auto 会重试该弹；绝不把失败写进落盘数据。

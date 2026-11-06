@@ -160,7 +160,7 @@ onUnmounted(() => {
             >
           </span>
           <h1>{{ item.name }}</h1>
-          <span v-if="item.rank == null" class="sig wait">数据不足</span>
+          <span v-if="item.rank == null" class="sig wait">{{ item.reason || '数据不足' }}</span>
           <span v-else class="sig" :class="SIGNAL_META[item.signal].cls">{{ SIGNAL_META[item.signal].label }}</span>
           <button
             class="dt-star" :class="{ on: stars.has(item.name) }"

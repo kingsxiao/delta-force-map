@@ -7,7 +7,11 @@
      ① 跨年补年 / 时间键规则（moligod-client 纯函数）
      ② catalog → kkrb 形状适配 + full 模式铺缓存 + fast 模式 0 次 history
      ③ auto 模式只补过期/缺失曲线；fast 缺缓存判「数据不足」绝不补发
+     ③b 曲线缓存新鲜度按「数据末端」记：停机/断供的旧曲线预热即过期、
+        auto 立即补抓（2026-10-28 上游断供 42h、63/67 弹曲线停在 8 天前的实例）
      ④ 端到端 analyze：信号值域 / P25≤P75 / 构造 BUY·SELL 命中
+     ④b 曲线时效护栏：末端距今 >6h 判 WAIT「数据过期」（不注入时钟零改动；
+        过期弹不进全市场 48h 斜率中位）
      ⑤ notify-policy：首次立即报 / 同信号冷却 / 切换需 streak≥2 确认 /
         冷却到期 / BUY 深跌重报（单轮跳变 + 渐进阴跌按累计跌幅）
      ⑥ fetchOnce：指纹门槛（变化才写、同指纹静默、5min 心跳）+ source 字段
@@ -78,11 +82,12 @@ function bjTimeStr(date) {
   return `${pad2(p.month)}-${pad2(p.day)} ${pad2(p.hour)}:${pad2(p.minute)}`
 }
 
-/** 168 个小时级 'YYYYMMDDHHmm' 键（kkrb 形状 priceCurve 用） */
-function hourlyKeys(n = 168) {
+/** 168 个小时级 'YYYYMMDDHHmm' 键（kkrb 形状 priceCurve 用）；
+    endOffsetH 把整个窗口整体前移（构造「末端停在 N 小时前」的断供曲线） */
+function hourlyKeys(n = 168, endOffsetH = 0) {
   const keys = []
   for (let i = n - 1; i >= 0; i--) {
-    const p = beijingParts(new Date(Date.now() - i * 3600 * 1000))
+    const p = beijingParts(new Date(Date.now() - (endOffsetH + i) * 3600 * 1000))
     keys.push(`${p.year}${pad2(p.month)}${pad2(p.day)}${pad2(p.hour)}${pad2(p.minute)}`)
   }
   return keys
@@ -414,6 +419,46 @@ check('auto 模式只补过期/缺失曲线；fast 缺缓存→「数据不足�
 })
 
 /* ============================================================
+   ③b 曲线缓存新鲜度按「数据末端」记（停机/断供预热不再伪装新鲜）
+   ============================================================ */
+check('③b 缓存新鲜度按数据末端记：旧曲线预热即过期、auto 立即补抓；断供弹不因抓取成功伪装新鲜', async () => {
+  clearCurveCache()
+  const OLD_H = 8 * 24 // 末端停在 8 天前（2026-10-28 断供后 11-05 重启的实况档位）
+  const mkCurve = (endOffsetH) => (name) => ({ name, curve: hourlyKeys(168, endOffsetH).map((k, idx) => [k, 100 + (idx % 7)]) })
+  const recovered = NAMES.slice(0, 3).map(mkCurve(OLD_H)) // 停机前旧曲线（上游已恢复）
+  const stuck = [NAMES[3]].map(mkCurve(OLD_H)) // 同旧，但上游对该弹仍断供
+  const fresh = NAMES.slice(4, 5).map(mkCurve(0))
+  /** 末端停在 OLD_H 前的 history 响应（上游断供时抓回来的就是这种） */
+  const oldHistoryFixture = () => ({
+    status: 'ok',
+    data: hourlyKeys(168, OLD_H).map((k) => ({
+      time: `${k.slice(4, 6)}-${k.slice(6, 8)} ${k.slice(8, 10)}:${k.slice(10, 12)}`,
+      avg: 100, min: 100, max: 100, last: 100,
+    })),
+  })
+  const stub = installStub({
+    catalog: catalogFixture(),
+    histories: (name) => (name === NAMES[3] ? oldHistoryFixture() : historyFixture()),
+  })
+  try {
+    // 停机重启：从 market.json 预热（不传 fetchedAt → 按各曲线末端推算）
+    primeCurveCache([...recovered, ...stuck, ...fresh])
+    let stats = curveCacheStats([...recovered, ...stuck, ...fresh].map((i) => i.name))
+    assert(stats.fresh === 1 && stats.stale === 4,
+      `末端 8 天前的 4 条预热后应立即判过期，实际 fresh=${stats.fresh} stale=${stats.stale}`)
+    await getSnapshot({ mode: 'auto', paceMs: 0 })
+    const fetched = new Set(stub.calls.history)
+    for (const i of [...recovered, ...stuck]) assert(fetched.has(i.name), `旧末端 ${i.name} 应被 auto 立即补抓`)
+    // 上游恢复的拿回新末端 → 新鲜；仍断供的抓回来末端不动 → 不因「请求成功」伪装新鲜
+    stats = curveCacheStats([...recovered, ...fresh].map((i) => i.name))
+    assert(stats.fresh === 4, `恢复弹补抓后应新鲜，实际 fresh=${stats.fresh}`)
+    assert(curveCacheStats([NAMES[3]]).fresh === 0, '断供弹抓回旧末端后应仍判过期（下轮继续重试）')
+  } finally {
+    stub.restore()
+  }
+})
+
+/* ============================================================
    ④ 端到端 analyze（v2 口径：BUY 五重门槛 / SELL 动量守则 / 接飞刀拒绝）
    ============================================================ */
 check('端到端 analyze：v2 BUY·SELL 命中 / 接飞刀拒绝 / 止损位', async () => {
@@ -483,6 +528,31 @@ check('端到端 analyze：v2 BUY·SELL 命中 / 接飞刀拒绝 / 止损位', a
   } finally {
     stub.restore()
   }
+})
+
+/* ============================================================
+   ④b 曲线时效护栏（CURVE_MAX_AGE_H：旧体制不评今天的市场）
+   ============================================================ */
+check('④b 曲线时效护栏：末端过期判 WAIT「数据过期」；不注入时钟零改动；过期弹不进市场中位', () => {
+  // 零改动承诺：单弹调用 / 回测不注入时钟，新鲜 BUY 形态照常 BUY
+  const freshItem = mkCurveItem(V2_BUY_CURVE)
+  assert(analyzeItem(freshItem).signal === 'BUY', `无 ctx 的新鲜 BUY 形态应照常 BUY，实际 ${analyzeItem(freshItem).signal}`)
+  // 同一形态，时钟拨到 8 天后：末端距今 >6h → WAIT「数据过期」（rank null 同「数据不足」形状）
+  const stale = analyzeItem(freshItem, { nowMs: Date.now() + 8 * 24 * 3600 * 1000 })
+  assert(stale.signal === 'WAIT' && stale.rank === null && stale.reason === '数据过期',
+    `过期曲线应 WAIT「数据过期」，实际 ${stale.signal}/${stale.reason}`)
+  // 端到端：analyzeMarket 注入真实时钟——快照内新鲜弹照常 BUY、旧末端弹判过期且不计入 BUY
+  const oldItem = {
+    ...mkCurveItem(V2_BUY_CURVE, '断供弹'),
+    priceCurve: Object.fromEntries(hourlyKeys(168, 8 * 24).map((k, i) => [k, V2_BUY_CURVE(i)])),
+  }
+  const m = analyzeMarket({ version: '202611061200', fetchedAt: new Date().toISOString(), data: [freshItem, oldItem] })
+  const oldRes = m.items.find((i) => i.name === '断供弹')
+  assert(oldRes.signal === 'WAIT' && oldRes.rank === null && oldRes.reason === '数据过期',
+    `端到端过期弹应 WAIT「数据过期」，实际 ${oldRes.signal}/${oldRes.reason}`)
+  assert(m.items.find((i) => i.name === '形态测试弹').signal === 'BUY', '同快照新鲜弹不应被误伤')
+  assert(m.stats.buy === 1, `过期弹不得计入 BUY，实际 ${m.stats.buy}`)
+  assert(Number.isFinite(m.stats.mktSlope48), '过期弹不进 slope48 中位，市场读数应仍可算')
 })
 
 /* ============================================================
