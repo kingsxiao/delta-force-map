@@ -2,31 +2,31 @@
   "source": {
     "official": {
       "api": "AMS object.list（chartId 352143，免登录）",
-      "fetchedAt": "2026-10-26T06:08:02.797Z",
+      "fetchedAt": "2026-11-09T06:58:47.256Z",
       "counts": {
-        "gun": 68,
-        "ammo": 113,
+        "gun": 69,
+        "ammo": 118,
         "protect": 98
       }
     },
     "dfttk": {
       "manifest": "https://dfttk.com/data/v3/manifest.json",
       "weapons": "https://dfttk.com/data/v3/catalog/weapons.json",
-      "dataVersion": "20261025-ammo-effects.2",
-      "version": "da900d3e5d54f8d1",
-      "fetchedAt": "2026-10-26T06:18:39.596Z",
+      "dataVersion": "20261108-an94-bd-shop.1",
+      "version": "7ccebf379a20989e",
+      "fetchedAt": "2026-11-09T07:03:19.450Z",
       "sha256": {
-        "expected": "6719573ebf9509d90d66e8eb59c24c582a73859a3b95989844be05eb366aebfa",
-        "actual": "6719573ebf9509d90d66e8eb59c24c582a73859a3b95989844be05eb366aebfa",
+        "expected": "be581d692537f48a234bdda033a33476221ffa22ed546138d25e6fb5a0337867",
+        "actual": "be581d692537f48a234bdda033a33476221ffa22ed546138d25e6fb5a0337867",
         "ok": true
       },
-      "weaponCount": 68
+      "weaponCount": 69
     }
   },
-  "fetchedAt": "2026-10-26T07:18:24.605Z",
+  "fetchedAt": "2026-11-09T07:45:02.897Z",
   "guns": {
-    "checked": 67,
-    "matched": 44,
+    "checked": 68,
+    "matched": 45,
     "diff": [
       {
         "zh": "M16A4",
@@ -128,14 +128,6 @@
       {
         "zh": "MCX LT",
         "objectID": "18010000044",
-        "field": "admg",
-        "local": 35,
-        "official": 29,
-        "dfttk": 26
-      },
-      {
-        "zh": "MCX LT",
-        "objectID": "18010000044",
         "field": "rpm",
         "local": 750,
         "official": 840,
@@ -148,14 +140,6 @@
         "local": 38,
         "official": 37,
         "dfttk": 37
-      },
-      {
-        "zh": "SCAR-H",
-        "objectID": "18010000021",
-        "field": "dmg",
-        "local": 40,
-        "official": 41,
-        "dfttk": 40
       },
       {
         "zh": "AS Val",
@@ -172,6 +156,14 @@
         "local": 48,
         "official": 44,
         "dfttk": 44
+      },
+      {
+        "zh": "AN94",
+        "objectID": "18010000052",
+        "field": "rpm",
+        "local": 600,
+        "official": 1200,
+        "dfttk": 600
       },
       {
         "zh": "SKS",
@@ -331,53 +323,16 @@
     "noted": []
   },
   "ammo": {
-    "checked": 90,
-    "matched": 86,
-    "diff": [
-      {
-        "zh": ".300 BLK V 亚音速",
-        "objectID": "37280300002",
-        "field": "flesh",
-        "local": 1.05,
-        "official": 1.1,
-        "dfttk": null,
-        "note": "官方 harmRatio 为百分比，已 /100 折算到 flesh 系数"
-      },
-      {
-        "zh": ".300 BLK BCP 亚音速",
-        "objectID": "37280400002",
-        "field": "flesh",
-        "local": 1.05,
-        "official": 1.1,
-        "dfttk": null,
-        "note": "官方 harmRatio 为百分比，已 /100 折算到 flesh 系数"
-      },
-      {
-        "zh": "5.56×45mm M855 APC",
-        "objectID": "37100300002",
-        "field": "flesh",
-        "local": 1,
-        "official": 1.1,
-        "dfttk": null,
-        "note": "官方 harmRatio 为百分比，已 /100 折算到 flesh 系数"
-      },
-      {
-        "zh": ".45-70 Govt RN",
-        "objectID": "37290300001",
-        "field": "pen",
-        "local": 1,
-        "official": 0,
-        "dfttk": null,
-        "note": "官方 penetrationLevel 为 null，按 0 计"
-      }
-    ],
+    "checked": 95,
+    "matched": 95,
+    "diff": [],
     "noted": [
       {
         "zh": "12 号霰弹 独头 GT",
         "objectID": "37250200002",
         "field": "flesh",
         "local": 0.44,
-        "official": 2.5,
+        "official": 4.8,
         "dfttk": null,
         "note": "独头/单弹丸：本地 flesh 相对 8 弹丸合计面板（折算单弹丸 ×8 ≈ 3.52），官方 harmRatio 相对单弹丸；口径不同仅记录"
       },
@@ -386,7 +341,7 @@
         "objectID": "37250300002",
         "field": "flesh",
         "local": 0.44,
-        "official": 2.5,
+        "official": 4.8,
         "dfttk": null,
         "note": "独头/单弹丸：本地 flesh 相对 8 弹丸合计面板（折算单弹丸 ×8 ≈ 3.52），官方 harmRatio 相对单弹丸；口径不同仅记录"
       },
@@ -395,7 +350,7 @@
         "objectID": "37250400002",
         "field": "flesh",
         "local": 0.44,
-        "official": 2.5,
+        "official": 4.8,
         "dfttk": null,
         "note": "独头/单弹丸：本地 flesh 相对 8 弹丸合计面板（折算单弹丸 ×8 ≈ 3.52），官方 harmRatio 相对单弹丸；口径不同仅记录"
       },
@@ -404,7 +359,7 @@
         "objectID": "37250400004",
         "field": "flesh",
         "local": 0.25,
-        "official": 1,
+        "official": 5.3,
         "dfttk": null,
         "note": "独头/单弹丸：本地 flesh 相对 8 弹丸合计面板（折算单弹丸 ×8 ≈ 2），官方 harmRatio 相对单弹丸；口径不同仅记录"
       },
@@ -413,7 +368,7 @@
         "objectID": "37250000002",
         "field": "flesh",
         "local": 0.44,
-        "official": 2.5,
+        "official": 5.5,
         "dfttk": null,
         "note": "独头/单弹丸：本地 flesh 相对 8 弹丸合计面板（折算单弹丸 ×8 ≈ 3.52），官方 harmRatio 相对单弹丸；口径不同仅记录"
       },

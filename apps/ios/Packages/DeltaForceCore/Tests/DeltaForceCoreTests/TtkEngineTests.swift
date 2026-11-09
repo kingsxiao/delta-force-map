@@ -15,20 +15,20 @@ struct TtkEngineTests {
     static let expectations: [Expect] = [
         .init(gun: "AKM", cal: "76239", ammo: "BP", al: 4, part: "chest", btk: 4, broke: 3, pass: 0.5, flesh: 40, noArmorBtk: 3, ttk: 300),
         .init(gun: "M4A1", cal: "556", ammo: "M995", al: 6, part: "head", btk: 4, broke: 2, pass: 0, flesh: 58.9, noArmorBtk: 2, ttk: 225),
-        .init(gun: "维克托", cal: "45", ammo: "RIP", al: 2, part: "belly", btk: 3, broke: 0, pass: 1, flesh: 37.44, noArmorBtk: 3, ttk: 109.9908),
+        .init(gun: "维克托", cal: "45", ammo: "RIP", al: 2, part: "belly", btk: 3, broke: 0, pass: 1, flesh: 38.88, noArmorBtk: 3, ttk: 109.9908),
         .init(gun: "RM277", cal: "68", ammo: "FMJ", al: 3, part: "belly", btk: 3, broke: 2, pass: 0.75, flesh: 41, noArmorBtk: 3, ttk: 218.1818),
         .init(gun: "AWM", cal: "338", ammo: ".338 AP", al: 6, part: "chest", btk: 2, broke: 2, pass: 0.75, flesh: 100, noArmorBtk: 1, ttk: 1714.2857),
         .init(gun: "M870", cal: "12ga", ammo: "独头 APX", al: 5, part: "chest", btk: 5, broke: 1, pass: 0, flesh: 28, noArmorBtk: 4, ttk: 3243.2432),
-        .init(gun: "G18", cal: "919", ammo: "PSO", al: 3, part: "chest", btk: 10, broke: 5, pass: 0, flesh: 23, noArmorBtk: 5, ttk: 460.7509),
+        .init(gun: "G18", cal: "919", ammo: "PSO", al: 3, part: "chest", btk: 9, broke: 5, pass: 0, flesh: 25.3, noArmorBtk: 4, ttk: 409.5563),
         .init(gun: "SVD", cal: "547", ammo: "SNB", al: 0, part: "head", btk: 1, broke: 0, pass: 1, flesh: 106.4, noArmorBtk: 1, ttk: 0),
     ]
 
-    @Test("数据导出：68 枪 / 20 口径 / 93 弹药 / 7 兵种 / 3 部位，枪的口径都能找到")
+    @Test("数据导出：69 枪 / 20 口径 / 98 弹药 / 7 兵种 / 3 部位，枪的口径都能找到")
     func dataShape() throws {
         let d = try Fixtures.ttk()
-        #expect(d.guns.count == 68)
+        #expect(d.guns.count == 69)
         #expect(d.calibers.count == 20)
-        #expect(d.calibers.values.reduce(0) { $0 + $1.ammo.count } == 93)
+        #expect(d.calibers.values.reduce(0) { $0 + $1.ammo.count } == 98)
         #expect(d.classes.map(\.id) == ["ar", "smg", "dmr", "snp", "lmg", "sg", "pst"])
         #expect(d.parts.map(\.id) == ["chest", "belly", "head"])
         #expect(d.armor.dur["6"] == 150)

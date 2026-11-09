@@ -1,7 +1,7 @@
 /* ============================================================
    ammo-market-alias.js — TTK 弹药 ↔ 行情弹名 映射（单一事实来源）
    ------------------------------------------------------------
-   TTK 数据（calibers.js，93 弹）与行情快照（/ammo/market.json，67 弹）
+   TTK 数据（calibers.js，98 弹）与行情快照（/ammo/market.json，67 弹）
    是两套独立命名体系：TTK 用国际通用型号（"AP 6.3"/"DVP-88"），行情用
    游戏内名称（"9x19mm AP6.3"/"5.8x42mm DVP88"）。本模块把能一一对应
    的条目显式登记成对，供三处消费：
@@ -12,7 +12,7 @@
      1) 同名归一化命中（normalizeAmmoName）或手工核实的命名差异
         （Subsonic SX↔亚音速、9号霰射"鼠弹"↔鼠弹、7.62x54R↔7.62×54mm R、
         8.5毫米鹿弹↔8.5mm 鹿弹、12 Gauge独头↔独头）→ 登记为 pair；
-     2) 一对多歧义（紫/蓝/金.300BLK ↔ TTK 4 条 .300 BLK 弹，颜色档
+     2) 一对多歧义（紫/蓝/金.300BLK ↔ TTK 6 条 .300 BLK 弹，颜色档
         与型号无法确定对应）与国服命名无同型条目（DBP10、PD12双头弹、
         HT/HT+、LS、ST 系、.45 ACP Super）→ 不登记，行情页穿透列显「—」；
      3) TTK 无该口径（3 条箭矢，TTK 未收录弓弩）→ 不登记，同显「—」。
@@ -39,7 +39,7 @@ export function normalizeAmmoName(s) {
 }
 
 /**
- * 可映射条目（52 / 67 行情弹）。cal = calibers.js 口径键；ammo = TTK 弹药名；
+ * 可映射条目（54 / 67 行情弹）。cal = calibers.js 口径键；ammo = TTK 弹药名；
  * market = 行情弹名（market.json items[].name 的唯一键）。
  * 顺序按 calibers.js 口径组序排列，便于人工对账。
  */
@@ -87,6 +87,9 @@ export const AMMO_MARKET_PAIRS = [
   // 6.8×51mm
   { cal: '68', ammo: 'FMJ', market: '6.8x51mm FMJ' },
   { cal: '68', ammo: 'Hybrid', market: '6.8x51mm Hybrid' },
+  // .300 BLK（S12 新弹 TTV / TIV 行情同名；紫/蓝/金颜色档仍歧义不登记）
+  { cal: '300', ammo: 'TIV', market: '.300 BLK TIV' },
+  { cal: '300', ammo: 'TTV', market: '.300 BLK TTV' },
   // 12.7×55mm
   { cal: '127', ammo: 'PS12A', market: '12.7x55mm PS12A' },
   { cal: '127', ammo: 'PS12', market: '12.7x55mm PS12' },

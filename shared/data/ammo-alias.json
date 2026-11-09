@@ -162,6 +162,16 @@
    "market": "6.8x51mm Hybrid"
   },
   {
+   "cal": "300",
+   "ammo": "TIV",
+   "market": ".300 BLK TIV"
+  },
+  {
+   "cal": "300",
+   "ammo": "TTV",
+   "market": ".300 BLK TTV"
+  },
+  {
    "cal": "127",
    "ammo": "PS12A",
    "market": "12.7x55mm PS12A"
